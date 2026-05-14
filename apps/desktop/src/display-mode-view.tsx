@@ -27,6 +27,7 @@ import { formatRelativeTime } from "./string-utils";
 
 type DisplayModeFilter = "all" | "running" | "waiting" | "error";
 type DrawerTab = "preview" | "logs" | "files";
+type ColumnMode = number | "auto";
 
 interface ChangedFile {
   readonly path: string;
@@ -54,7 +55,7 @@ export function DisplayModeView({
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<DisplayModeFilter>("all");
   const [workspaceFilter, setWorkspaceFilter] = useState<string>("");
-  const [colCount, setColCount] = useState<number>(() => lsGetNum("dm:colCount", 3));
+  const [colCount, setColCount] = useState<ColumnMode>(() => lsGetColumnMode("dm:colCount", 3));
   const [compact, setCompact] = useState<boolean>(() => lsGetBool("dm:compact", false));
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [localTerminalKeys, setLocalTerminalKeys] = useState<ReadonlySet<string>>(() => new Set());
@@ -356,6 +357,14 @@ export function DisplayModeView({
               </select>
             )}
             <div className="display-mode__col-picker" aria-label="Grid columns">
+              <button
+                className={`display-mode__col-btn display-mode__col-btn--auto${colCount === "auto" ? " display-mode__col-btn--active" : ""}`}
+                type="button"
+                aria-label="Automatic columns"
+                onClick={() => setColCount("auto")}
+              >
+                Auto
+              </button>
               {([1, 2, 3, 4, 5, 6, 7, 8] as const).map((n) => (
                 <button
                   key={n}
@@ -400,7 +409,7 @@ export function DisplayModeView({
                 key={focusKey}
                 record={focusRecord}
                 terminalOpen={(openTerminalKeys ?? localTerminalKeys).has(focusKey)}
-                renderTerminalInline={!onToggleTerminalForThread}
+                renderTerminalInline={true}
                 isPinned={focusKey === pinnedThreadKey}
                 isExpanded={true}
                 compact={false}
@@ -414,7 +423,7 @@ export function DisplayModeView({
             </div>
             <DndContext sensors={sensors} collisionDetection={closestCenter} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
               <SortableContext items={tileOrder.filter((k) => k !== expandedId)} strategy={rectSortingStrategy}>
-                <div className="display-mode__split-rest" style={{ gridTemplateColumns: `repeat(${colCount}, minmax(0, 1fr))` }}>
+                <div className="display-mode__split-rest" style={{ gridTemplateColumns: gridTemplateColumnsForMode(colCount) }}>
                   {restRecords.map((record) => {
                     const key = threadKey(record.workspace.id, record.session.id);
                     return (
@@ -424,7 +433,7 @@ export function DisplayModeView({
                         key={key}
                         record={record}
                         terminalOpen={(openTerminalKeys ?? localTerminalKeys).has(key)}
-                        renderTerminalInline={!onToggleTerminalForThread}
+                        renderTerminalInline={true}
                         isPinned={key === pinnedThreadKey}
                         isExpanded={false}
                         compact={compact}
@@ -448,7 +457,7 @@ export function DisplayModeView({
           /* ── Normal DnD grid mode ── */
           <DndContext sensors={sensors} collisionDetection={closestCenter} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
             <SortableContext items={[...tileOrder]} strategy={rectSortingStrategy}>
-              <div className="display-mode__grid" style={{ gridTemplateColumns: `repeat(${colCount}, minmax(0, 1fr))` }}>
+              <div className="display-mode__grid" style={{ gridTemplateColumns: gridTemplateColumnsForMode(colCount) }}>
                 {orderedThreads.map((record) => {
                   const key = threadKey(record.workspace.id, record.session.id);
                   return (
@@ -458,7 +467,7 @@ export function DisplayModeView({
                       key={key}
                       record={record}
                       terminalOpen={(openTerminalKeys ?? localTerminalKeys).has(key)}
-                      renderTerminalInline={!onToggleTerminalForThread}
+                      renderTerminalInline={true}
                       isPinned={key === pinnedThreadKey}
                       isExpanded={false}
                       compact={compact}
@@ -945,14 +954,32 @@ function getMaxVsCodeWidth(containerWidth: number): number {
   return Math.max(getMinVsCodeWidth(containerWidth), Math.floor(containerWidth * 0.7));
 }
 
+function gridTemplateColumnsForMode(mode: ColumnMode): string {
+  return mode === "auto"
+    ? "repeat(auto-fit, minmax(min(380px, 100%), 1fr))"
+    : `repeat(${mode}, minmax(0, 1fr))`;
+}
+
 function lsGetNum(key: string, fallback: number): number {
   try { const v = localStorage.getItem(key); return v !== null ? Number(v) : fallback; } catch { return fallback; }
+}
+
+function lsGetColumnMode(key: string, fallback: ColumnMode): ColumnMode {
+  try {
+    const value = localStorage.getItem(key);
+    if (value === "auto") return "auto";
+    if (value === null) return fallback;
+    const numeric = Number(value);
+    return Number.isFinite(numeric) && numeric >= 1 && numeric <= 8 ? numeric : fallback;
+  } catch {
+    return fallback;
+  }
 }
 
 function lsGetBool(key: string, fallback: boolean): boolean {
   try { const v = localStorage.getItem(key); return v !== null ? v === "true" : fallback; } catch { return fallback; }
 }
 
-function lsSet(key: string, value: number | boolean): void {
+function lsSet(key: string, value: number | boolean | string): void {
   try { localStorage.setItem(key, String(value)); } catch { /* ignore */ }
 }
