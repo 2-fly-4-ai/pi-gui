@@ -1286,7 +1286,6 @@ export class DesktopAppStore implements AppStoreInternals {
 
     seen.add(fingerprint);
     this.reportedCompatibilityIssuesBySession.set(key, seen);
-    this.sessionState.sessionErrorsBySession.set(key, issue.message);
   }
 
   private sessionRefsForWorkspace(workspaceId: string): SessionRef[] {

@@ -62,6 +62,16 @@ export default function customFallbackExtension(pi) {
 }
 `;
 
+const sessionStartCustomExtensionSource = String.raw`
+export default function sessionStartCustomExtension(pi) {
+  pi.on("session_start", async (_event, ctx) => {
+    await ctx.ui.custom((_tui, _theme, _kb, _done) => ({
+      render: () => ["session-start-readonly"],
+    }));
+  });
+}
+`;
+
 const newSessionExtensionSource = String.raw`
 export default function newSessionExtension(pi) {
   pi.registerCommand("spawn-child", {
@@ -283,6 +293,32 @@ test("degrades terminal-only custom extension ui without sending stray messages"
     await expect(window.locator(".timeline")).toContainText("Read mode ignored");
     await expect(window.locator(".timeline")).not.toContainText("should-not-send");
     await expect(composer).toHaveValue("");
+  } finally {
+    await harness.close();
+  }
+});
+
+test("does not show passive custom UI compatibility issues as composer errors", async () => {
+  test.setTimeout(60_000);
+  const userDataDir = await makeUserDataDir();
+  const workspacePath = await makeWorkspace("extensions-session-start-custom-workspace");
+  await writeProjectExtension(workspacePath, "session-start-custom-extension.ts", sessionStartCustomExtensionSource);
+
+  const harness = await launchDesktop(userDataDir, {
+    initialWorkspaces: [workspacePath],
+    testMode: "background",
+  });
+
+  try {
+    const window = await harness.firstWindow();
+    await createSessionViaIpc(window, workspacePath, "Passive custom UI session");
+
+    await expect(window.getByTestId("composer-error-banner")).toHaveCount(0);
+    await expect.poll(async () => {
+      const state = await getDesktopState(window);
+      const workspace = state.workspaces.find((entry) => entry.path === workspacePath);
+      return workspace?.sessions.find((session) => session.title === "Passive custom UI session")?.status ?? "missing";
+    }).toBe("idle");
   } finally {
     await harness.close();
   }
