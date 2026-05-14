@@ -197,22 +197,19 @@ export class DesktopAppStore implements AppStoreInternals {
 
   async getDisplayModeThreads(): Promise<readonly DisplayModeThreadRecord[]> {
     await this.initialize();
-    const activeSessions = this.state.workspaces.flatMap((workspaceEntry) =>
-      workspaceEntry.sessions
-        .filter((session) => !session.archivedAt && session.status === "running")
-        .map((session) => ({ workspace: workspaceEntry, session })),
-    );
-    const fallbackSessions = activeSessions.length > 0
-      ? []
-      : this.state.workspaces
-          .flatMap((workspaceEntry) =>
-            workspaceEntry.sessions
-              .filter((session) => !session.archivedAt)
-              .map((session) => ({ workspace: workspaceEntry, session })),
-          )
-          .sort((a, b) => Date.parse(b.session.updatedAt) - Date.parse(a.session.updatedAt))
-          .slice(0, 6);
-    const entries = activeSessions.length > 0 ? activeSessions : fallbackSessions;
+    const entries = this.state.workspaces
+      .flatMap((workspaceEntry) =>
+        workspaceEntry.sessions
+          .filter((session) => !session.archivedAt)
+          .map((session) => ({ workspace: workspaceEntry, session })),
+      )
+      .sort((a, b) => {
+        // Running threads float to the top; within each group sort by most recently updated
+        const aRunning = a.session.status === "running" ? 0 : 1;
+        const bRunning = b.session.status === "running" ? 0 : 1;
+        if (aRunning !== bRunning) return aRunning - bRunning;
+        return Date.parse(b.session.updatedAt) - Date.parse(a.session.updatedAt);
+      });
 
     await Promise.all(entries.map(({ workspace: workspaceEntry, session }) =>
       this.ensureTranscriptLoaded({ workspaceId: workspaceEntry.id, sessionId: session.id }),
