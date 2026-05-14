@@ -540,9 +540,10 @@
 .session-row__time,
 .session-row__menu-wrap {
   grid-area: 1 / 1;
-  transition:
-    opacity 140ms ease,
-    transform 140ms ease;
+}
+
+.session-row__time {
+  transition: opacity 140ms ease;
 }
 
 .session-row__time {
@@ -586,11 +587,6 @@
   display: flex;
   justify-content: flex-end;
   align-items: center;
-  opacity: 0;
-  visibility: hidden;
-  pointer-events: none;
-  transform: scale(0.92);
-  position: relative;
 }
 
 .session-row .session-row__action {
@@ -600,6 +596,11 @@
   padding-right: 0;
   font-size: 16px;
   line-height: 1;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: scale(0.92);
+  transition: opacity 140ms ease, transform 140ms ease;
 }
 
 .session-row:hover .session-row__time,
@@ -608,9 +609,9 @@
   opacity: 0;
 }
 
-.session-row:hover .session-row__menu-wrap,
-.session-row:focus-within .session-row__menu-wrap,
-.session-row[data-menu-open] .session-row__menu-wrap {
+.session-row:hover .session-row__action,
+.session-row:focus-within .session-row__action,
+.session-row[data-menu-open] .session-row__action {
   opacity: 1;
   visibility: visible;
   pointer-events: auto;
