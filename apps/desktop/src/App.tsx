@@ -467,22 +467,6 @@ export default function App() {
       return next;
     });
   }, [selectedSessionKey]);
-  const toggleDisplayModeTerminal = useCallback((workspaceId: string, sessionId: string) => {
-    const key = `${workspaceId}:${sessionId}`;
-    setOpenTerminalSessionKeys((current) => {
-      const next = new Set(current);
-      if (next.has(key)) {
-        next.delete(key);
-        if (activeTerminalSessionKey === key) {
-          setActiveTerminalSessionKey([...next][0] ?? "");
-        }
-      } else {
-        next.add(key);
-        setActiveTerminalSessionKey(key);
-      }
-      return next;
-    });
-  }, [activeTerminalSessionKey]);
   const focusNewThreadComposer = () => {
     window.requestAnimationFrame(() => {
       newThreadComposerRef.current?.focus();
@@ -2155,8 +2139,6 @@ export default function App() {
             vsCodeFolderPath={vsCodeFolderPath}
             onToggleVsCode={toggleVsCode}
             onOpenVsCodeForWorkspace={openVsCodeForWorkspace}
-            openTerminalKeys={openTerminalSessionKeys}
-            onToggleTerminalForThread={toggleDisplayModeTerminal}
           />
         ) : snapshot.activeView === "new-thread" ? (
           rootWorkspaceOptions.length > 0 ? (

@@ -56,6 +56,10 @@ test("opens Display Mode from the sidebar and renders thread command-center tile
     await expect(window.getByTestId("display-mode-thread-tile").first()).toContainText("Display mode assistant tile transcript");
     await expect(window.getByPlaceholder("Reply to Display mode seed thread…")).toBeVisible();
 
+    await window.getByTestId("display-mode-thread-tile").first().getByRole("button", { name: "Terminal" }).click();
+    await expect(window.locator(".display-mode-tile__terminal").first()).toBeVisible();
+    await expect(window.locator(".terminal-stack")).toHaveCount(0);
+
     await window.getByRole("button", { name: "Automatic columns" }).click();
     await expect.poll(async () => window.evaluate(() => {
       const grid = document.querySelector<HTMLElement>(".display-mode__grid");

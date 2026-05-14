@@ -38,7 +38,6 @@ interface ChangedFile {
 export function DisplayModeView({
   api, drawerOpen, onToggleDrawer,
   vsCodeOpen, vsCodeWorkspaceId, vsCodeFolderPath, onToggleVsCode, onOpenVsCodeForWorkspace,
-  openTerminalKeys, onToggleTerminalForThread,
 }: {
   readonly api: PiDesktopApi;
   readonly drawerOpen: boolean;
@@ -48,8 +47,6 @@ export function DisplayModeView({
   readonly vsCodeFolderPath: string | null;
   readonly onToggleVsCode: () => void;
   readonly onOpenVsCodeForWorkspace: (workspaceId: string, folderPath: string) => void;
-  readonly openTerminalKeys?: ReadonlySet<string>;
-  readonly onToggleTerminalForThread?: (workspaceId: string, sessionId: string) => void;
 }) {
   const [threads, setThreads] = useState<readonly DisplayModeThreadRecord[]>([]);
   const [loading, setLoading] = useState(true);
@@ -272,11 +269,6 @@ export function DisplayModeView({
   }, [threads]);
 
   const toggleTerminal = (key: string) => {
-    const record = threads.find((r) => threadKey(r.workspace.id, r.session.id) === key);
-    if (record && onToggleTerminalForThread) {
-      onToggleTerminalForThread(record.workspace.id, record.session.id);
-      return;
-    }
     setLocalTerminalKeys((c) => {
       const n = new Set(c);
       if (n.has(key)) { n.delete(key); } else { n.add(key); }
@@ -408,7 +400,7 @@ export function DisplayModeView({
                 id={focusKey}
                 key={focusKey}
                 record={focusRecord}
-                terminalOpen={(openTerminalKeys ?? localTerminalKeys).has(focusKey)}
+                terminalOpen={localTerminalKeys.has(focusKey)}
                 renderTerminalInline={true}
                 isPinned={focusKey === pinnedThreadKey}
                 isExpanded={true}
@@ -432,7 +424,7 @@ export function DisplayModeView({
                         id={key}
                         key={key}
                         record={record}
-                        terminalOpen={(openTerminalKeys ?? localTerminalKeys).has(key)}
+                        terminalOpen={localTerminalKeys.has(key)}
                         renderTerminalInline={true}
                         isPinned={key === pinnedThreadKey}
                         isExpanded={false}
@@ -466,7 +458,7 @@ export function DisplayModeView({
                       id={key}
                       key={key}
                       record={record}
-                      terminalOpen={(openTerminalKeys ?? localTerminalKeys).has(key)}
+                      terminalOpen={localTerminalKeys.has(key)}
                       renderTerminalInline={true}
                       isPinned={key === pinnedThreadKey}
                       isExpanded={false}
