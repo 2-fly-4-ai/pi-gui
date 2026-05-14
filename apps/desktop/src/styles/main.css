@@ -4114,6 +4114,9 @@ mark.thread-find-active {
 
 :root.dark .display-mode { background: var(--main); }
 :root.dark .display-mode__filters { background: var(--surface); border-color: var(--line); }
+:root.dark .display-mode__filter { color: var(--muted-strong); }
+:root.dark .display-mode__filter:hover:not(.display-mode__filter--active) { background: rgba(255,255,255,0.07); color: var(--text-strong); }
+:root.dark .display-mode__filter--active { background: rgba(255,255,255,0.12); color: var(--text-strong); }
 :root.dark .display-mode-tile { background: var(--surface); border-color: var(--line); }
 :root.dark .display-mode-tile__head,
 :root.dark .display-mode-tile__actions,
