@@ -1,6 +1,6 @@
 import type { MouseEvent as ReactMouseEvent, Dispatch, SetStateAction } from "react";
 import type { AppView, DesktopAppState, SessionRecord, WorkspaceRecord, WorktreeRecord } from "./desktop-state";
-import { DiffIcon, FolderIcon, SidebarToggleIcon, TerminalIcon } from "./icons";
+import { DiffIcon, FolderIcon, SidebarToggleIcon, TerminalIcon, VSCodeIcon } from "./icons";
 import { getDesktopShortcutLabel, type PiDesktopApi } from "./ipc";
 import type { WorkspaceMenuState } from "./hooks/use-workspace-menu";
 
@@ -28,6 +28,8 @@ interface TopbarProps {
   readonly onToggleDiffPanel: () => void;
   readonly drawerOpen?: boolean;
   readonly onToggleDrawer?: () => void;
+  readonly vsCodeOpen?: boolean;
+  readonly onToggleVsCode?: () => void;
 }
 
 export function Topbar(props: TopbarProps) {
@@ -51,6 +53,8 @@ export function Topbar(props: TopbarProps) {
     onToggleDiffPanel,
     drawerOpen,
     onToggleDrawer,
+    vsCodeOpen,
+    onToggleVsCode,
   } = props;
   const terminalShortcut = getDesktopShortcutLabel(api.platform, "J");
   const diffShortcut = getDesktopShortcutLabel(api.platform, "D");
@@ -178,6 +182,21 @@ export function Topbar(props: TopbarProps) {
             </button>
             <span className="shortcut-tooltip topbar__tooltip" role="tooltip">
               <span>Toggle side panel</span>
+            </span>
+          </div>
+        )}
+        {onToggleVsCode !== undefined && (
+          <div className="shortcut-tooltip-wrap topbar__tooltip-wrap">
+            <button
+              aria-label="Toggle VS Code panel"
+              className={`icon-button topbar__icon ${vsCodeOpen ? "icon-button--active" : ""}`}
+              type="button"
+              onClick={onToggleVsCode}
+            >
+              <VSCodeIcon />
+            </button>
+            <span className="shortcut-tooltip topbar__tooltip" role="tooltip">
+              <span>Toggle VS Code</span>
             </span>
           </div>
         )}

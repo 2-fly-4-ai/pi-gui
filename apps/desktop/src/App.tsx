@@ -201,6 +201,15 @@ export default function App() {
   const [showDiffPanel, setShowDiffPanel] = useState(false);
   const [dmDrawerOpen, setDmDrawerOpen] = useState(() => { try { return localStorage.getItem("dm:drawerOpen") !== "false"; } catch { return true; } });
   const toggleDmDrawer = useCallback(() => { setDmDrawerOpen((o) => { try { localStorage.setItem("dm:drawerOpen", String(!o)); } catch {} return !o; }); }, []);
+  const [vsCodeOpen, setVsCodeOpen] = useState(false);
+  const [vsCodeWorkspaceId, setVsCodeWorkspaceId] = useState<string | null>(null);
+  const [vsCodeFolderPath, setVsCodeFolderPath] = useState<string | null>(null);
+  const toggleVsCode = useCallback(() => setVsCodeOpen((o) => !o), []);
+  const openVsCodeForWorkspace = useCallback((workspaceId: string, folderPath: string) => {
+    setVsCodeWorkspaceId(workspaceId);
+    setVsCodeFolderPath(folderPath);
+    setVsCodeOpen(true);
+  }, []);
   const [openTerminalSessionKeys, setOpenTerminalSessionKeys] = useState<ReadonlySet<string>>(() => new Set());
   const [takeoverTerminalSessionKeys, setTakeoverTerminalSessionKeys] = useState<ReadonlySet<string>>(() => new Set());
   const [terminalHeight, setTerminalHeight] = useState(340);
@@ -2065,6 +2074,8 @@ export default function App() {
           onToggleDiffPanel={toggleDiffPanel}
           drawerOpen={snapshot.activeView === "display-mode" ? dmDrawerOpen : undefined}
           onToggleDrawer={snapshot.activeView === "display-mode" ? toggleDmDrawer : undefined}
+          vsCodeOpen={snapshot.activeView === "display-mode" ? vsCodeOpen : undefined}
+          onToggleVsCode={snapshot.activeView === "display-mode" ? toggleVsCode : undefined}
         />
 
         {showTerminalTakeover ? (
@@ -2072,7 +2083,16 @@ export default function App() {
         ) : (
           <>
         {snapshot.activeView === "display-mode" ? (
-          <DisplayModeView api={api} drawerOpen={dmDrawerOpen} onToggleDrawer={toggleDmDrawer} />
+          <DisplayModeView
+            api={api}
+            drawerOpen={dmDrawerOpen}
+            onToggleDrawer={toggleDmDrawer}
+            vsCodeOpen={vsCodeOpen}
+            vsCodeWorkspaceId={vsCodeWorkspaceId}
+            vsCodeFolderPath={vsCodeFolderPath}
+            onToggleVsCode={toggleVsCode}
+            onOpenVsCodeForWorkspace={openVsCodeForWorkspace}
+          />
         ) : snapshot.activeView === "new-thread" ? (
           rootWorkspaceOptions.length > 0 ? (
             <NewThreadView

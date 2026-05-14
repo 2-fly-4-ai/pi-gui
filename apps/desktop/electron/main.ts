@@ -17,6 +17,7 @@ import { pathToFileURL } from "node:url";
 import { DesktopAppStore } from "./app-store";
 import { getChangedFiles, getFileDiff, stageFile } from "./app-store-diff";
 import { listWorkspaceFiles } from "./app-store-files";
+import { ensureVSCodeServer, killAllVSCodeServers } from "./vscode-server-manager";
 import { MAIN_DEV_RELOAD_MARKER } from "./dev-reload-main-probe";
 import { NotificationManager } from "./notification-manager";
 import {
@@ -133,6 +134,7 @@ function createWindow(): BrowserWindow {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      webviewTag: true,
       // Keep hidden test windows responsive so Playwright exercises the same UI flows.
       backgroundThrottling: !backgroundTestMode,
     },
@@ -529,6 +531,9 @@ app.whenReady().then(async () => {
   ipcMain.handle(desktopIpc.renameSession, (_event, target: WorkspaceSessionTarget, title: string) =>
     store.renameSession(target, title),
   );
+  ipcMain.handle(desktopIpc.ensureVSCodeServer, (_event, workspaceId: string, folderPath: string) =>
+    ensureVSCodeServer(workspaceId, folderPath),
+  );
   ipcMain.handle(desktopIpc.archiveSession, (_event, target: WorkspaceSessionTarget) =>
     store.archiveSession(target),
   );
@@ -780,6 +785,7 @@ app.on("window-all-closed", () => {
 });
 
 app.on("before-quit", (event) => {
+  killAllVSCodeServers();
   stopNotifications?.();
   stopNotifications = undefined;
   notificationManager = undefined;

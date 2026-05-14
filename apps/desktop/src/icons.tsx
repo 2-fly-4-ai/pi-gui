@@ -343,3 +343,12 @@ export function DiffIcon() {
     </Icon>
   );
 }
+
+export function VSCodeIcon() {
+  return (
+    <Icon>
+      <path d="M14.5 3.5L8.5 9l-3-2.5L3 8l3 2.5L3 13l2.5 1.5 3-2.5 6 5.5 2.5-1V4L14.5 3.5z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" fill="none" />
+      <path d="M17 4.5v11" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+    </Icon>
+  );
+}
