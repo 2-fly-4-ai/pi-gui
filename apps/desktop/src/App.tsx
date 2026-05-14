@@ -33,6 +33,8 @@ import { SettingsView, type SettingsSection } from "./settings-view";
 import { SecondarySurface } from "./secondary-surface";
 import { DisplayModeView } from "./display-mode-view";
 import { NewThreadView } from "./new-thread-view";
+import { ReviewSurface } from "./review/ReviewSurface";
+import type { ReviewSnapshot } from "./review/review-types";
 import { buildThreadGroups } from "./thread-groups";
 import { Sidebar } from "./sidebar";
 import { SidebarToggleButton } from "./sidebar-toggle-button";
@@ -171,6 +173,8 @@ export default function App() {
     useState<DesktopNotificationPermissionStatus>("unknown");
   const [notificationPermissionPending, setNotificationPermissionPending] = useState(false);
   const [dockExpandedBySession, setDockExpandedBySession] = useState<Record<string, boolean>>({});
+  const [reviewSnapshot, setReviewSnapshot] = useState<ReviewSnapshot | undefined>();
+  const [reviewLoading, setReviewLoading] = useState(false);
   const [treeModalState, setTreeModalState] = useState<{
     readonly open: boolean;
     readonly loading: boolean;
@@ -422,6 +426,32 @@ export default function App() {
   const selectedWorkspaceCommandCompatibility = selectedWorkspace
     ? snapshot?.extensionCommandCompatibilityByWorkspace[selectedWorkspace.id] ?? []
     : [];
+
+  useEffect(() => {
+    if (!api || snapshot?.activeView !== "review" || !selectedWorkspace) {
+      return;
+    }
+
+    let cancelled = false;
+    setReviewLoading(true);
+    setReviewSnapshot(undefined);
+    void api.createReviewSnapshot(selectedWorkspace.id)
+      .then((next) => {
+        if (!cancelled) {
+          setReviewSnapshot(next);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setReviewLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [api, selectedWorkspace?.id, snapshot?.activeView]);
+
   useEffect(() => {
     if (snapshot && snapshot.workspaces.length === 0) {
       setOpenTerminalSessionKeys(new Set());
@@ -1375,7 +1405,15 @@ export default function App() {
   ) : null;
 
   const setActiveView = (view: AppView) => {
+    if (view !== "review") {
+      setReviewSnapshot(undefined);
+    }
     void updateSnapshot(api, setSnapshot, () => api.setActiveView(view));
+  };
+
+  const fillComposerFromReview = (prompt: string) => {
+    setComposerDraft(prompt);
+    void updateSnapshot(api, setSnapshot, () => api.updateComposerDraft(prompt));
   };
 
   const openSkills = (workspaceId?: string) => {
@@ -1986,6 +2024,31 @@ export default function App() {
           onSetThinkingLevel={handleSetThinkingLevel}
           onToggleSkillCommands={handleToggleSkillCommands}
         />
+      </SecondarySurface>
+    );
+  }
+
+  if (snapshot.activeView === "review") {
+    return (
+      <SecondarySurface onBack={() => setActiveView("threads")} testId="review-surface-shell" title="Review changes">
+        {reviewLoading || !reviewSnapshot ? (
+          <section className="canvas canvas--empty">
+            <div className="empty-panel">
+              <div className="session-header__eyebrow">Review</div>
+              <h1>Loading review…</h1>
+              <p>Freezing the current working-tree diff.</p>
+            </div>
+          </section>
+        ) : (
+          <ReviewSurface
+            snapshot={reviewSnapshot}
+            onCancel={() => setActiveView("threads")}
+            onSubmitPrompt={(prompt) => {
+              fillComposerFromReview(prompt);
+              setActiveView("threads");
+            }}
+          />
+        )}
       </SecondarySurface>
     );
   }

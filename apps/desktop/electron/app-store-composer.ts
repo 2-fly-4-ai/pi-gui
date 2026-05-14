@@ -682,6 +682,23 @@ async function runComposerCommand(
     return finishComposerCommand(store, sessionRef, key, "Reloaded session resources");
   }
 
+  if (parsed.type === "review") {
+    store.sessionState.composerDraftsBySession.delete(key);
+    store.sessionState.composerAttachmentsBySession.delete(key);
+    store.state = {
+      ...store.state,
+      activeView: "review",
+      composerDraft: "",
+      composerDraftSyncSource: "command",
+      composerDraftSyncNonce: store.state.composerDraftSyncNonce + 1,
+      composerAttachments: [],
+      lastError: undefined,
+      revision: store.state.revision + 1,
+    };
+    store.schedulePersistUiState();
+    return store.emit();
+  }
+
   return store.withError(`Unsupported slash command: ${commandText}`);
 }
 

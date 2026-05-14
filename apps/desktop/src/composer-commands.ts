@@ -16,6 +16,7 @@ export type ComposerSlashCommandKind =
   | "status"
   | "session"
   | "reload"
+  | "review"
   | "compact"
   | "name"
   | "login"
@@ -73,6 +74,7 @@ export type ParsedComposerCommand =
   | { type: "status" }
   | { type: "session" }
   | { type: "reload" }
+  | { type: "review" }
   | { type: "compact"; customInstructions?: string }
   | { type: "name"; title: string };
 
@@ -205,6 +207,16 @@ const HOST_ACTION_SLASH_COMMANDS: readonly ComposerSlashCommand[] = [
     template: "/reload",
     title: "Reload",
     description: "Reload prompts, skills, and session resources",
+    submitMode: "immediate",
+    section: "host",
+  },
+  {
+    id: "host:review",
+    kind: "review",
+    command: "/review",
+    template: "/review",
+    title: "Review changes",
+    description: "Open an in-app review surface for current Git changes",
     submitMode: "immediate",
     section: "host",
   },
@@ -608,6 +620,9 @@ export function parseComposerCommand(value: string): ParsedComposerCommand | und
   }
   if (trimmed === "/reload") {
     return { type: "reload" };
+  }
+  if (trimmed === "/review") {
+    return { type: "review" };
   }
 
   const [command, ...rest] = trimmed.split(/\s+/);

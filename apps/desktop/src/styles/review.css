@@ -1,0 +1,153 @@
+.review-mode {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  gap: 16px;
+  padding: 20px;
+}
+
+.review-mode__header,
+.review-mode__file-header,
+.review-mode__actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.review-mode__header h1 {
+  margin: 0;
+  color: var(--text-strong);
+}
+
+.review-mode__header p {
+  margin: 6px 0 0;
+  color: var(--muted);
+}
+
+.review-mode__layout {
+  display: grid;
+  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
+  min-height: 0;
+  flex: 1;
+  gap: 16px;
+}
+
+.review-mode__files,
+.review-mode__diff {
+  min-height: 0;
+  overflow: auto;
+}
+
+.review-mode__files {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  padding: 8px;
+}
+
+.review-mode__file {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}
+
+.review-mode__file:hover,
+.review-mode__file--selected {
+  background: var(--surface-muted);
+  color: var(--text-strong);
+}
+
+.review-mode__diff {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+}
+
+.review-mode__file-header {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.review-mode__inline-diff {
+  margin: 0;
+}
+
+.review-mode__line {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 24px 56px minmax(0, 1fr);
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.review-mode__line:hover,
+.review-mode__line--selected {
+  outline: 1px solid rgba(107, 125, 216, 0.35);
+  outline-offset: -1px;
+}
+
+.review-mode__line-comment {
+  color: var(--muted);
+  text-align: center;
+}
+
+.review-mode__composer,
+.review-mode__comments {
+  margin: 12px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-muted);
+}
+
+.review-mode__composer {
+  display: grid;
+  gap: 8px;
+}
+
+.review-mode__composer label,
+.review-mode__comments h2 {
+  color: var(--text-strong);
+  font-weight: 650;
+}
+
+.review-mode__composer textarea {
+  min-height: 88px;
+  resize: vertical;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px;
+  background: var(--surface);
+  color: var(--text-strong);
+  font: inherit;
+}
+
+.review-mode__comment {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px;
+  margin-top: 8px;
+  background: var(--surface);
+}
+
+.review-mode__comment p {
+  margin: 0 0 8px;
+}
