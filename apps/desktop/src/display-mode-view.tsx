@@ -21,7 +21,7 @@ import { CSS } from "@dnd-kit/utilities";
 import type { DisplayModeThreadRecord, SessionRecord } from "./desktop-state";
 import { TimelineItem } from "./timeline-item";
 import { TerminalPanel } from "./terminal-panel";
-import { ArrowUpIcon, MaximizeIcon, MinimizeIcon, TerminalIcon } from "./icons";
+import { ArrowUpIcon, MaximizeIcon, MinimizeIcon, StopSquareIcon, TerminalIcon } from "./icons";
 import type { PiDesktopApi } from "./ipc";
 import { formatRelativeTime } from "./string-utils";
 
@@ -39,7 +39,8 @@ export function DisplayModeView({ api }: { readonly api: PiDesktopApi }) {
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<DisplayModeFilter>("all");
   const [workspaceFilter, setWorkspaceFilter] = useState<string>("");
-  const [colCount, setColCount] = useState<number>(3);
+  const [colCount, setColCount] = useState<number>(() => lsGetNum("dm:colCount", 3));
+  const [compact, setCompact] = useState<boolean>(() => lsGetBool("dm:compact", false));
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [terminalKeys, setTerminalKeys] = useState<ReadonlySet<string>>(() => new Set());
   const [drawerTab, setDrawerTab] = useState<DrawerTab>("preview");
@@ -50,7 +51,12 @@ export function DisplayModeView({ api }: { readonly api: PiDesktopApi }) {
   const [pinnedThreadFiles, setPinnedThreadFiles] = useState<readonly ChangedFile[]>([]);
   const [draggingId, setDraggingId] = useState<string | null>(null);
 
-  const [drawerWidth, setDrawerWidth] = useState(320);
+  const [drawerWidth, setDrawerWidth] = useState<number>(() => lsGetNum("dm:drawerWidth", 320));
+
+  // Persist preferences
+  useEffect(() => { lsSet("dm:colCount", colCount); }, [colCount]);
+  useEffect(() => { lsSet("dm:compact", compact); }, [compact]);
+  useEffect(() => { lsSet("dm:drawerWidth", drawerWidth); }, [drawerWidth]);
   const lastFetchAt = useRef<number>(0);
   const pendingRefresh = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const sectionRef = useRef<HTMLElement | null>(null);
@@ -250,6 +256,13 @@ export function DisplayModeView({ api }: { readonly api: PiDesktopApi }) {
                 </button>
               ))}
             </div>
+            <button
+              className={`display-mode__compact-toggle${compact ? " display-mode__compact-toggle--active" : ""}`}
+              type="button"
+              onClick={() => setCompact((c) => !c)}
+            >
+              {compact ? "Detailed" : "Compact"}
+            </button>
             <div className="display-mode__summary">
               <span><strong>{runningCount}</strong> running</span>
               <span><strong>{errorCount}</strong> errors</span>
@@ -281,6 +294,7 @@ export function DisplayModeView({ api }: { readonly api: PiDesktopApi }) {
                       isPinned={key === pinnedThreadKey}
                       isExpanded={key === expandedId}
                       expandedColSpan={Math.max(1, Math.ceil(colCount / 2))}
+                      compact={compact}
                       onFilesUpdate={key === pinnedThreadKey ? setPinnedThreadFiles : undefined}
                       onOpenThread={() => void api.selectSession({ workspaceId: record.workspace.id, sessionId: record.session.id })}
                       onOpenVSCode={() => void api.openWorkspaceInVSCode(record.workspace.id)}
@@ -420,7 +434,7 @@ export function DisplayModeView({ api }: { readonly api: PiDesktopApi }) {
 /* ── Tile ─────────────────────────────────────────────────────────── */
 
 function DisplayModeTile({
-  api, id, record, terminalOpen, isPinned, isExpanded, expandedColSpan,
+  api, id, record, terminalOpen, isPinned, isExpanded, expandedColSpan, compact,
   onFilesUpdate, onOpenThread, onOpenVSCode, onPinPreview, onToggleTerminal, onToggleExpand,
 }: {
   readonly api: PiDesktopApi;
@@ -430,6 +444,7 @@ function DisplayModeTile({
   readonly isPinned: boolean;
   readonly isExpanded: boolean;
   readonly expandedColSpan: number;
+  readonly compact: boolean;
   readonly onFilesUpdate: ((files: readonly ChangedFile[]) => void) | undefined;
   readonly onOpenThread: () => void;
   readonly onOpenVSCode: () => void;
@@ -444,8 +459,16 @@ function DisplayModeTile({
   const [draft, setDraft] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const transcriptRef = useRef<HTMLDivElement | null>(null);
   const tone = statusTone(record.session);
   const recentMessages = record.transcript.slice(-8);
+
+  // Auto-scroll transcript to bottom while running
+  useEffect(() => {
+    if (record.session.status === "running" && transcriptRef.current) {
+      transcriptRef.current.scrollTop = transcriptRef.current.scrollHeight;
+    }
+  }, [record.transcript.length, record.session.status]);
 
   useEffect(() => { if (renaming) renameInputRef.current?.select(); }, [renaming]);
 
@@ -503,16 +526,17 @@ function DisplayModeTile({
   return (
     <article
       ref={setNodeRef}
-      className={`display-mode-tile display-mode-tile--${tone}${isDragging ? " display-mode-tile--dragging" : ""}${isExpanded ? " display-mode-tile--expanded" : ""}`}
+      className={`display-mode-tile display-mode-tile--${tone}${isDragging ? " display-mode-tile--dragging" : ""}${isExpanded ? " display-mode-tile--expanded" : ""}${compact ? " display-mode-tile--compact" : ""}`}
       style={{
         transform: CSS.Transform.toString(transform),
         transition,
-        ...(isExpanded ? { gridColumn: `span ${expandedColSpan}`, height: "auto", minHeight: "600px" } : {}),
+        ...(isExpanded && !compact ? { gridColumn: `span ${expandedColSpan}`, height: "auto", minHeight: "600px" } : {}),
       }}
       data-testid="display-mode-thread-tile"
       onKeyDown={handleTileKeyDown}
       {...attributes}
     >
+      <div className="display-mode-tile__accent" aria-hidden="true" />
       {/* Header */}
       <header className="display-mode-tile__head">
         <div className="display-mode-tile__head-top">
@@ -567,24 +591,33 @@ function DisplayModeTile({
       </header>
 
       {/* Actions row */}
-      <div className="display-mode-tile__actions">
-        <button className="button button--primary display-mode-tile__action-primary" type="button" onClick={onOpenThread}>Open thread</button>
-        <button className={`button${terminalOpen ? " display-mode-tile__action-active" : ""}`} type="button" onClick={onToggleTerminal}><TerminalIcon /> Terminal</button>
-        <button className="button" type="button" onClick={onOpenVSCode}>VS Code</button>
-        <button className={`button${isPinned ? " display-mode-tile__action-active" : ""}`} type="button" onClick={onPinPreview}><MaximizeIcon /> Pin</button>
-      </div>
+      {!compact && (
+        <div className="display-mode-tile__actions">
+          <button className="button button--primary display-mode-tile__action-primary" type="button" onClick={onOpenThread}>Open thread</button>
+          {record.session.status === "running" && (
+            <button className="button display-mode-tile__action-stop" type="button" onClick={() => void api.cancelSessionRun({ workspaceId: record.workspace.id, sessionId: record.session.id })}>
+              <StopSquareIcon /> Stop
+            </button>
+          )}
+          <button className={`button${terminalOpen ? " display-mode-tile__action-active" : ""}`} type="button" onClick={onToggleTerminal}><TerminalIcon /> Terminal</button>
+          <button className="button" type="button" onClick={onOpenVSCode}>VS Code</button>
+          <button className={`button${isPinned ? " display-mode-tile__action-active" : ""}`} type="button" onClick={onPinPreview}><MaximizeIcon /> Pin</button>
+        </div>
+      )}
 
       {/* Transcript */}
-      <div className="display-mode-tile__transcript">
-        {recentMessages.length > 0 ? (
-          recentMessages.map((item) => <TimelineItem item={item} key={item.id} />)
-        ) : (
-          <div className="display-mode-tile__empty-state">No messages yet</div>
-        )}
-      </div>
+      {!compact && (
+        <div className="display-mode-tile__transcript" ref={transcriptRef}>
+          {recentMessages.length > 0 ? (
+            recentMessages.map((item) => <TimelineItem item={item} key={item.id} />)
+          ) : (
+            <div className="display-mode-tile__empty-state">No messages yet</div>
+          )}
+        </div>
+      )}
 
       {/* Terminal (when open) */}
-      {terminalOpen && (
+      {!compact && terminalOpen && (
         <div className="display-mode-tile__terminal">
           <TerminalPanel
             workspace={record.workspace}
@@ -599,7 +632,7 @@ function DisplayModeTile({
       )}
 
       {/* Reply — uses real .composer CSS so it looks identical to thread view */}
-      <div className="composer display-mode-tile__reply">
+      {!compact && <div className="composer display-mode-tile__reply">
         <div className="composer__surface">
           <div className="composer__editor">
             <textarea
@@ -624,7 +657,7 @@ function DisplayModeTile({
             </button>
           </div>
         </div>
-      </div>
+      </div>}
     </article>
   );
 }
@@ -676,4 +709,16 @@ function isHttpUrl(value: string): boolean {
     const p = new URL(value);
     return p.protocol === "http:" || p.protocol === "https:";
   } catch { return false; }
+}
+
+function lsGetNum(key: string, fallback: number): number {
+  try { const v = localStorage.getItem(key); return v !== null ? Number(v) : fallback; } catch { return fallback; }
+}
+
+function lsGetBool(key: string, fallback: boolean): boolean {
+  try { const v = localStorage.getItem(key); return v !== null ? v === "true" : fallback; } catch { return fallback; }
+}
+
+function lsSet(key: string, value: number | boolean): void {
+  try { localStorage.setItem(key, String(value)); } catch { /* ignore */ }
 }
