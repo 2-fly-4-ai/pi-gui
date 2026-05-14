@@ -490,15 +490,21 @@ function DisplayModeTile({
     >
       {/* Header */}
       <header className="display-mode-tile__head">
-        <div
-          className="display-mode-tile__drag"
-          {...listeners}
-          aria-label="Drag to reorder"
-          title="Drag to reorder"
-        >⠿</div>
-        <span className={`display-mode-tile__status-dot display-mode-tile__status-dot--${tone}`} aria-hidden="true" />
-        <div className="display-mode-tile__identity">
-          <div className="display-mode-tile__workspace">{record.workspace.name}</div>
+        <div className="display-mode-tile__head-top">
+          <div
+            className="display-mode-tile__drag"
+            {...listeners}
+            aria-label="Drag to reorder"
+            title="Drag to reorder"
+          >⠿</div>
+          <span className="display-mode-tile__workspace">{record.workspace.name}</span>
+          <span className={`display-mode-tile__status-pill display-mode-tile__status-pill--${tone}`}>
+            <span className="display-mode-tile__status-dot" aria-hidden="true" />
+            {statusLabel(record.session)}
+          </span>
+          <span className="display-mode-tile__time">{formatRelativeTime(record.session.updatedAt)}</span>
+        </div>
+        <div className="display-mode-tile__head-title">
           {renaming ? (
             <input
               ref={renameInputRef}
@@ -522,10 +528,6 @@ function DisplayModeTile({
               {record.session.title}
             </button>
           )}
-        </div>
-        <div className="display-mode-tile__meta">
-          <span className={`display-mode-tile__status-label display-mode-tile__status-label--${tone}`}>{statusLabel(record.session)}</span>
-          <span className="display-mode-tile__time">{formatRelativeTime(record.session.updatedAt)}</span>
         </div>
       </header>
 
