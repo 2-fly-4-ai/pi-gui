@@ -19,10 +19,9 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import type { DisplayModeThreadRecord, SessionRecord } from "./desktop-state";
-import { ComposerSurface } from "./composer-surface";
 import { TimelineItem } from "./timeline-item";
 import { TerminalPanel } from "./terminal-panel";
-import { ArrowUpIcon, MaximizeIcon, StopSquareIcon, TerminalIcon } from "./icons";
+import { ArrowUpIcon, MaximizeIcon, TerminalIcon } from "./icons";
 import type { PiDesktopApi } from "./ipc";
 import { formatRelativeTime } from "./string-utils";
 
@@ -35,15 +34,15 @@ interface ChangedFile {
   readonly staged: boolean;
 }
 
-interface DisplayModeViewProps {
-  readonly api: PiDesktopApi;
+interface DragHandleProps {
+  readonly attributes: DraggableAttributes;
+  readonly listeners: DraggableSyntheticListeners;
 }
 
-export function DisplayModeView({ api }: DisplayModeViewProps) {
+export function DisplayModeView({ api }: { readonly api: PiDesktopApi }) {
   const [threads, setThreads] = useState<readonly DisplayModeThreadRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<DisplayModeFilter>("all");
-  const [expandedKeys, setExpandedKeys] = useState<ReadonlySet<string>>(() => new Set());
   const [terminalKeys, setTerminalKeys] = useState<ReadonlySet<string>>(() => new Set());
   const [drawerTab, setDrawerTab] = useState<DrawerTab>("preview");
   const [previewUrl, setPreviewUrl] = useState("http://localhost:5173");
@@ -52,23 +51,35 @@ export function DisplayModeView({ api }: DisplayModeViewProps) {
   const [tileOrder, setTileOrder] = useState<readonly string[]>([]);
   const [pinnedThreadFiles, setPinnedThreadFiles] = useState<readonly ChangedFile[]>([]);
 
+  const [drawerWidth, setDrawerWidth] = useState(320);
   const lastFetchAt = useRef<number>(0);
   const pendingRefresh = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const sectionRef = useRef<HTMLElement | null>(null);
+
+  const startDrawerResize = (e: React.PointerEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startWidth = drawerWidth;
+    const section = sectionRef.current;
+
+    const onMove = (mv: PointerEvent) => {
+      const delta = startX - mv.clientX;
+      const sectionWidth = section?.offsetWidth ?? 1200;
+      const next = Math.max(240, Math.min(600, startWidth + delta));
+      // Don't let drawer exceed 50% of total width
+      setDrawerWidth(Math.min(next, Math.floor(sectionWidth * 0.5)));
+    };
+    const onUp = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+  };
 
   const applyRecords = useCallback((records: readonly DisplayModeThreadRecord[]) => {
     setThreads(records);
-    setExpandedKeys((current) => {
-      if (current.size > 0) return current;
-      const runningKeys = records
-        .filter((r) => r.session.status === "running")
-        .slice(0, 2)
-        .map((r) => threadKey(r.workspace.id, r.session.id));
-      if (runningKeys.length > 0) return new Set(runningKeys);
-      return new Set(records[0] ? [threadKey(records[0].workspace.id, records[0].session.id)] : []);
-    });
-    setPinnedThreadKey((current) =>
-      current || (records[0] ? threadKey(records[0].workspace.id, records[0].session.id) : ""),
-    );
+    setPinnedThreadKey((c) => c || (records[0] ? threadKey(records[0].workspace.id, records[0].session.id) : ""));
   }, []);
 
   useEffect(() => {
@@ -76,68 +87,52 @@ export function DisplayModeView({ api }: DisplayModeViewProps) {
 
     const doFetch = () => {
       lastFetchAt.current = Date.now();
-      void api.getDisplayModeThreads().then((records) => {
-        if (active) applyRecords(records);
-      });
+      void api.getDisplayModeThreads().then((r) => { if (active) applyRecords(r); });
     };
 
     const scheduleRefresh = () => {
       if (!active) return;
       clearTimeout(pendingRefresh.current);
-      const elapsed = Date.now() - lastFetchAt.current;
-      const delay = Math.max(0, 1000 - elapsed);
-      pendingRefresh.current = setTimeout(() => {
-        if (active) doFetch();
-      }, delay);
+      const delay = Math.max(0, 1000 - (Date.now() - lastFetchAt.current));
+      pendingRefresh.current = setTimeout(() => { if (active) doFetch(); }, delay);
     };
 
     setLoading(true);
-    void api.getDisplayModeThreads().then((records) => {
+    void api.getDisplayModeThreads().then((r) => {
       if (!active) return;
       lastFetchAt.current = Date.now();
-      applyRecords(records);
+      applyRecords(r);
       setLoading(false);
-    }).catch(() => {
-      if (active) setLoading(false);
-    });
+    }).catch(() => { if (active) setLoading(false); });
 
     const unsub = api.onStateChanged(scheduleRefresh);
-
-    return () => {
-      active = false;
-      clearTimeout(pendingRefresh.current);
-      unsub();
-    };
+    return () => { active = false; clearTimeout(pendingRefresh.current); unsub(); };
   }, [api, applyRecords]);
 
   const visibleThreads = useMemo(
-    () => threads.filter((record) => matchesFilter(record.session, filter)),
+    () => threads.filter((r) => matchesFilter(r.session, filter)),
     [filter, threads],
   );
 
-  // Stable key string — only changes when the actual set of visible threads changes
   const visibleKeysStr = useMemo(
     () => visibleThreads.map((r) => threadKey(r.workspace.id, r.session.id)).join(","),
     [visibleThreads],
   );
 
-  // Reconcile tile order when visible threads change: keep existing order, append new ones at end
   useEffect(() => {
     const keys = visibleKeysStr ? visibleKeysStr.split(",") : [];
-    setTileOrder((current) => {
-      const keySet = new Set(keys);
-      const kept = current.filter((k) => keySet.has(k));
-      const added = keys.filter((k) => !current.includes(k));
-      return [...kept, ...added];
+    setTileOrder((c) => {
+      const s = new Set(keys);
+      return [...c.filter((k) => s.has(k)), ...keys.filter((k) => !c.includes(k))];
     });
   }, [visibleKeysStr]);
 
-  const orderedVisibleThreads = useMemo(() => {
+  const orderedThreads = useMemo(() => {
     if (tileOrder.length === 0) return visibleThreads;
-    const orderMap = new Map(tileOrder.map((k, i) => [k, i]));
+    const m = new Map(tileOrder.map((k, i) => [k, i]));
     return [...visibleThreads].sort((a, b) => {
-      const ia = orderMap.get(threadKey(a.workspace.id, a.session.id)) ?? Infinity;
-      const ib = orderMap.get(threadKey(b.workspace.id, b.session.id)) ?? Infinity;
+      const ia = m.get(threadKey(a.workspace.id, a.session.id)) ?? Infinity;
+      const ib = m.get(threadKey(b.workspace.id, b.session.id)) ?? Infinity;
       return ia - ib;
     });
   }, [visibleThreads, tileOrder]);
@@ -146,39 +141,31 @@ export function DisplayModeView({ api }: DisplayModeViewProps) {
   const errorCount = threads.filter((r) => r.session.status === "failed").length;
   const pinnedThread = threads.find((r) => threadKey(r.workspace.id, r.session.id) === pinnedThreadKey);
 
-  // Scan all transcripts for localhost URLs to offer as quick-pick in Preview drawer
   const detectedUrls = useMemo(() => {
     const seen = new Set<string>();
-    for (const record of threads) {
-      for (const msg of record.transcript) {
+    for (const r of threads) {
+      for (const msg of r.transcript) {
         if (msg.kind !== "message") continue;
         const matches = (msg as { text: string }).text.match(/https?:\/\/localhost:\d+/g);
-        if (matches) { for (const u of matches) seen.add(u); }
+        if (matches) for (const u of matches) seen.add(u);
       }
     }
     return [...seen];
   }, [threads]);
 
-  const toggleExpanded = (key: string) => {
-    setExpandedKeys((current) => {
-      const next = new Set(current);
-      if (next.has(key)) { next.delete(key); } else { next.add(key); }
-      return next;
-    });
-  };
-
   const toggleTerminal = (key: string) => {
-    setTerminalKeys((current) => {
-      const next = new Set(current);
-      if (next.has(key)) { next.delete(key); } else { next.add(key); }
-      return next;
+    setTerminalKeys((c) => {
+      const n = new Set(c);
+      if (n.has(key)) { n.delete(key); } else { n.add(key); }
+      return n;
     });
   };
 
   const pauseAll = () => {
-    for (const record of threads) {
-      if (record.session.status !== "running") continue;
-      void api.cancelSessionRun({ workspaceId: record.workspace.id, sessionId: record.session.id });
+    for (const r of threads) {
+      if (r.session.status === "running") {
+        void api.cancelSessionRun({ workspaceId: r.workspace.id, sessionId: r.session.id });
+      }
     }
   };
 
@@ -190,28 +177,32 @@ export function DisplayModeView({ api }: DisplayModeViewProps) {
   const handleDragEnd = (event: DragEndEvent) => {
     const { active, over } = event;
     if (!over || active.id === over.id) return;
-    setTileOrder((current) => {
-      const oldIdx = current.indexOf(active.id as string);
-      const newIdx = current.indexOf(over.id as string);
-      if (oldIdx === -1 || newIdx === -1) return current;
-      return arrayMove([...current], oldIdx, newIdx);
+    setTileOrder((c) => {
+      const oi = c.indexOf(active.id as string);
+      const ni = c.indexOf(over.id as string);
+      if (oi === -1 || ni === -1) return c;
+      return arrayMove([...c], oi, ni);
     });
   };
 
   return (
-    <section className="display-mode" data-testid="display-mode-surface">
+    <section
+      ref={sectionRef}
+      className="display-mode"
+      style={{ gridTemplateColumns: `minmax(0, 1fr) 5px ${drawerWidth}px` }}
+      data-testid="display-mode-surface"
+    >
       <div className="display-mode__main">
         <header className="display-mode__header">
           <div>
             <div className="display-mode__eyebrow">Display Mode</div>
             <h1>Command center</h1>
-            <p>Watch running threads, reply inline, open terminals, and keep a preview pinned.</p>
           </div>
           <div className="display-mode__controls">
             <div className="display-mode__filters" aria-label="Display mode filters">
               {(["all", "running", "waiting", "error"] as const).map((f) => (
                 <button
-                  className={`display-mode__filter ${filter === f ? "display-mode__filter--active" : ""}`}
+                  className={`display-mode__filter${filter === f ? " display-mode__filter--active" : ""}`}
                   key={f}
                   type="button"
                   onClick={() => setFilter(f)}
@@ -220,27 +211,26 @@ export function DisplayModeView({ api }: DisplayModeViewProps) {
                 </button>
               ))}
             </div>
+            <div className="display-mode__summary">
+              <span><strong>{runningCount}</strong> running</span>
+              <span><strong>{errorCount}</strong> errors</span>
+              <span><strong>{threads.length}</strong> threads</span>
+            </div>
             <button className="button display-mode__pause-btn" type="button" disabled={runningCount === 0} onClick={pauseAll}>
               Pause all
             </button>
           </div>
         </header>
 
-        <div className="display-mode__summary" aria-label="Display mode summary">
-          <span><strong>{runningCount}</strong> running</span>
-          <span><strong>{errorCount}</strong> errors</span>
-          <span><strong>{threads.length}</strong> visible threads</span>
-        </div>
-
         {loading ? (
-          <div className="display-mode__empty">Loading active threads…</div>
-        ) : orderedVisibleThreads.length === 0 ? (
+          <div className="display-mode__empty">Loading threads…</div>
+        ) : orderedThreads.length === 0 ? (
           <div className="display-mode__empty">No threads match this filter.</div>
         ) : (
           <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
             <SortableContext items={[...tileOrder]} strategy={rectSortingStrategy}>
               <div className="display-mode__grid">
-                {orderedVisibleThreads.map((record) => {
+                {orderedThreads.map((record) => {
                   const key = threadKey(record.workspace.id, record.session.id);
                   return (
                     <SortableTile key={key} id={key}>
@@ -248,18 +238,13 @@ export function DisplayModeView({ api }: DisplayModeViewProps) {
                         <DisplayModeTile
                           api={api}
                           dragHandleProps={dragHandleProps}
-                          expanded={expandedKeys.has(key)}
                           record={record}
                           terminalOpen={terminalKeys.has(key)}
+                          isPinned={key === pinnedThreadKey}
                           onFilesUpdate={key === pinnedThreadKey ? setPinnedThreadFiles : undefined}
-                          onOpenThread={() => {
-                            void api.selectSession({ workspaceId: record.workspace.id, sessionId: record.session.id });
-                          }}
-                          onOpenVSCode={() => {
-                            void api.openWorkspaceInVSCode(record.workspace.id);
-                          }}
+                          onOpenThread={() => void api.selectSession({ workspaceId: record.workspace.id, sessionId: record.session.id })}
+                          onOpenVSCode={() => void api.openWorkspaceInVSCode(record.workspace.id)}
                           onPinPreview={() => setPinnedThreadKey(key)}
-                          onToggleExpanded={() => toggleExpanded(key)}
                           onToggleTerminal={() => toggleTerminal(key)}
                         />
                       )}
@@ -272,18 +257,25 @@ export function DisplayModeView({ api }: DisplayModeViewProps) {
         )}
       </div>
 
+      <div
+        className="display-mode-drawer__resize"
+        onPointerDown={startDrawerResize}
+        role="separator"
+        aria-label="Resize drawer"
+        title="Drag to resize"
+      />
       <aside className="display-mode-drawer">
-        <div className="display-mode-drawer__tabs" role="tablist" aria-label="Display drawer">
+        <div className="display-mode-drawer__tabs" role="tablist">
           {(["preview", "logs", "files"] as const).map((tab) => (
             <button
-              className={`display-mode-drawer__tab ${drawerTab === tab ? "display-mode-drawer__tab--active" : ""}`}
+              className={`display-mode-drawer__tab${drawerTab === tab ? " display-mode-drawer__tab--active" : ""}`}
               key={tab}
               type="button"
               role="tab"
               aria-selected={drawerTab === tab}
               onClick={() => setDrawerTab(tab)}
             >
-              {drawerTabLabel(tab)}
+              {tab === "preview" ? "Preview" : tab === "logs" ? "Logs" : "Files"}
             </button>
           ))}
         </div>
@@ -291,7 +283,7 @@ export function DisplayModeView({ api }: DisplayModeViewProps) {
         {drawerTab === "preview" && (
           <div className="display-mode-drawer__body">
             <div className="display-mode-drawer__meta">
-              Pinned to: {pinnedThread ? `${pinnedThread.workspace.name} / ${pinnedThread.session.title}` : "No thread"}
+              Pinned: {pinnedThread ? `${pinnedThread.workspace.name} / ${pinnedThread.session.title}` : "None"}
             </div>
             <label className="display-mode-drawer__field">
               <span>Preview URL</span>
@@ -304,11 +296,11 @@ export function DisplayModeView({ api }: DisplayModeViewProps) {
                   {detectedUrls.map((url) => (
                     <button
                       key={url}
-                      className={`display-mode-drawer__detected-url ${previewUrl === url ? "is-active" : ""}`}
+                      className={`display-mode-drawer__detected-url${previewUrl === url ? " is-active" : ""}`}
                       type="button"
                       onClick={() => setPreviewUrl(url)}
                     >
-                      {url.replace("http://", "").replace("https://", "")}
+                      {url.replace(/https?:\/\//, "")}
                     </button>
                   ))}
                 </div>
@@ -320,13 +312,13 @@ export function DisplayModeView({ api }: DisplayModeViewProps) {
             </div>
             <div className={`display-mode-preview display-mode-preview--${previewDevice}`}>
               {isHttpUrl(previewUrl) ? (
-                <iframe title="Pinned preview" src={previewUrl} />
+                <iframe title="Preview" src={previewUrl} />
               ) : (
-                <div className="display-mode-preview__empty">Enter an http:// or https:// URL above.</div>
+                <div className="display-mode-preview__empty">Enter a URL above.</div>
               )}
             </div>
             <button className="button" type="button" disabled={!isHttpUrl(previewUrl)} onClick={() => void api.openExternal(previewUrl)}>
-              Open browser
+              Open in browser
             </button>
           </div>
         )}
@@ -339,21 +331,15 @@ export function DisplayModeView({ api }: DisplayModeViewProps) {
               <div className="display-mode-logs">
                 {[...threads]
                   .sort((a, b) => Date.parse(b.session.updatedAt) - Date.parse(a.session.updatedAt))
-                  .map((record) => {
-                    const tone = statusTone(record.session);
+                  .map((r) => {
+                    const tone = statusTone(r.session);
                     return (
-                      <div className="display-mode-log-entry" key={threadKey(record.workspace.id, record.session.id)}>
-                        <span className={`display-mode-tile__status display-mode-tile__status--${tone}`} aria-hidden="true" />
+                      <div className="display-mode-log-entry" key={threadKey(r.workspace.id, r.session.id)}>
+                        <span className={`display-mode-tile__status-dot display-mode-tile__status-dot--${tone}`} aria-hidden="true" />
                         <div className="display-mode-log-entry__body">
-                          <div className="display-mode-log-entry__title">
-                            {record.workspace.name}
-                            <span className="display-mode-log-entry__sep"> / </span>
-                            {record.session.title}
-                          </div>
-                          {record.session.preview ? (
-                            <div className="display-mode-log-entry__preview">{record.session.preview}</div>
-                          ) : null}
-                          <div className="display-mode-log-entry__time">{formatRelativeTime(record.session.updatedAt)}</div>
+                          <div className="display-mode-log-entry__title">{r.workspace.name} <span>/</span> {r.session.title}</div>
+                          {r.session.preview ? <div className="display-mode-log-entry__preview">{r.session.preview}</div> : null}
+                          <div className="display-mode-log-entry__time">{formatRelativeTime(r.session.updatedAt)}</div>
                         </div>
                       </div>
                     );
@@ -369,15 +355,13 @@ export function DisplayModeView({ api }: DisplayModeViewProps) {
               {pinnedThread ? `${pinnedThread.workspace.name} / ${pinnedThread.session.title}` : "No thread pinned"}
             </div>
             {pinnedThreadFiles.length === 0 ? (
-              <div className="display-mode-drawer__placeholder">No changed files for pinned thread.</div>
+              <div className="display-mode-drawer__placeholder">No changed files.</div>
             ) : (
               <div className="display-mode-drawer__files">
-                {pinnedThreadFiles.map((file) => (
-                  <div className="display-mode-drawer__file" key={file.path}>
-                    <span className={`display-mode-drawer__file-status display-mode-drawer__file-status--${file.status}`}>
-                      {fileStatusBadge(file.status)}
-                    </span>
-                    <span className="display-mode-drawer__file-path">{file.path}</span>
+                {pinnedThreadFiles.map((f) => (
+                  <div className="display-mode-drawer__file" key={f.path}>
+                    <span className={`display-mode-drawer__file-badge display-mode-drawer__file-badge--${f.status}`}>{fileBadge(f.status)}</span>
+                    <span className="display-mode-drawer__file-path">{f.path}</span>
                   </div>
                 ))}
               </div>
@@ -389,17 +373,9 @@ export function DisplayModeView({ api }: DisplayModeViewProps) {
   );
 }
 
-/* ── Sortable wrapper ──────────────────────────────────────────────── */
+/* ── Sortable wrapper ─────────────────────────────────────────────── */
 
-interface DragHandleProps {
-  readonly attributes: DraggableAttributes;
-  readonly listeners: DraggableSyntheticListeners;
-}
-
-function SortableTile({
-  id,
-  children,
-}: {
+function SortableTile({ id, children }: {
   readonly id: string;
   readonly children: (dragHandleProps: DragHandleProps) => React.ReactNode;
 }) {
@@ -407,71 +383,59 @@ function SortableTile({
   return (
     <div
       ref={setNodeRef}
-      style={{
-        transform: CSS.Transform.toString(transform),
-        transition,
-        opacity: isDragging ? 0.4 : 1,
-        zIndex: isDragging ? 10 : undefined,
-        position: "relative",
-      }}
+      style={{ transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.45 : 1, position: "relative", zIndex: isDragging ? 10 : undefined }}
     >
       {children({ attributes, listeners })}
     </div>
   );
 }
 
-/* ── Tile ──────────────────────────────────────────────────────────── */
+/* ── Tile ─────────────────────────────────────────────────────────── */
 
 function DisplayModeTile({
-  api,
-  dragHandleProps,
-  record,
-  expanded,
-  terminalOpen,
-  onFilesUpdate,
-  onOpenThread,
-  onOpenVSCode,
-  onPinPreview,
-  onToggleExpanded,
-  onToggleTerminal,
+  api, dragHandleProps, record, terminalOpen, isPinned,
+  onFilesUpdate, onOpenThread, onOpenVSCode, onPinPreview, onToggleTerminal,
 }: {
   readonly api: PiDesktopApi;
   readonly dragHandleProps: DragHandleProps;
   readonly record: DisplayModeThreadRecord;
-  readonly expanded: boolean;
   readonly terminalOpen: boolean;
+  readonly isPinned: boolean;
   readonly onFilesUpdate: ((files: readonly ChangedFile[]) => void) | undefined;
   readonly onOpenThread: () => void;
   readonly onOpenVSCode: () => void;
   readonly onPinPreview: () => void;
-  readonly onToggleExpanded: () => void;
   readonly onToggleTerminal: () => void;
 }) {
-  const [replyDraft, setReplyDraft] = useState("");
+  const [draft, setDraft] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  const [changedFiles, setChangedFiles] = useState<readonly ChangedFile[]>([]);
-  const composerRef = useRef<HTMLTextAreaElement | null>(null);
-  const key = threadKey(record.workspace.id, record.session.id);
-  const status = statusTone(record.session);
-  const recentTranscript = record.transcript.slice(-6);
-  const hasReplyInput = replyDraft.trim().length > 0;
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const tone = statusTone(record.session);
+  const recentMessages = record.transcript.slice(-8);
 
   useEffect(() => {
     let active = true;
     void api.getChangedFiles(record.workspace.id).then((files) => {
       if (!active) return;
       const sliced = files.slice(0, 8);
-      setChangedFiles(sliced);
       onFilesUpdate?.(sliced);
     }).catch(() => undefined);
     return () => { active = false; };
   }, [api, record.workspace.id, record.session.updatedAt, onFilesUpdate]);
 
-  const submitReply = () => {
-    const text = replyDraft.trim();
+  // Auto-resize textarea
+  useEffect(() => {
+    const ta = textareaRef.current;
+    if (!ta) return;
+    ta.style.height = "0";
+    ta.style.height = `${ta.scrollHeight}px`;
+  }, [draft]);
+
+  const submit = () => {
+    const text = draft.trim();
     if (!text || submitting) return;
     setSubmitting(true);
-    setReplyDraft("");
+    setDraft("");
     void api.submitComposerToSession(
       { workspaceId: record.workspace.id, sessionId: record.session.id },
       text,
@@ -479,167 +443,108 @@ function DisplayModeTile({
     ).finally(() => setSubmitting(false));
   };
 
-  const handleComposerKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (event.key !== "Enter" || event.shiftKey) return;
-    event.preventDefault();
-    submitReply();
+  const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submit(); }
   };
 
-  // Tile-level keyboard shortcuts: only fire when focus is on the tile itself (not a child input)
-  const handleTileKeyDown = (event: KeyboardEvent<HTMLElement>) => {
-    const tag = (event.target as HTMLElement).tagName;
+  const handleTileKeyDown = (e: KeyboardEvent<HTMLElement>) => {
+    const tag = (e.target as HTMLElement).tagName;
     if (tag === "TEXTAREA" || tag === "INPUT" || tag === "BUTTON") return;
-    if (event.key === "t" || event.key === "T") { event.preventDefault(); onToggleTerminal(); }
-    else if (event.key === "v" || event.key === "V") { event.preventDefault(); onOpenVSCode(); }
-    else if (event.key === "o" || event.key === "O") { event.preventDefault(); onOpenThread(); }
-    else if (event.key === "e" || event.key === "E") { event.preventDefault(); onToggleExpanded(); }
+    if (e.key === "t" || e.key === "T") { e.preventDefault(); onToggleTerminal(); }
+    else if (e.key === "v" || e.key === "V") { e.preventDefault(); onOpenVSCode(); }
+    else if (e.key === "o" || e.key === "O") { e.preventDefault(); onOpenThread(); }
   };
 
   return (
     <article
-      className={`display-mode-tile display-mode-tile--${status} ${expanded ? "display-mode-tile--expanded" : "display-mode-tile--compact"}`}
+      className={`display-mode-tile display-mode-tile--${tone}`}
       data-testid="display-mode-thread-tile"
       tabIndex={0}
       onKeyDown={handleTileKeyDown}
     >
-      <header className="display-mode-tile__header">
+      {/* Header */}
+      <header className="display-mode-tile__head">
+        <div
+          className="display-mode-tile__drag"
+          {...dragHandleProps.attributes}
+          {...dragHandleProps.listeners}
+          aria-label="Drag to reorder"
+        >⠿</div>
+        <span className={`display-mode-tile__status-dot display-mode-tile__status-dot--${tone}`} aria-hidden="true" />
         <div className="display-mode-tile__identity">
-          <div
-            className="display-mode-tile__drag-handle"
-            {...dragHandleProps.attributes}
-            {...dragHandleProps.listeners}
-            aria-label="Drag to reorder"
-            title="Drag to reorder"
-          >
-            ⠿
-          </div>
-          <span className={`display-mode-tile__status display-mode-tile__status--${status}`} aria-hidden="true" />
-          <div>
-            <div className="display-mode-tile__workspace">{record.workspace.name}</div>
-            <h2>{record.session.title}</h2>
-          </div>
+          <div className="display-mode-tile__workspace">{record.workspace.name}</div>
+          <div className="display-mode-tile__title">{record.session.title}</div>
         </div>
-        <button className="display-mode-tile__expand" type="button" onClick={onToggleExpanded}>
-          {expanded ? "Compact" : "Expand"}
-        </button>
+        <div className="display-mode-tile__meta">
+          <span className={`display-mode-tile__status-label display-mode-tile__status-label--${tone}`}>{statusLabel(record.session)}</span>
+          <span className="display-mode-tile__time">{formatRelativeTime(record.session.updatedAt)}</span>
+        </div>
       </header>
 
-      <div className="display-mode-tile__meta">
-        <span>{statusLabel(record.session)}</span>
-        <span>{record.session.status === "running" && record.session.runningSince ? formatRelativeTime(record.session.runningSince) : formatRelativeTime(record.session.updatedAt)}</span>
-        <span>{changedFiles.length} changed files</span>
+      {/* Actions row */}
+      <div className="display-mode-tile__actions">
+        <button className="button button--primary display-mode-tile__action-primary" type="button" onClick={onOpenThread}>Open thread</button>
+        <button className={`button${terminalOpen ? " display-mode-tile__action-active" : ""}`} type="button" onClick={onToggleTerminal}><TerminalIcon /> Terminal</button>
+        <button className="button" type="button" onClick={onOpenVSCode}>VS Code</button>
+        <button className={`button${isPinned ? " display-mode-tile__action-active" : ""}`} type="button" onClick={onPinPreview}><MaximizeIcon /> Pin</button>
       </div>
 
-      {expanded ? (
-        <>
-          <section className="display-mode-tile__section">
-            <div className="display-mode-tile__section-title">Chat</div>
-            <div className="display-mode-tile__timeline">
-              {recentTranscript.length > 0 ? recentTranscript.map((item) => (
-                <TimelineItem item={item} key={item.id} />
-              )) : <div className="display-mode-tile__empty">No transcript yet.</div>}
-            </div>
-          </section>
+      {/* Transcript */}
+      <div className="display-mode-tile__transcript">
+        {recentMessages.length > 0 ? (
+          recentMessages.map((item) => <TimelineItem item={item} key={item.id} />)
+        ) : (
+          <div className="display-mode-tile__empty-state">No messages yet</div>
+        )}
+      </div>
 
-          <section className="display-mode-tile__section">
-            <div className="display-mode-tile__section-title">Diff</div>
-            {changedFiles.length > 0 ? (
-              <div className="display-mode-tile__files">
-                {changedFiles.slice(0, 4).map((file) => (
-                  <div className="display-mode-tile__file" key={file.path}>
-                    <span>{file.path}</span>
-                    <span className={`display-mode-tile__file-badge display-mode-tile__file-badge--${file.status}`}>
-                      {fileStatusBadge(file.status)}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="display-mode-tile__empty">No changed files detected.</div>
-            )}
-          </section>
-
-          {terminalOpen ? (
-            <TerminalPanel
-              workspace={record.workspace}
-              sessionId={record.session.id}
-              height={260}
-              isTakeover={false}
-              onHeightChange={() => undefined}
-              onToggleTakeover={() => undefined}
-              onHide={onToggleTerminal}
-            />
-          ) : null}
-
-          <ComposerSurface
-            attachments={[]}
-            composerDraft={replyDraft}
-            composerRef={composerRef}
-            editingQueuedMessageId={undefined}
-            footer={(
-              <div className="display-mode-tile__composer-footer">
-                <span>{record.session.status === "running" ? "Enter to queue · Shift+Enter newline" : "Enter to send · Shift+Enter newline"}</span>
-                <button
-                  aria-label={record.session.status === "running" && !hasReplyInput ? "Stop run" : "Send reply"}
-                  className="button button--primary button--cta-icon"
-                  type="button"
-                  disabled={submitting || !hasReplyInput}
-                  onClick={submitReply}
-                >
-                  {record.session.status === "running" && !hasReplyInput ? <StopSquareIcon /> : <ArrowUpIcon />}
-                </button>
-              </div>
-            )}
-            onCancelQueuedEdit={() => undefined}
-            onClearSlashCommand={() => undefined}
-            onComposerDrop={(event) => event.preventDefault()}
-            onComposerKeyDown={handleComposerKeyDown}
-            onComposerPaste={() => undefined}
-            onEditQueuedMessage={() => undefined}
-            onRemoveAttachment={() => undefined}
-            onRemoveQueuedMessage={() => undefined}
-            onSelectMention={() => undefined}
-            onSelectSlashCommand={() => undefined}
-            onSelectSlashOption={() => undefined}
-            onSteerQueuedMessage={() => undefined}
-            queuedMessages={[]}
-            selectedMentionIndex={0}
-            setComposerDraft={setReplyDraft}
-            showMentionMenu={false}
-            mentionOptions={[]}
-            selectedSlashCommand={undefined}
-            selectedSlashOption={undefined}
-            showSlashMenu={false}
-            showSlashOptionMenu={false}
-            slashOptions={[]}
-            slashSections={[]}
-            textareaLabel={`Reply to ${record.session.title}`}
-            textareaPlaceholder="Reply to this thread…"
-            textareaTestId={`display-mode-reply-${key}`}
+      {/* Terminal (when open) */}
+      {terminalOpen && (
+        <div className="display-mode-tile__terminal">
+          <TerminalPanel
+            workspace={record.workspace}
+            sessionId={record.session.id}
+            height={200}
+            isTakeover={false}
+            onHeightChange={() => undefined}
+            onToggleTakeover={() => undefined}
+            onHide={onToggleTerminal}
           />
-        </>
-      ) : (
-        <div className="display-mode-tile__compact-summary">
-          <span>{record.session.preview || "No preview yet"}</span>
-          <span>{changedFiles.length > 0 ? `${changedFiles.length} files changed` : "No changes"}</span>
         </div>
       )}
 
-      <footer className="display-mode-tile__actions">
-        <button className="button button--primary display-mode-tile__action-open" type="button" onClick={onOpenThread}>Open thread</button>
-        <button className="button" type="button" onClick={onToggleTerminal}><TerminalIcon /> Terminal</button>
-        <button className="button" type="button" onClick={onOpenVSCode}>VS Code</button>
-        <button className="button" type="button" onClick={onPinPreview}><MaximizeIcon /> Pin preview</button>
-      </footer>
-
-      <div className="display-mode-tile__shortcuts-hint">
-        <kbd>O</kbd> open · <kbd>T</kbd> terminal · <kbd>V</kbd> VS Code · <kbd>E</kbd> expand
+      {/* Reply — uses real .composer CSS so it looks identical to thread view */}
+      <div className="composer display-mode-tile__reply">
+        <div className="composer__surface">
+          <div className="composer__editor">
+            <textarea
+              ref={textareaRef}
+              placeholder={`Reply to ${record.session.title}…`}
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={handleKeyDown}
+              rows={1}
+            />
+          </div>
+          <div className="display-mode-tile__reply-bar">
+            <span className="display-mode-tile__reply-hint">Enter to send · Shift+Enter newline</span>
+            <button
+              className="button button--primary button--cta-icon"
+              type="button"
+              disabled={submitting || !draft.trim()}
+              onClick={submit}
+              aria-label="Send reply"
+            >
+              <ArrowUpIcon />
+            </button>
+          </div>
+        </div>
       </div>
     </article>
   );
 }
 
-/* ── Helpers ───────────────────────────────────────────────────────── */
+/* ── Helpers ──────────────────────────────────────────────────────── */
 
 function threadKey(workspaceId: string, sessionId: string): string {
   return `${workspaceId}:${sessionId}`;
@@ -652,17 +557,11 @@ function matchesFilter(session: SessionRecord, filter: DisplayModeFilter): boole
   return false;
 }
 
-function drawerTabLabel(tab: DrawerTab): string {
-  if (tab === "preview") return "Preview";
-  if (tab === "logs") return "Logs";
-  return "Files";
-}
-
 function filterLabel(filter: DisplayModeFilter): string {
-  if (filter === "all") return "All";
   if (filter === "running") return "Running";
   if (filter === "waiting") return "Waiting";
-  return "Error";
+  if (filter === "error") return "Error";
+  return "All";
 }
 
 function statusTone(session: SessionRecord): "running" | "waiting" | "error" | "idle" {
@@ -673,14 +572,14 @@ function statusTone(session: SessionRecord): "running" | "waiting" | "error" | "
 }
 
 function statusLabel(session: SessionRecord): string {
-  const tone = statusTone(session);
-  if (tone === "running") return "Running";
-  if (tone === "waiting") return "Waiting for input";
-  if (tone === "error") return "Error";
+  const t = statusTone(session);
+  if (t === "running") return "Running";
+  if (t === "waiting") return "Needs reply";
+  if (t === "error") return "Error";
   return "Idle";
 }
 
-function fileStatusBadge(status: ChangedFile["status"]): string {
+function fileBadge(status: ChangedFile["status"]): string {
   if (status === "added") return "A";
   if (status === "deleted") return "D";
   if (status === "untracked") return "U";
@@ -689,9 +588,7 @@ function fileStatusBadge(status: ChangedFile["status"]): string {
 
 function isHttpUrl(value: string): boolean {
   try {
-    const parsed = new URL(value);
-    return parsed.protocol === "http:" || parsed.protocol === "https:";
-  } catch {
-    return false;
-  }
+    const p = new URL(value);
+    return p.protocol === "http:" || p.protocol === "https:";
+  } catch { return false; }
 }
