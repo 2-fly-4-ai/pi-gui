@@ -526,6 +526,9 @@ app.whenReady().then(async () => {
   ipcMain.handle(desktopIpc.selectSession, (_event, target: WorkspaceSessionTarget) =>
     store.selectSession(target),
   );
+  ipcMain.handle(desktopIpc.renameSession, (_event, target: WorkspaceSessionTarget, title: string) =>
+    store.renameSession(target, title),
+  );
   ipcMain.handle(desktopIpc.archiveSession, (_event, target: WorkspaceSessionTarget) =>
     store.archiveSession(target),
   );

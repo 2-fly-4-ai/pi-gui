@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   DndContext,
   DragOverlay,
@@ -14,7 +14,7 @@ import {
 import { arrayMove, SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import type { AppView, SessionRecord, WorkspaceRecord, WorktreeRecord } from "./desktop-state";
-import { ArchiveIcon, ChevronDownIcon, ExtensionIcon, FolderIcon, MaximizeIcon, PlusIcon, RestoreIcon, SettingsIcon, SkillIcon, WorktreeIcon } from "./icons";
+import { ChevronDownIcon, ExtensionIcon, FolderIcon, MaximizeIcon, PlusIcon, SettingsIcon, SkillIcon, WorktreeIcon } from "./icons";
 import type { PiDesktopApi } from "./ipc";
 import { formatRelativeTime } from "./string-utils";
 import type { WorkspaceMenuState } from "./hooks/use-workspace-menu";
@@ -470,12 +470,8 @@ function WorkspaceGroupContent(
                   key={`${thread.workspaceId}:${thread.session.id}`}
                   active={active}
                   thread={thread}
-                  onAction={() =>
-                    onArchiveSession({
-                      workspaceId: thread.workspaceId,
-                      sessionId: thread.session.id,
-                    })
-                  }
+                  onArchive={() => onArchiveSession({ workspaceId: thread.workspaceId, sessionId: thread.session.id })}
+                  onRename={(title) => void api.renameSession({ workspaceId: thread.workspaceId, sessionId: thread.session.id }, title)}
                   onSelect={() => onSelectSession({ workspaceId: thread.workspaceId, sessionId: thread.session.id })}
                 />
               );
@@ -509,12 +505,8 @@ function WorkspaceGroupContent(
                         active={active}
                         archived
                         thread={thread}
-                        onAction={() =>
-                          onUnarchiveSession({
-                            workspaceId: thread.workspaceId,
-                            sessionId: thread.session.id,
-                          })
-                        }
+                        onArchive={() => onUnarchiveSession({ workspaceId: thread.workspaceId, sessionId: thread.session.id })}
+                        onRename={(title) => void api.renameSession({ workspaceId: thread.workspaceId, sessionId: thread.session.id }, title)}
                         onSelect={() => onSelectSession({ workspaceId: thread.workspaceId, sessionId: thread.session.id })}
                       />
                     );
@@ -532,12 +524,8 @@ function WorkspaceGroupContent(
 /* ── Thread session row ────────────────────────────────── */
 
 function sessionIndicatorVariant(thread: ThreadListEntry): "running" | "unseen" | "none" {
-  if (thread.session.status === "running") {
-    return "running";
-  }
-  if (thread.session.hasUnseenUpdate) {
-    return "unseen";
-  }
+  if (thread.session.status === "running") return "running";
+  if (thread.session.hasUnseenUpdate) return "unseen";
   return "none";
 }
 
@@ -545,49 +533,132 @@ function ThreadSessionRow({
   active,
   archived = false,
   thread,
-  onAction,
+  onArchive,
+  onRename,
   onSelect,
 }: {
   readonly active: boolean;
   readonly archived?: boolean;
   readonly thread: ThreadListEntry;
-  readonly onAction: () => void;
+  readonly onArchive: () => void;
+  readonly onRename: (title: string) => void;
   readonly onSelect: () => void;
 }) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [renaming, setRenaming] = useState(false);
+  const [renameDraft, setRenameDraft] = useState("");
+  const menuWrapRef = useRef<HTMLSpanElement | null>(null);
+  const renameInputRef = useRef<HTMLInputElement | null>(null);
   const indicatorVariant = sessionIndicatorVariant(thread);
+
+  // Close menu on outside click
+  useEffect(() => {
+    if (!menuOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (menuWrapRef.current && !menuWrapRef.current.contains(e.target as Node)) {
+        setMenuOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [menuOpen]);
+
+  // Focus rename input when it opens
+  useEffect(() => {
+    if (renaming) renameInputRef.current?.select();
+  }, [renaming]);
+
+  const startRename = () => {
+    setMenuOpen(false);
+    setRenameDraft(thread.session.title);
+    setRenaming(true);
+  };
+
+  const submitRename = () => {
+    const t = renameDraft.trim();
+    if (t && t !== thread.session.title) onRename(t);
+    setRenaming(false);
+  };
+
+  const copyTitle = () => {
+    setMenuOpen(false);
+    void navigator.clipboard.writeText(thread.session.title);
+  };
+
   return (
     <div
       className={`session-row ${active ? "session-row--active" : ""}`}
       data-sidebar-indicator={indicatorVariant}
       data-session-id={thread.session.id}
+      data-menu-open={menuOpen || undefined}
     >
       <button className="session-row__select" onClick={onSelect} type="button">
         <span className="session-row__leading" aria-hidden="true">
           {indicatorVariant === "running" ? <span className="session-row__status session-row__status--running" /> : null}
           {indicatorVariant === "unseen" ? <span className="session-row__status session-row__status--unseen" /> : null}
         </span>
-        <span className="session-row__body">
-          <span className="session-row__title-line">
-            <span className="session-row__title">{thread.session.title}</span>
+        {renaming ? (
+          <span className="session-row__rename" onClick={(e) => e.stopPropagation()}>
+            <input
+              ref={renameInputRef}
+              className="session-row__rename-input"
+              value={renameDraft}
+              onChange={(e) => setRenameDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") { e.preventDefault(); submitRename(); }
+                if (e.key === "Escape") { e.preventDefault(); setRenaming(false); }
+              }}
+              onBlur={submitRename}
+            />
           </span>
-          {thread.session.preview ? <span className="session-row__preview">{thread.session.preview}</span> : null}
-        </span>
+        ) : (
+          <span className="session-row__body">
+            <span className="session-row__title-line">
+              <span className="session-row__title">{thread.session.title}</span>
+            </span>
+            {thread.session.preview ? <span className="session-row__preview">{thread.session.preview}</span> : null}
+          </span>
+        )}
       </button>
       <span className="session-row__trailing">
-        {thread.environment.kind === "worktree" ? (
+        {thread.environment.kind === "worktree" && !renaming ? (
           <span className="session-row__workspace-icon" aria-hidden="true" title="Worktree">
             <WorktreeIcon />
           </span>
         ) : null}
-        <span className="session-row__time">{formatRelativeTime(thread.session.updatedAt)}</span>
-        <button
-          aria-label={`${archived ? "Restore" : "Archive"} ${thread.session.title}`}
-          className="icon-button session-row__action"
-          type="button"
-          onClick={onAction}
-        >
-          {archived ? <RestoreIcon /> : <ArchiveIcon />}
-        </button>
+        {!renaming && <span className="session-row__time">{formatRelativeTime(thread.session.updatedAt)}</span>}
+        {!renaming && (
+          <span className="session-row__menu-wrap" ref={menuWrapRef}>
+            <button
+              aria-label={`Thread actions for ${thread.session.title}`}
+              aria-haspopup="menu"
+              aria-expanded={menuOpen}
+              className="icon-button session-row__action"
+              type="button"
+              onClick={(e) => { e.stopPropagation(); setMenuOpen((o) => !o); }}
+            >
+              …
+            </button>
+            {menuOpen && (
+              <div className="session-row__menu" role="menu">
+                <button className="session-row__menu-item" type="button" role="menuitem" onClick={startRename}>
+                  Rename
+                </button>
+                <button
+                  className="session-row__menu-item"
+                  type="button"
+                  role="menuitem"
+                  onClick={() => { setMenuOpen(false); onArchive(); }}
+                >
+                  {archived ? "Restore" : "Archive"}
+                </button>
+                <button className="session-row__menu-item" type="button" role="menuitem" onClick={copyTitle}>
+                  Copy title
+                </button>
+              </div>
+            )}
+          </span>
+        )}
       </span>
     </div>
   );

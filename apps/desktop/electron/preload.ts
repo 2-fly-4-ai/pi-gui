@@ -142,6 +142,8 @@ contextBridge.exposeInMainWorld("piApp", {
     ipcRenderer.invoke(desktopIpc.syncCurrentWorkspace) as Promise<DesktopAppState>,
   selectSession: (target: WorkspaceSessionTarget) =>
     ipcRenderer.invoke(desktopIpc.selectSession, target) as Promise<DesktopAppState>,
+  renameSession: (target: WorkspaceSessionTarget, title: string) =>
+    ipcRenderer.invoke(desktopIpc.renameSession, target, title) as Promise<DesktopAppState>,
   archiveSession: (target: WorkspaceSessionTarget) =>
     ipcRenderer.invoke(desktopIpc.archiveSession, target) as Promise<DesktopAppState>,
   unarchiveSession: (target: WorkspaceSessionTarget) =>

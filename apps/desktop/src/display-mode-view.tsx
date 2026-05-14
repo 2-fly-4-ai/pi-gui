@@ -393,12 +393,26 @@ function DisplayModeTile({
   readonly onPinPreview: () => void;
   readonly onToggleTerminal: () => void;
 }) {
+  const [renaming, setRenaming] = useState(false);
+  const [renameDraft, setRenameDraft] = useState("");
+  const renameInputRef = useRef<HTMLInputElement | null>(null);
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
   const [draft, setDraft] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const tone = statusTone(record.session);
   const recentMessages = record.transcript.slice(-8);
+
+  useEffect(() => { if (renaming) renameInputRef.current?.select(); }, [renaming]);
+
+  const startRename = () => { setRenameDraft(record.session.title); setRenaming(true); };
+  const submitRename = () => {
+    const t = renameDraft.trim();
+    if (t && t !== record.session.title) {
+      void api.renameSession({ workspaceId: record.workspace.id, sessionId: record.session.id }, t);
+    }
+    setRenaming(false);
+  };
 
   useEffect(() => {
     let active = true;
@@ -462,7 +476,29 @@ function DisplayModeTile({
         <span className={`display-mode-tile__status-dot display-mode-tile__status-dot--${tone}`} aria-hidden="true" />
         <div className="display-mode-tile__identity">
           <div className="display-mode-tile__workspace">{record.workspace.name}</div>
-          <div className="display-mode-tile__title">{record.session.title}</div>
+          {renaming ? (
+            <input
+              ref={renameInputRef}
+              className="display-mode-tile__rename-input"
+              value={renameDraft}
+              onChange={(e) => setRenameDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") { e.preventDefault(); submitRename(); }
+                if (e.key === "Escape") { e.preventDefault(); setRenaming(false); }
+              }}
+              onBlur={submitRename}
+              onClick={(e) => e.stopPropagation()}
+            />
+          ) : (
+            <button
+              className="display-mode-tile__title display-mode-tile__title--editable"
+              type="button"
+              title="Click to rename"
+              onClick={(e) => { e.stopPropagation(); startRename(); }}
+            >
+              {record.session.title}
+            </button>
+          )}
         </div>
         <div className="display-mode-tile__meta">
           <span className={`display-mode-tile__status-label display-mode-tile__status-label--${tone}`}>{statusLabel(record.session)}</span>
