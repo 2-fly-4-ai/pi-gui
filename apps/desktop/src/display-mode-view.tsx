@@ -38,6 +38,7 @@ export function DisplayModeView({ api }: { readonly api: PiDesktopApi }) {
   const [threads, setThreads] = useState<readonly DisplayModeThreadRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<DisplayModeFilter>("all");
+  const [workspaceFilter, setWorkspaceFilter] = useState<string>("");
   const [terminalKeys, setTerminalKeys] = useState<ReadonlySet<string>>(() => new Set());
   const [drawerTab, setDrawerTab] = useState<DrawerTab>("preview");
   const [previewUrl, setPreviewUrl] = useState("http://localhost:5173");
@@ -105,9 +106,18 @@ export function DisplayModeView({ api }: { readonly api: PiDesktopApi }) {
     return () => { active = false; clearTimeout(pendingRefresh.current); unsub(); };
   }, [api, applyRecords]);
 
+  const uniqueWorkspaces = useMemo(() => {
+    const seen = new Map<string, string>();
+    for (const r of threads) seen.set(r.workspace.id, r.workspace.name);
+    return [...seen.entries()].map(([id, name]) => ({ id, name }));
+  }, [threads]);
+
   const visibleThreads = useMemo(
-    () => threads.filter((r) => matchesFilter(r.session, filter)),
-    [filter, threads],
+    () => threads.filter((r) =>
+      matchesFilter(r.session, filter) &&
+      (workspaceFilter === "" || r.workspace.id === workspaceFilter),
+    ),
+    [filter, workspaceFilter, threads],
   );
 
   const visibleKeysStr = useMemo(
@@ -212,6 +222,19 @@ export function DisplayModeView({ api }: { readonly api: PiDesktopApi }) {
                 </button>
               ))}
             </div>
+            {uniqueWorkspaces.length > 1 && (
+              <select
+                className="display-mode__project-select"
+                value={workspaceFilter}
+                onChange={(e) => setWorkspaceFilter(e.target.value)}
+                aria-label="Filter by project"
+              >
+                <option value="">All projects</option>
+                {uniqueWorkspaces.map((ws) => (
+                  <option key={ws.id} value={ws.id}>{ws.name}</option>
+                ))}
+              </select>
+            )}
             <div className="display-mode__summary">
               <span><strong>{runningCount}</strong> running</span>
               <span><strong>{errorCount}</strong> errors</span>

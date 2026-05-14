@@ -3555,6 +3555,25 @@ mark.thread-find-active {
   color: #fff;
 }
 
+.display-mode__project-select {
+  height: 32px;
+  padding: 0 28px 0 10px;
+  border-radius: 999px;
+  border: 1px solid #dde2ed;
+  background: #fff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' fill='none'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%236b7280' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") no-repeat right 10px center;
+  appearance: none;
+  color: var(--text-strong);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.display-mode__project-select:focus {
+  outline: none;
+  border-color: rgba(84, 99, 220, 0.4);
+  box-shadow: 0 0 0 3px rgba(84, 99, 220, 0.08);
+}
+
 .display-mode__pause-btn {
   border: 1px solid #d8dde9;
   background: #fff;
@@ -4128,4 +4147,5 @@ mark.thread-find-active {
 :root.dark .display-mode-drawer__detected-url { background: var(--surface-muted); border-color: var(--line); }
 :root.dark .display-mode-log-entry,
 :root.dark .display-mode-drawer__file { background: var(--surface-muted); border-color: var(--line); }
+:root.dark .display-mode__project-select { background-color: var(--surface); border-color: var(--line); color: var(--text-strong); background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' fill='none'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%239ba3b4' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E"); }
 :root.dark .display-mode__pause-btn { background: var(--surface); border-color: var(--line); }
