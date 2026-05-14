@@ -48,6 +48,7 @@ interface ComposerSurfaceProps {
   readonly textareaTestId: string;
   readonly textareaPlaceholder: string;
   readonly textareaClassName?: string;
+  readonly compactSlashDescriptions?: boolean;
   readonly extensionDock?: ExtensionDockModel;
   readonly extensionDockExpanded?: boolean;
   readonly onToggleExtensionDock?: () => void;
@@ -91,6 +92,7 @@ export function ComposerSurface({
   textareaTestId,
   textareaPlaceholder,
   textareaClassName,
+  compactSlashDescriptions = false,
   extensionDock,
   extensionDockExpanded = false,
   onToggleExtensionDock,
@@ -246,7 +248,11 @@ export function ComposerSurface({
         {showSlashMenu || (showSlashOptionMenu && selectedSlashCommand) ? (
           <div className="composer__menus">
             {showSlashMenu ? (
-              <div className="slash-menu" data-testid="slash-menu" onWheel={(event) => event.stopPropagation()}>
+              <div
+                className={`slash-menu${compactSlashDescriptions ? " slash-menu--compact-descriptions" : ""}`}
+                data-testid="slash-menu"
+                onWheel={(event) => event.stopPropagation()}
+              >
                 {slashSections.map((section) => (
                   <div className="slash-menu__section" key={section.id}>
                     {section.title ? (
@@ -276,7 +282,7 @@ export function ComposerSurface({
                                 <span className="slash-menu__skill-badge slash-menu__skill-badge--warning">Terminal-only</span>
                               ) : null}
                             </span>
-                            <span className="slash-menu__description">{command.description}</span>
+                            <span className="slash-menu__description">{formatSlashDescription(command.description, compactSlashDescriptions)}</span>
                             <span className="slash-menu__meta">
                               <span className="slash-menu__command slash-menu__command--skill">{command.command}</span>
                             </span>
@@ -287,7 +293,7 @@ export function ComposerSurface({
                               <span className="slash-menu__title">{command.title}</span>
                               <span className="slash-menu__command">{command.command}</span>
                             </span>
-                            <span className="slash-menu__description">{command.description}</span>
+                            <span className="slash-menu__description">{formatSlashDescription(command.description, compactSlashDescriptions)}</span>
                           </span>
                         )}
                       </button>
@@ -352,4 +358,14 @@ function SlashCommandIcon({ command }: { readonly command: ComposerSlashCommand 
     default:
       return <SparkIcon />;
   }
+}
+
+function formatSlashDescription(description: string, compact: boolean): string {
+  const normalized = description.trim().replace(/\s+/g, " ");
+  if (!compact) {
+    return normalized;
+  }
+
+  const firstSentence = normalized.match(/^[^.!?]+[.!?]?/)?.[0]?.trim() ?? normalized;
+  return firstSentence.length > 72 ? `${firstSentence.slice(0, 69).trimEnd()}...` : firstSentence;
 }

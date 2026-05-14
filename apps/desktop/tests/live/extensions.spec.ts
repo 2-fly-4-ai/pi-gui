@@ -104,6 +104,17 @@ export default function packageNamedExtension(pi) {
 }
 `;
 
+const packageSecondExtensionSource = String.raw`
+export default function packageSecondExtension(pi) {
+  pi.registerCommand("package-second-command", {
+    description: "Second command from the same package",
+    handler: async (_args, ctx) => {
+      ctx.ui.notify("second package-backed extension", "info");
+    },
+  });
+}
+`;
+
 async function expandDock(window: Page) {
   const toggle = window.getByTestId("extension-dock-toggle");
   await toggle.click();
@@ -120,7 +131,7 @@ async function writePackageBackedExtension(packagePath: string) {
         name: "unrelated-package-name",
         type: "module",
         pi: {
-          extensions: ["./extension/index.ts"],
+          extensions: ["./extension/index.ts", "./extension/second.ts"],
         },
       },
       null,
@@ -128,6 +139,7 @@ async function writePackageBackedExtension(packagePath: string) {
     )}\n`,
   );
   await writeFile(join(extensionDir, "index.ts"), `${packageExtensionSource}\n`);
+  await writeFile(join(extensionDir, "second.ts"), `${packageSecondExtensionSource}\n`);
 }
 
 async function installPackageBackedExtension(agentDir: string, packagePath: string) {
@@ -162,11 +174,15 @@ test("labels local package extensions by package root instead of index entrypoin
     const extensionCard = window.getByTestId("extensions-list").getByRole("button", {
       name: /local-package-extension/i,
     });
+    await expect(extensionCard).toHaveCount(1);
     await expect(extensionCard).toBeVisible();
     await extensionCard.click();
 
     await expect(window.locator(".skill-detail h2")).toHaveText("local-package-extension");
     await expect(window.locator(".skill-detail")).toContainText("package-named-command");
+    await expect(window.locator(".skill-detail")).toContainText("package-second-command");
+    await expect(window.locator(".skill-detail")).toContainText("index.ts");
+    await expect(window.locator(".skill-detail")).toContainText("second.ts");
     await expect(window.locator(".skill-detail")).toContainText(packagePath);
   } finally {
     await harness.close();

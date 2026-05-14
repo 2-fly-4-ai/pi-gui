@@ -56,6 +56,28 @@ test("opens Display Mode from the sidebar and renders thread command-center tile
     await expect(window.getByTestId("display-mode-thread-tile").first()).toContainText("Display mode assistant tile transcript");
     await expect(window.getByPlaceholder("Reply to Display mode seed thread…")).toBeVisible();
 
+    const sidebarToggle = window.getByTestId("sidebar-toggle");
+    await sidebarToggle.click();
+    await expect.poll(async () => window.evaluate(() => window.piApp?.getState().then((state) => state.sidebarCollapsed) ?? false)).toBe(true);
+    await expect(window.locator(".sidebar")).toHaveCount(0);
+    await expect(sidebarToggle).toBeVisible();
+    await sidebarToggle.click();
+    await expect.poll(async () => window.evaluate(() => window.piApp?.getState().then((state) => state.sidebarCollapsed) ?? true)).toBe(false);
+    await expect(window.locator(".sidebar")).toBeVisible();
+
+    const firstTile = window.getByTestId("display-mode-thread-tile").first();
+    await firstTile.locator("textarea").fill("/");
+    await expect(firstTile.getByTestId("slash-menu")).toContainText("Host Actions");
+    await expect.poll(async () => firstTile.evaluate((tile) => {
+      const menu = tile.querySelector<HTMLElement>("[data-testid='slash-menu']");
+      const reply = tile.querySelector<HTMLElement>(".display-mode-tile__reply");
+      if (!menu || !reply) return false;
+      const tileOverflow = window.getComputedStyle(tile).overflow;
+      const replyZIndex = Number(window.getComputedStyle(reply).zIndex);
+      return tileOverflow === "visible" && replyZIndex > 0;
+    })).toBe(true);
+    await firstTile.locator("textarea").fill("");
+
     await window.getByTestId("display-mode-thread-tile").first().getByRole("button", { name: "Terminal" }).click();
     await expect(window.locator(".display-mode-tile__terminal").first()).toBeVisible();
     await expect(window.locator(".terminal-stack")).toHaveCount(0);

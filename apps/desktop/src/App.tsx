@@ -2139,6 +2139,12 @@ export default function App() {
             vsCodeFolderPath={vsCodeFolderPath}
             onToggleVsCode={toggleVsCode}
             onOpenVsCodeForWorkspace={openVsCodeForWorkspace}
+            runtimeByWorkspace={snapshot.runtimeByWorkspace}
+            sessionCommandsBySession={snapshot.sessionCommandsBySession}
+            commandCompatibilityByWorkspace={snapshot.extensionCommandCompatibilityByWorkspace}
+            setSnapshot={setSnapshot}
+            openSettings={openSettings}
+            updateSnapshot={updateSnapshot}
           />
         ) : snapshot.activeView === "new-thread" ? (
           rootWorkspaceOptions.length > 0 ? (

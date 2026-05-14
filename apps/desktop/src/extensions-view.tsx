@@ -3,6 +3,19 @@ import type { RuntimeExtensionRecord, RuntimeSnapshot } from "@pi-gui/session-dr
 import type { ExtensionCommandCompatibilityRecord, WorkspaceRecord } from "./desktop-state";
 import { RefreshIcon } from "./icons";
 
+interface ExtensionGroup {
+  readonly id: string;
+  readonly displayName: string;
+  readonly sourceInfo: RuntimeExtensionRecord["sourceInfo"];
+  readonly extensions: readonly RuntimeExtensionRecord[];
+  readonly enabledCount: number;
+  readonly commands: readonly string[];
+  readonly tools: readonly string[];
+  readonly flags: readonly string[];
+  readonly shortcuts: readonly string[];
+  readonly diagnostics: RuntimeExtensionRecord["diagnostics"];
+}
+
 interface ExtensionsViewProps {
   readonly workspace?: WorkspaceRecord;
   readonly runtime?: RuntimeSnapshot;
@@ -21,39 +34,41 @@ export function ExtensionsView({
   onToggleExtension,
 }: ExtensionsViewProps) {
   const [query, setQuery] = useState("");
-  const [selectedExtensionPath, setSelectedExtensionPath] = useState<string | undefined>();
+  const [selectedGroupId, setSelectedGroupId] = useState<string | undefined>();
   const extensions = runtime?.extensions ?? [];
-  const filteredExtensions = useMemo(() => {
+  const extensionGroups = useMemo(() => groupExtensions(extensions), [extensions]);
+  const filteredGroups = useMemo(() => {
     const normalized = query.trim().toLowerCase();
     if (!normalized) {
-      return extensions;
+      return extensionGroups;
     }
 
-    return extensions.filter((extension) =>
+    return extensionGroups.filter((group) =>
       [
-        extension.displayName,
-        extension.path,
-        extension.sourceInfo.source,
-        extension.sourceInfo.scope,
-        extension.sourceInfo.origin,
-        ...extension.commands,
-        ...extension.tools,
-        ...extension.flags,
-        ...extension.shortcuts,
-        ...extension.diagnostics.map((diagnostic) => diagnostic.message),
+        group.displayName,
+        group.sourceInfo.source,
+        group.sourceInfo.scope,
+        group.sourceInfo.origin,
+        group.sourceInfo.baseDir ?? "",
+        ...group.extensions.map((extension) => extension.path),
+        ...group.commands,
+        ...group.tools,
+        ...group.flags,
+        ...group.shortcuts,
+        ...group.diagnostics.map((diagnostic) => diagnostic.message),
       ].some((value) => value.toLowerCase().includes(normalized)),
     );
-  }, [extensions, query]);
-  const selectedExtension =
-    filteredExtensions.find((extension) => extension.path === selectedExtensionPath) ?? filteredExtensions[0];
+  }, [extensionGroups, query]);
+  const selectedGroup =
+    filteredGroups.find((group) => group.id === selectedGroupId) ?? filteredGroups[0];
   const selectedCompatibilityRecords = useMemo(
     () =>
-      selectedExtension
+      selectedGroup
         ? commandCompatibility
-            .filter((record) => record.extensionPath === selectedExtension.path)
+            .filter((record) => selectedGroup.extensions.some((extension) => extension.path === record.extensionPath))
             .sort((left, right) => left.commandName.localeCompare(right.commandName))
         : [],
-    [commandCompatibility, selectedExtension],
+    [commandCompatibility, selectedGroup],
   );
 
   if (!workspace) {
@@ -101,32 +116,33 @@ export function ExtensionsView({
 
         <div className="skills-layout">
           <div className="skills-grid" data-testid="extensions-list">
-            {filteredExtensions.length === 0 ? (
+            {filteredGroups.length === 0 ? (
               <ExtensionsEmptyState message="Refresh runtime discovery to load workspace and user-level extensions." />
             ) : (
-              filteredExtensions.map((extension) => (
+              filteredGroups.map((group) => (
                 <button
-                  className={`skill-card ${selectedExtension?.path === extension.path ? "skill-card--active" : ""}`}
-                  key={extension.path}
+                  className={`skill-card ${selectedGroup?.id === group.id ? "skill-card--active" : ""}`}
+                  key={group.id}
                   type="button"
                   onClick={() => {
-                    setSelectedExtensionPath(extension.path);
+                    setSelectedGroupId(group.id);
                   }}
                 >
                   <span className="skill-card__title-row">
-                    <span className="skill-card__title">{extension.displayName}</span>
-                    <span className={`skill-card__badge ${extension.enabled ? "skill-card__badge--enabled" : ""}`}>
-                      {extension.enabled ? "Enabled" : "Disabled"}
+                    <span className="skill-card__title">{group.displayName}</span>
+                    <span className={`skill-card__badge ${group.enabledCount > 0 ? "skill-card__badge--enabled" : ""}`}>
+                      {formatGroupEnabledLabel(group)}
                     </span>
                   </span>
                   <span className="skill-card__description">
-                    {extension.sourceInfo.scope} · {extension.sourceInfo.origin}
+                    {group.sourceInfo.scope} · {group.sourceInfo.origin}
                   </span>
                   <span className="skill-card__meta">
-                    <span>{extension.sourceInfo.source}</span>
-                    {extension.commands.length > 0 ? <span>{extension.commands.length} commands</span> : null}
-                    {extension.tools.length > 0 ? <span>{extension.tools.length} tools</span> : null}
-                    {extension.diagnostics.length > 0 ? <span>{extension.diagnostics.length} issues</span> : null}
+                    <span>{group.sourceInfo.source}</span>
+                    {group.extensions.length > 1 ? <span>{group.extensions.length} entries</span> : null}
+                    {group.commands.length > 0 ? <span>{group.commands.length} commands</span> : null}
+                    {group.tools.length > 0 ? <span>{group.tools.length} tools</span> : null}
+                    {group.diagnostics.length > 0 ? <span>{group.diagnostics.length} issues</span> : null}
                   </span>
                 </button>
               ))
@@ -134,47 +150,40 @@ export function ExtensionsView({
           </div>
 
           <div className="skill-detail">
-            {selectedExtension ? (
+            {selectedGroup ? (
               <>
                 <div className="skill-detail__header">
                   <div>
-                    <h2>{selectedExtension.displayName}</h2>
-                    <div className="skill-detail__slash">{selectedExtension.sourceInfo.source}</div>
+                    <h2>{selectedGroup.displayName}</h2>
+                    <div className="skill-detail__slash">{selectedGroup.sourceInfo.source}</div>
                   </div>
-                  <span className={`skill-detail__status ${selectedExtension.enabled ? "skill-detail__status--enabled" : ""}`}>
-                    {selectedExtension.enabled ? "Enabled" : "Disabled"}
+                  <span className={`skill-detail__status ${selectedGroup.enabledCount > 0 ? "skill-detail__status--enabled" : ""}`}>
+                    {formatGroupEnabledLabel(selectedGroup)}
                   </span>
                 </div>
                 <div className="skill-detail__meta-list">
-                  <DetailItem label="Scope" value={selectedExtension.sourceInfo.scope} />
-                  <DetailItem label="Origin" value={selectedExtension.sourceInfo.origin} />
-                  <DetailItem label="Path" value={selectedExtension.path} mono />
-                  {selectedExtension.sourceInfo.baseDir ? (
-                    <DetailItem label="Base dir" value={selectedExtension.sourceInfo.baseDir} mono />
+                  <DetailItem label="Scope" value={selectedGroup.sourceInfo.scope} />
+                  <DetailItem label="Origin" value={selectedGroup.sourceInfo.origin} />
+                  {selectedGroup.sourceInfo.baseDir ? (
+                    <DetailItem label="Base dir" value={selectedGroup.sourceInfo.baseDir} mono />
                   ) : null}
                 </div>
                 <div className="skill-detail__actions">
-                  <button className="button button--secondary" type="button" onClick={() => onOpenExtensionFolder(selectedExtension.path)}>
+                  <button className="button button--secondary" type="button" onClick={() => onOpenExtensionFolder(selectedGroup.sourceInfo.baseDir ?? selectedGroup.extensions[0]?.path ?? "")}>
                     Open folder
-                  </button>
-                  <button
-                    className="button button--secondary"
-                    type="button"
-                    onClick={() => onToggleExtension(selectedExtension.path, !selectedExtension.enabled)}
-                  >
-                    {selectedExtension.enabled ? "Disable" : "Enable"}
                   </button>
                 </div>
 
-                <ExtensionContributionSection title="Commands" items={selectedExtension.commands} emptyLabel="No commands contributed." />
+                <ExtensionEntrypoints extensions={selectedGroup.extensions} onToggleExtension={onToggleExtension} />
+                <ExtensionContributionSection title="Commands" items={selectedGroup.commands} emptyLabel="No commands contributed." />
                 <ExtensionCompatibilitySection
-                  commands={selectedExtension.commands}
+                  commands={selectedGroup.commands}
                   compatibilityRecords={selectedCompatibilityRecords}
                 />
-                <ExtensionContributionSection title="Tools" items={selectedExtension.tools} emptyLabel="No tools contributed." />
-                <ExtensionContributionSection title="Flags" items={selectedExtension.flags} emptyLabel="No flags contributed." />
-                <ExtensionContributionSection title="Shortcuts" items={selectedExtension.shortcuts} emptyLabel="No shortcuts contributed." />
-                <ExtensionDiagnostics diagnostics={selectedExtension.diagnostics} />
+                <ExtensionContributionSection title="Tools" items={selectedGroup.tools} emptyLabel="No tools contributed." />
+                <ExtensionContributionSection title="Flags" items={selectedGroup.flags} emptyLabel="No flags contributed." />
+                <ExtensionContributionSection title="Shortcuts" items={selectedGroup.shortcuts} emptyLabel="No shortcuts contributed." />
+                <ExtensionDiagnostics diagnostics={selectedGroup.diagnostics} />
               </>
             ) : (
               <ExtensionsEmptyState message="Refresh runtime discovery to inspect extension metadata and diagnostics." />
@@ -184,6 +193,58 @@ export function ExtensionsView({
       </div>
     </section>
   );
+}
+
+function groupExtensions(extensions: readonly RuntimeExtensionRecord[]): readonly ExtensionGroup[] {
+  const groups = new Map<string, RuntimeExtensionRecord[]>();
+  for (const extension of extensions) {
+    const key = extension.sourceInfo.baseDir
+      ? `${extension.sourceInfo.scope}:${extension.sourceInfo.origin}:${extension.sourceInfo.baseDir}`
+      : `${extension.sourceInfo.scope}:${extension.sourceInfo.origin}:${extension.sourceInfo.source}`;
+    const existing = groups.get(key) ?? [];
+    existing.push(extension);
+    groups.set(key, existing);
+  }
+
+  return [...groups.entries()]
+    .map(([id, groupExtensions]) => {
+      const sortedExtensions = [...groupExtensions].sort((left, right) => left.path.localeCompare(right.path));
+      const first = sortedExtensions[0];
+      if (!first) {
+        throw new Error("Extension group unexpectedly empty");
+      }
+      return {
+        id,
+        displayName: first.displayName,
+        sourceInfo: first.sourceInfo,
+        extensions: sortedExtensions,
+        enabledCount: sortedExtensions.filter((extension) => extension.enabled).length,
+        commands: uniqueSorted(sortedExtensions.flatMap((extension) => extension.commands)),
+        tools: uniqueSorted(sortedExtensions.flatMap((extension) => extension.tools)),
+        flags: uniqueSorted(sortedExtensions.flatMap((extension) => extension.flags)),
+        shortcuts: uniqueSorted(sortedExtensions.flatMap((extension) => extension.shortcuts)),
+        diagnostics: sortedExtensions.flatMap((extension) => extension.diagnostics),
+      } satisfies ExtensionGroup;
+    })
+    .sort((left, right) =>
+      left.displayName === right.displayName
+        ? left.sourceInfo.source.localeCompare(right.sourceInfo.source)
+        : left.displayName.localeCompare(right.displayName),
+    );
+}
+
+function uniqueSorted(values: readonly string[]): readonly string[] {
+  return [...new Set(values)].sort((left, right) => left.localeCompare(right));
+}
+
+function formatGroupEnabledLabel(group: ExtensionGroup): string {
+  if (group.enabledCount === group.extensions.length) {
+    return "Enabled";
+  }
+  if (group.enabledCount === 0) {
+    return "Disabled";
+  }
+  return `${group.enabledCount}/${group.extensions.length} enabled`;
 }
 
 function DetailItem({
@@ -199,6 +260,42 @@ function DetailItem({
     <div>
       <div className="skill-detail__meta-label">{label}</div>
       <div className={mono ? "skill-detail__path" : "skill-detail__description"}>{value}</div>
+    </div>
+  );
+}
+
+function ExtensionEntrypoints({
+  extensions,
+  onToggleExtension,
+}: {
+  readonly extensions: readonly RuntimeExtensionRecord[];
+  readonly onToggleExtension: (filePath: string, enabled: boolean) => void;
+}) {
+  return (
+    <div className="skill-detail__meta-list">
+      <div>
+        <div className="skill-detail__meta-label">Entries</div>
+        <div className="extension-entrypoints">
+          {extensions.map((extension) => (
+            <div className="extension-entrypoint" key={extension.path}>
+              <div className="extension-entrypoint__main">
+                <span className="extension-entrypoint__path">{extension.path}</span>
+                <span className="extension-entrypoint__meta">
+                  {extension.commands.length > 0 ? `${extension.commands.length} commands` : "No commands"}
+                  {extension.tools.length > 0 ? ` · ${extension.tools.length} tools` : ""}
+                </span>
+              </div>
+              <button
+                className="button button--secondary"
+                type="button"
+                onClick={() => onToggleExtension(extension.path, !extension.enabled)}
+              >
+                {extension.enabled ? "Disable" : "Enable"}
+              </button>
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }

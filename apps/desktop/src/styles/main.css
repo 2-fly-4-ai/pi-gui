@@ -160,6 +160,13 @@
     transform 120ms ease;
 }
 
+:root.dark .shortcut-tooltip {
+  border-color: rgba(255, 255, 255, 0.14);
+  background: rgba(37, 39, 43, 0.98);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.38);
+  color: var(--text-strong);
+}
+
 .shortcut-tooltip kbd {
   min-width: 28px;
   padding: 1px 5px 2px;
@@ -174,6 +181,12 @@
   text-align: center;
 }
 
+:root.dark .shortcut-tooltip kbd {
+  border-color: rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--muted-strong);
+}
+
 .shortcut-tooltip-wrap:hover .shortcut-tooltip,
 .shortcut-tooltip-wrap:focus-within .shortcut-tooltip {
   opacity: 1;
@@ -186,6 +199,7 @@
   top: 11px;
   left: var(--titlebar-toggle-left);
   z-index: 80;
+  pointer-events: auto;
 }
 
 .sidebar-toggle__button {
@@ -194,10 +208,28 @@
   border-radius: 10px;
   color: var(--muted-soft);
   background: rgba(255, 255, 255, 0.42);
+  border-color: rgba(210, 215, 226, 0.72);
+  box-shadow: 0 1px 3px rgba(20, 27, 45, 0.08);
+}
+
+:root.dark .sidebar-toggle__button {
+  color: var(--muted-strong);
+  background: rgba(43, 45, 49, 0.92);
+  border-color: rgba(255, 255, 255, 0.12);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+}
+
+:root.dark .sidebar-toggle__button:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.16);
 }
 
 .shell--sidebar-collapsed .topbar {
   padding-left: var(--titlebar-collapsed-main-padding-left);
+}
+
+.shell--sidebar-collapsed .sidebar-toggle {
+  position: fixed;
 }
 
 .canvas {
@@ -1897,6 +1929,12 @@
   font-size: 12px;
 }
 
+.slash-menu--compact-descriptions .slash-menu__description {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .slash-menu__meta {
   display: inline-flex;
   align-items: center;
@@ -2601,6 +2639,43 @@
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+}
+
+.extension-entrypoints {
+  display: grid;
+  gap: 8px;
+}
+
+.extension-entrypoint {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid #e1e6ef;
+  border-radius: 12px;
+  background: #f8fafc;
+}
+
+.extension-entrypoint__main {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.extension-entrypoint__path {
+  color: var(--text-strong);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.45;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.extension-entrypoint__meta {
+  color: var(--muted-soft);
+  font-size: 12px;
 }
 
 .extension-detail__diagnostics {
@@ -3359,6 +3434,11 @@ mark.thread-find-active {
   color: #6ee7b7;
 }
 
+:root.dark .extension-entrypoint {
+  border-color: var(--line);
+  background: var(--surface-muted);
+}
+
 :root.dark .extension-dock__toggle,
 :root.dark .extension-dock--expanded,
 :root.dark .extension-dialog {
@@ -3749,6 +3829,7 @@ mark.thread-find-active {
   grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
   gap: 14px;
   align-items: start;
+  overflow: visible;
 }
 
 /* Split-panel mode — focus tile left, rest grid right */
@@ -3801,6 +3882,7 @@ mark.thread-find-active {
 /* Tile — fixed-height card, flex column */
 
 .display-mode-tile {
+  position: relative;
   display: flex;
   flex-direction: column;
   height: 500px;
@@ -3808,8 +3890,12 @@ mark.thread-find-active {
   border-radius: 14px;
   background: #fff;
   box-shadow: 0 1px 4px rgba(20, 25, 45, 0.06);
-  overflow: hidden;
+  overflow: visible;
   outline: none;
+}
+
+.display-mode-tile:focus-within {
+  z-index: 20;
 }
 
 .display-mode-tile:focus-visible {
@@ -4143,10 +4229,16 @@ mark.thread-find-active {
 /* Reply composer — inherits real .composer styles */
 
 .display-mode-tile__reply {
+  position: relative;
+  z-index: 1;
   flex-shrink: 0;
   padding: 8px 10px 10px;
   border-top: 1px solid #f0f2f8;
   background: #fafbfd;
+}
+
+.display-mode-tile__reply:focus-within {
+  z-index: 25;
 }
 
 .display-mode-tile__reply .composer__surface {

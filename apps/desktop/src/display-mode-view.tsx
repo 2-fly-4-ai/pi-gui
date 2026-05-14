@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type Dispatch, type KeyboardEvent, type SetStateAction } from "react";
+import type { RuntimeCommandRecord, RuntimeSnapshot } from "@pi-gui/session-driver/runtime-types";
 import {
   DndContext,
   DragOverlay,
@@ -18,11 +19,14 @@ import {
   useSortable,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import type { DisplayModeThreadRecord, SessionRecord } from "./desktop-state";
+import type { DesktopAppState, DisplayModeThreadRecord, ExtensionCommandCompatibilityRecord, SessionRecord } from "./desktop-state";
 import { TimelineItem } from "./timeline-item";
 import { TerminalPanel } from "./terminal-panel";
+import { ComposerSurface } from "./composer-surface";
+import { useSlashMenu } from "./hooks/use-slash-menu";
 import { ArrowUpIcon, MaximizeIcon, MinimizeIcon, SidebarToggleIcon, StopSquareIcon, TerminalIcon } from "./icons";
 import type { PiDesktopApi } from "./ipc";
+import type { SettingsSection } from "./settings-view";
 import { formatRelativeTime } from "./string-utils";
 
 type DisplayModeFilter = "all" | "running" | "waiting" | "error";
@@ -38,6 +42,8 @@ interface ChangedFile {
 export function DisplayModeView({
   api, drawerOpen, onToggleDrawer,
   vsCodeOpen, vsCodeWorkspaceId, vsCodeFolderPath, onToggleVsCode, onOpenVsCodeForWorkspace,
+  runtimeByWorkspace, sessionCommandsBySession, commandCompatibilityByWorkspace,
+  setSnapshot, openSettings, updateSnapshot,
 }: {
   readonly api: PiDesktopApi;
   readonly drawerOpen: boolean;
@@ -47,6 +53,16 @@ export function DisplayModeView({
   readonly vsCodeFolderPath: string | null;
   readonly onToggleVsCode: () => void;
   readonly onOpenVsCodeForWorkspace: (workspaceId: string, folderPath: string) => void;
+  readonly runtimeByWorkspace: Readonly<Record<string, RuntimeSnapshot>>;
+  readonly sessionCommandsBySession: Readonly<Record<string, readonly RuntimeCommandRecord[]>>;
+  readonly commandCompatibilityByWorkspace: Readonly<Record<string, readonly ExtensionCommandCompatibilityRecord[]>>;
+  readonly setSnapshot: Dispatch<SetStateAction<DesktopAppState | null>>;
+  readonly openSettings: (workspaceId?: string, section?: SettingsSection) => void;
+  readonly updateSnapshot: (
+    api: PiDesktopApi,
+    setSnapshot: Dispatch<SetStateAction<DesktopAppState | null>>,
+    action: () => Promise<DesktopAppState>,
+  ) => Promise<DesktopAppState>;
 }) {
   const [threads, setThreads] = useState<readonly DisplayModeThreadRecord[]>([]);
   const [loading, setLoading] = useState(true);
@@ -402,6 +418,12 @@ export function DisplayModeView({
                 record={focusRecord}
                 terminalOpen={localTerminalKeys.has(focusKey)}
                 renderTerminalInline={true}
+                runtime={runtimeByWorkspace[focusRecord.workspace.id]}
+                sessionCommands={sessionCommandsBySession[focusKey] ?? []}
+                commandCompatibility={commandCompatibilityByWorkspace[focusRecord.workspace.id] ?? []}
+                setSnapshot={setSnapshot}
+                openSettings={openSettings}
+                updateSnapshot={updateSnapshot}
                 isPinned={focusKey === pinnedThreadKey}
                 isExpanded={true}
                 compact={false}
@@ -426,6 +448,12 @@ export function DisplayModeView({
                         record={record}
                         terminalOpen={localTerminalKeys.has(key)}
                         renderTerminalInline={true}
+                        runtime={runtimeByWorkspace[record.workspace.id]}
+                        sessionCommands={sessionCommandsBySession[key] ?? []}
+                        commandCompatibility={commandCompatibilityByWorkspace[record.workspace.id] ?? []}
+                        setSnapshot={setSnapshot}
+                        openSettings={openSettings}
+                        updateSnapshot={updateSnapshot}
                         isPinned={key === pinnedThreadKey}
                         isExpanded={false}
                         compact={compact}
@@ -460,6 +488,12 @@ export function DisplayModeView({
                       record={record}
                       terminalOpen={localTerminalKeys.has(key)}
                       renderTerminalInline={true}
+                      runtime={runtimeByWorkspace[record.workspace.id]}
+                      sessionCommands={sessionCommandsBySession[key] ?? []}
+                      commandCompatibility={commandCompatibilityByWorkspace[record.workspace.id] ?? []}
+                      setSnapshot={setSnapshot}
+                      openSettings={openSettings}
+                      updateSnapshot={updateSnapshot}
                       isPinned={key === pinnedThreadKey}
                       isExpanded={false}
                       compact={compact}
@@ -637,6 +671,7 @@ export function DisplayModeView({
 
 function DisplayModeTile({
   api, id, record, terminalOpen, renderTerminalInline, isPinned, isExpanded, compact,
+  runtime, sessionCommands, commandCompatibility, setSnapshot, openSettings, updateSnapshot,
   onFilesUpdate, onOpenThread, onOpenVSCode, onPinPreview, onToggleTerminal, onToggleExpand,
 }: {
   readonly api: PiDesktopApi;
@@ -644,6 +679,16 @@ function DisplayModeTile({
   readonly record: DisplayModeThreadRecord;
   readonly terminalOpen: boolean;
   readonly renderTerminalInline: boolean;
+  readonly runtime: RuntimeSnapshot | undefined;
+  readonly sessionCommands: readonly RuntimeCommandRecord[];
+  readonly commandCompatibility: readonly ExtensionCommandCompatibilityRecord[];
+  readonly setSnapshot: Dispatch<SetStateAction<DesktopAppState | null>>;
+  readonly openSettings: (workspaceId?: string, section?: SettingsSection) => void;
+  readonly updateSnapshot: (
+    api: PiDesktopApi,
+    setSnapshot: Dispatch<SetStateAction<DesktopAppState | null>>,
+    action: () => Promise<DesktopAppState>,
+  ) => Promise<DesktopAppState>;
   readonly isPinned: boolean;
   readonly isExpanded: boolean;
   readonly compact: boolean;
@@ -666,6 +711,28 @@ function DisplayModeTile({
   const [terminalHeight, setTerminalHeight] = useState(200);
   const tone = statusTone(record.session);
   const recentMessages = record.transcript.slice(-8);
+  const focusComposer = () => {
+    window.requestAnimationFrame(() => textareaRef.current?.focus());
+  };
+  const slashMenu = useSlashMenu({
+    composerDraft: draft,
+    setComposerDraft: setDraft,
+    selectedRuntime: runtime,
+    selectedModelRuntime: runtime,
+    sessionCommands,
+    commandCompatibility,
+    selectedSessionKey: id,
+    selectedSession: record.session,
+    selectedWorkspace: record.workspace,
+    isRunning: record.session.status === "running",
+    api,
+    setSnapshot,
+    focusComposer,
+    openSettings,
+    updateSnapshot,
+    allowTreeCommand: false,
+    immediateCommandMode: "prefill",
+  });
 
   // Measure terminal wrapper height so TerminalPanel fills it exactly
   useEffect(() => {
@@ -731,6 +798,7 @@ function DisplayModeTile({
   };
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (slashMenu.handleSlashKeyDown(e)) return;
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submit(); }
   };
 
@@ -851,17 +919,42 @@ function DisplayModeTile({
 
       {/* Reply — uses real .composer CSS so it looks identical to thread view */}
       {!compact && <div className="composer display-mode-tile__reply">
-        <div className="composer__surface">
-          <div className="composer__editor">
-            <textarea
-              ref={textareaRef}
-              placeholder={`Reply to ${record.session.title}…`}
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              onKeyDown={handleKeyDown}
-              rows={1}
-            />
-          </div>
+        <ComposerSurface
+          activeSlashCommand={slashMenu.activeSlashFlow?.command}
+          activeSlashCommandMeta={slashMenu.activeSlashFlow?.command?.description}
+          attachments={[]}
+          queuedMessages={[]}
+          composerDraft={draft}
+          composerRef={textareaRef}
+          lastError={undefined}
+          onCancelQueuedEdit={() => undefined}
+          onClearSlashCommand={slashMenu.resetSlashUi}
+          onComposerDrop={(event) => event.preventDefault()}
+          onComposerKeyDown={handleKeyDown}
+          onComposerPaste={() => undefined}
+          onEditQueuedMessage={() => undefined}
+          onRemoveAttachment={() => undefined}
+          onRemoveQueuedMessage={() => undefined}
+          onSelectMention={() => undefined}
+          onSelectSlashCommand={(command) => slashMenu.applySlashCommandSelection(command, "click")}
+          onSelectSlashOption={(option) => slashMenu.applySlashOptionSelection(option)}
+          onSteerQueuedMessage={() => undefined}
+          selectedMentionIndex={0}
+          selectedSlashCommand={slashMenu.activeSlashOptionCommand ?? slashMenu.selectedSlashCommand}
+          selectedSlashOption={slashMenu.selectedSlashOption}
+          setComposerDraft={setDraft}
+          showMentionMenu={false}
+          mentionOptions={[]}
+          showSlashMenu={slashMenu.showSlashMenu}
+          showSlashOptionMenu={slashMenu.showSlashOptionMenu}
+          slashOptionEmptyState={slashMenu.slashOptionEmptyState}
+          slashOptions={slashMenu.slashOptions}
+          slashSections={slashMenu.slashSections}
+          textareaLabel={`Reply to ${record.session.title}`}
+          textareaPlaceholder={`Reply to ${record.session.title}…`}
+          textareaTestId={`display-mode-reply-${id}`}
+          compactSlashDescriptions
+          footer={(
           <div className="display-mode-tile__reply-bar">
             <span className="display-mode-tile__reply-hint">Enter to send · Shift+Enter newline</span>
             <button
@@ -874,7 +967,8 @@ function DisplayModeTile({
               <ArrowUpIcon />
             </button>
           </div>
-        </div>
+          )}
+        />
       </div>}
     </article>
   );
