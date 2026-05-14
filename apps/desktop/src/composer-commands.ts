@@ -74,7 +74,7 @@ export type ParsedComposerCommand =
   | { type: "status" }
   | { type: "session" }
   | { type: "reload" }
-  | { type: "review"; base?: string; agent?: boolean }
+  | { type: "review"; base?: string }
   | { type: "compact"; customInstructions?: string }
   | { type: "name"; title: string };
 
@@ -84,7 +84,7 @@ const INCOMPLETE_COMMAND_MESSAGES: Readonly<Record<string, string>> = {
   "/logout": "Choose a connected provider from the slash menu before sending /logout.",
   "/model": "Choose a provider and model from the slash menu before sending /model.",
   "/name": "Add a thread title after /name.",
-  "/review": "Use /review, /review --base <branch>, /review --agent, or /review --agent --base <branch>.",
+  "/review": "Use /review or /review --base <branch>. Agent pre-review is not implemented yet.",
   "/scoped-models": "Open Enabled models from the slash menu or Settings.",
   "/settings": "Open Settings from the slash menu or Cmd+,.",
   "/thinking": "Choose a reasoning level from the slash menu before sending /thinking.",
@@ -665,14 +665,9 @@ export function parseComposerCommand(value: string): ParsedComposerCommand | und
 
 function parseReviewCommand(args: readonly string[]): ParsedComposerCommand | undefined {
   let base: string | undefined;
-  let agent = false;
 
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
-    if (arg === "--agent") {
-      agent = true;
-      continue;
-    }
     if (arg === "--base") {
       const next = args[index + 1];
       if (!next || next.startsWith("--")) {
@@ -685,7 +680,7 @@ function parseReviewCommand(args: readonly string[]): ParsedComposerCommand | un
     return undefined;
   }
 
-  return { type: "review", base, agent: agent || undefined };
+  return { type: "review", base };
 }
 
 export function incompleteComposerCommandMessage(value: string): string | undefined {

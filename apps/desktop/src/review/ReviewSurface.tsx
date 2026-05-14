@@ -84,7 +84,7 @@ export function ReviewSurface({ snapshot, onCancel, onSubmitPrompt }: ReviewSurf
       <header className="review-mode__header">
         <div>
           <div className="chat-header__eyebrow">Review</div>
-          <h1>{snapshot.source.agent ? "Agent pre-review" : "Review changes"}</h1>
+          <h1>Review changes</h1>
           <p>{snapshot.files.length} changed files · {formatReviewSource(snapshot)} · frozen {new Date(snapshot.createdAt).toLocaleTimeString()}</p>
         </div>
         <div className="review-mode__actions">
@@ -150,7 +150,7 @@ export function ReviewSurface({ snapshot, onCancel, onSubmitPrompt }: ReviewSurf
                 {selectedFileDrafts.map((comment) => (
                   <article className="review-mode__comment" key={comment.id}>
                     <div className="review-mode__comment-header">
-                      <span>{comment.source === "agent" ? "Agent" : "User"}</span>
+                      <span>User</span>
                     </div>
                     <p>{comment.body}</p>
                     <div className="review-mode__comment-actions">
@@ -178,10 +178,7 @@ function reviewDraftStorageKey(snapshot: ReviewSnapshot): string {
 
 function loadStoredDrafts(storageKey: string, snapshot: ReviewSnapshot): readonly ReviewDraftComment[] {
   const stored = readStoredDrafts(storageKey);
-  if (stored.length > 0) {
-    return stored;
-  }
-  return snapshot.source.agent ? buildAgentSeedComments(snapshot) : [];
+  return stored;
 }
 
 function readStoredDrafts(storageKey: string): readonly ReviewDraftComment[] {
@@ -193,19 +190,6 @@ function readStoredDrafts(storageKey: string): readonly ReviewDraftComment[] {
   } catch {
     return [];
   }
-}
-
-function buildAgentSeedComments(snapshot: ReviewSnapshot): readonly ReviewDraftComment[] {
-  const now = new Date().toISOString();
-  return snapshot.files.slice(0, 5).map((file) => ({
-    id: crypto.randomUUID(),
-    anchorId: file.anchors.find((anchor) => anchor.kind === "line" && anchor.lineKind === "added")?.id ?? fileAnchorId(file.path),
-    filePath: file.path,
-    body: "Agent pre-review: inspect this change for correctness, naming, tests, and unintended scope before asking the agent to modify it.",
-    createdAt: now,
-    updatedAt: now,
-    source: "agent" as const,
-  }));
 }
 
 function isReviewDraftComment(value: unknown): value is ReviewDraftComment {

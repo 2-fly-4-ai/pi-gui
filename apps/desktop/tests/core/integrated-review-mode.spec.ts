@@ -116,31 +116,3 @@ test("/review --base includes branch and working-tree changes", async () => {
     await harness.close();
   }
 });
-
-test("/review --agent seeds editable agent pre-review comments", async () => {
-  test.setTimeout(60_000);
-  const userDataDir = await makeUserDataDir();
-  const workspacePath = await seedWorkspace();
-  const harness = await launchDesktop(userDataDir, {
-    initialWorkspaces: [workspacePath],
-    testMode: "background",
-  });
-  const window = await harness.firstWindow();
-
-  try {
-    await createNamedThread(window, "Agent review mode");
-    const composer = window.getByTestId("composer");
-    await composer.fill("/review --agent");
-    await composer.press("Enter");
-
-    const reviewSurface = window.getByTestId("review-surface");
-    await expect(reviewSurface.getByRole("heading", { name: "Agent pre-review" })).toBeVisible();
-    await expect(reviewSurface.getByText(/Agent pre-review: inspect this change/)).toBeVisible();
-    await reviewSurface.getByRole("button", { name: "Edit" }).first().click();
-    await reviewSurface.getByLabel("Review comment").fill("Edited agent seeded comment.");
-    await reviewSurface.getByRole("button", { name: "Update comment" }).click();
-    await expect(reviewSurface.getByText("Edited agent seeded comment.")).toBeVisible();
-  } finally {
-    await harness.close();
-  }
-});

@@ -688,7 +688,7 @@ async function runComposerCommand(
     store.state = {
       ...store.state,
       activeView: "review",
-      reviewRequest: { base: parsed.base, agent: parsed.agent, nonce: Date.now() },
+      reviewRequest: { base: parsed.base, nonce: Date.now() },
       composerDraft: "",
       composerDraftSyncSource: "command",
       composerDraftSyncNonce: store.state.composerDraftSyncNonce + 1,
