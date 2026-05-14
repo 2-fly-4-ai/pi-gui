@@ -4,7 +4,14 @@ export interface ReviewSnapshot {
   readonly id: string;
   readonly workspaceId: string;
   readonly createdAt: string;
+  readonly source: ReviewSnapshotSource;
   readonly files: readonly ReviewFileSnapshot[];
+}
+
+export interface ReviewSnapshotSource {
+  readonly kind: "working-tree" | "base";
+  readonly base?: string;
+  readonly agent?: boolean;
 }
 
 export interface ReviewFileSnapshot {
@@ -38,4 +45,10 @@ export interface ReviewDraftComment {
   readonly body: string;
   readonly createdAt: string;
   readonly updatedAt: string;
+  readonly source?: "user" | "agent";
+}
+
+export interface CreateReviewSnapshotOptions {
+  readonly base?: string;
+  readonly agent?: boolean;
 }

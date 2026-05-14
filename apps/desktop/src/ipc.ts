@@ -19,7 +19,7 @@ import type {
   StartThreadInput,
   WorkspaceSessionTarget,
 } from "./desktop-state";
-import type { ReviewSnapshot } from "./review/review-types";
+import type { CreateReviewSnapshotOptions, ReviewSnapshot } from "./review/review-types";
 
 export type DesktopNotificationPermissionStatus =
   | "granted"
@@ -342,7 +342,7 @@ export interface PiDesktopApi {
   getChangedFiles(workspaceId: string): Promise<{ path: string; status: "added" | "modified" | "deleted" | "untracked"; staged: boolean }[]>;
   getFileDiff(workspaceId: string, filePath: string): Promise<string>;
   stageFile(workspaceId: string, filePath: string): Promise<void>;
-  createReviewSnapshot(workspaceId: string): Promise<ReviewSnapshot>;
+  createReviewSnapshot(workspaceId: string, options?: CreateReviewSnapshotOptions): Promise<ReviewSnapshot>;
   toggleWindowMaximize(): Promise<void>;
   openExternal(url: string): Promise<void>;
   getThemeMode(): Promise<"system" | "light" | "dark">;

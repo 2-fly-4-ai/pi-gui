@@ -123,6 +123,27 @@
   gap: 8px;
 }
 
+.review-mode__composer-actions,
+.review-mode__comment-actions,
+.review-mode__comment-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.review-mode__composer-actions,
+.review-mode__comment-actions {
+  justify-content: flex-end;
+}
+
+.review-mode__comment-header {
+  justify-content: space-between;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 650;
+  margin-bottom: 6px;
+}
+
 .review-mode__composer label,
 .review-mode__comments h2 {
   color: var(--text-strong);

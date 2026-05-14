@@ -26,7 +26,9 @@ export function buildReviewPrompt(snapshot: ReviewSnapshot, comments: readonly R
     .filter((section): section is string => Boolean(section));
 
   return [
-    "Please address this review of the current working-tree changes.",
+    snapshot.source.kind === "base"
+      ? `Please address this review of the changes against ${snapshot.source.base}.`
+      : "Please address this review of the current working-tree changes.",
     "",
     "Treat each comment as user feedback on the frozen diff snapshot. Do not assume the files are unchanged; inspect current files before editing.",
     "",

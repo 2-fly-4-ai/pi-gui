@@ -3,6 +3,7 @@ import type { ModelSettingsSnapshot, RuntimeCommandRecord, RuntimeSnapshot } fro
 export type SessionStatus = "idle" | "running" | "failed";
 export type { SessionRole, TranscriptMessage } from "./timeline-types";
 import type { TranscriptMessage } from "./timeline-types";
+import type { CreateReviewSnapshotOptions } from "./review/review-types";
 
 export type AppView = "threads" | "new-thread" | "display-mode" | "skills" | "extensions" | "settings" | "review";
 export type WorkspaceKind = "primary" | "worktree";
@@ -180,6 +181,7 @@ export interface DesktopAppState {
   readonly modelSettingsScopeMode: ModelSettingsScopeMode;
   readonly globalModelSettings: ModelSettingsSnapshot;
   readonly sidebarCollapsed: boolean;
+  readonly reviewRequest?: CreateReviewSnapshotOptions & { readonly nonce: number };
   readonly revision: number;
   readonly lastError?: string;
 }
@@ -223,6 +225,7 @@ export function createEmptyDesktopAppState(): DesktopAppState {
       enabledModelPatterns: [],
     },
     sidebarCollapsed: false,
+    reviewRequest: undefined,
     revision: 0,
   };
 }

@@ -435,7 +435,7 @@ export default function App() {
     let cancelled = false;
     setReviewLoading(true);
     setReviewSnapshot(undefined);
-    void api.createReviewSnapshot(selectedWorkspace.id)
+    void api.createReviewSnapshot(selectedWorkspace.id, snapshot.reviewRequest)
       .then((next) => {
         if (!cancelled) {
           setReviewSnapshot(next);
@@ -450,7 +450,7 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [api, selectedWorkspace?.id, snapshot?.activeView]);
+  }, [api, selectedWorkspace?.id, snapshot?.activeView, snapshot?.reviewRequest]);
 
   useEffect(() => {
     if (snapshot && snapshot.workspaces.length === 0) {

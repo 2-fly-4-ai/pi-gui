@@ -1,13 +1,31 @@
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { promisify } from "node:util";
-import type { ReviewFileSnapshot, ReviewSnapshot } from "../../src/review/review-types";
+import type { CreateReviewSnapshotOptions, ReviewFileSnapshot, ReviewSnapshot } from "../../src/review/review-types";
 import { parseReviewDiff } from "../../src/review/review-diff-parser";
 import { getChangedFiles } from "../app-store-diff";
 
 const execFileAsync = promisify(execFile);
 
-export async function createReviewSnapshot(workspaceId: string, workspacePath: string): Promise<ReviewSnapshot> {
+export async function createReviewSnapshot(
+  workspaceId: string,
+  workspacePath: string,
+  options: CreateReviewSnapshotOptions = {},
+): Promise<ReviewSnapshot> {
+  const files = options.base
+    ? await createBaseSnapshotFiles(workspacePath, options.base)
+    : await createWorkingTreeSnapshotFiles(workspacePath);
+
+  return {
+    id: randomUUID(),
+    workspaceId,
+    createdAt: new Date().toISOString(),
+    source: options.base ? { kind: "base", base: options.base, agent: options.agent } : { kind: "working-tree", agent: options.agent },
+    files,
+  };
+}
+
+async function createWorkingTreeSnapshotFiles(workspacePath: string): Promise<ReviewFileSnapshot[]> {
   const changedFiles = await getChangedFiles(workspacePath);
   const files: ReviewFileSnapshot[] = [];
 
@@ -16,22 +34,30 @@ export async function createReviewSnapshot(workspaceId: string, workspacePath: s
     if (!diff.trim()) {
       continue;
     }
-
-    const parsed = parseReviewDiff(file.path, diff);
-    files.push({
-      path: file.path,
-      status: file.status,
-      diff,
-      anchors: parsed.anchors,
-    });
+    files.push(toReviewFile(file.path, file.status, diff));
   }
 
-  return {
-    id: randomUUID(),
-    workspaceId,
-    createdAt: new Date().toISOString(),
-    files,
-  };
+  return files;
+}
+
+async function createBaseSnapshotFiles(workspacePath: string, base: string): Promise<ReviewFileSnapshot[]> {
+  const byPath = new Map<string, ReviewFileSnapshot>();
+  const baseDiff = await runGitDiff(workspacePath, ["diff", `${base}...HEAD`]);
+  for (const file of splitUnifiedDiffByFile(baseDiff)) {
+    byPath.set(file.path, toReviewFile(file.path, inferStatus(file.diff), file.diff));
+  }
+
+  for (const file of await createWorkingTreeSnapshotFiles(workspacePath)) {
+    const existing = byPath.get(file.path);
+    byPath.set(file.path, existing ? toReviewFile(file.path, file.status, `${existing.diff.trimEnd()}\n${file.diff}`) : file);
+  }
+
+  return [...byPath.values()].sort((left, right) => left.path.localeCompare(right.path));
+}
+
+function toReviewFile(path: string, status: ReviewFileSnapshot["status"], diff: string): ReviewFileSnapshot {
+  const parsed = parseReviewDiff(path, diff);
+  return { path, status, diff, anchors: parsed.anchors };
 }
 
 async function getFrozenFileDiff(workspacePath: string, filePath: string): Promise<string> {
@@ -58,6 +84,36 @@ async function runGitDiff(workspacePath: string, args: readonly string[], allowE
     }
     return "";
   }
+}
+
+function splitUnifiedDiffByFile(diff: string): Array<{ readonly path: string; readonly diff: string }> {
+  const files: Array<{ path: string; lines: string[] }> = [];
+  let current: { path: string; lines: string[] } | undefined;
+
+  for (const line of diff.split("\n")) {
+    if (line.startsWith("diff --git ")) {
+      const path = parseDiffGitPath(line);
+      if (path) {
+        current = { path, lines: [line] };
+        files.push(current);
+        continue;
+      }
+    }
+    current?.lines.push(line);
+  }
+
+  return files.map((file) => ({ path: file.path, diff: file.lines.join("\n") }));
+}
+
+function parseDiffGitPath(line: string): string | undefined {
+  const match = /^diff --git a\/(.+?) b\/(.+)$/.exec(line);
+  return match?.[2];
+}
+
+function inferStatus(diff: string): ReviewFileSnapshot["status"] {
+  if (diff.includes("new file mode")) return "added";
+  if (diff.includes("deleted file mode")) return "deleted";
+  return "modified";
 }
 
 function isExpectedNoIndexDiff(error: unknown): error is { readonly code: number; readonly stdout: string } {

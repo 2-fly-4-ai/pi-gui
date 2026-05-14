@@ -74,7 +74,7 @@ export type ParsedComposerCommand =
   | { type: "status" }
   | { type: "session" }
   | { type: "reload" }
-  | { type: "review" }
+  | { type: "review"; base?: string; agent?: boolean }
   | { type: "compact"; customInstructions?: string }
   | { type: "name"; title: string };
 
@@ -84,6 +84,7 @@ const INCOMPLETE_COMMAND_MESSAGES: Readonly<Record<string, string>> = {
   "/logout": "Choose a connected provider from the slash menu before sending /logout.",
   "/model": "Choose a provider and model from the slash menu before sending /model.",
   "/name": "Add a thread title after /name.",
+  "/review": "Use /review, /review --base <branch>, /review --agent, or /review --agent --base <branch>.",
   "/scoped-models": "Open Enabled models from the slash menu or Settings.",
   "/settings": "Open Settings from the slash menu or Cmd+,.",
   "/thinking": "Choose a reasoning level from the slash menu before sending /thinking.",
@@ -621,11 +622,10 @@ export function parseComposerCommand(value: string): ParsedComposerCommand | und
   if (trimmed === "/reload") {
     return { type: "reload" };
   }
-  if (trimmed === "/review") {
-    return { type: "review" };
-  }
-
   const [command, ...rest] = trimmed.split(/\s+/);
+  if (command === "/review") {
+    return parseReviewCommand(rest);
+  }
   if (command === "/compact") {
     return { type: "compact", customInstructions: rest.join(" ").trim() || undefined };
   }
@@ -661,6 +661,31 @@ export function parseComposerCommand(value: string): ParsedComposerCommand | und
   }
 
   return undefined;
+}
+
+function parseReviewCommand(args: readonly string[]): ParsedComposerCommand | undefined {
+  let base: string | undefined;
+  let agent = false;
+
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    if (arg === "--agent") {
+      agent = true;
+      continue;
+    }
+    if (arg === "--base") {
+      const next = args[index + 1];
+      if (!next || next.startsWith("--")) {
+        return undefined;
+      }
+      base = next;
+      index += 1;
+      continue;
+    }
+    return undefined;
+  }
+
+  return { type: "review", base, agent: agent || undefined };
 }
 
 export function incompleteComposerCommandMessage(value: string): string | undefined {
