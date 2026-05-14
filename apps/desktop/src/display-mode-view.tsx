@@ -21,7 +21,7 @@ import { CSS } from "@dnd-kit/utilities";
 import type { DisplayModeThreadRecord, SessionRecord } from "./desktop-state";
 import { TimelineItem } from "./timeline-item";
 import { TerminalPanel } from "./terminal-panel";
-import { ArrowUpIcon, MaximizeIcon, TerminalIcon } from "./icons";
+import { ArrowUpIcon, MaximizeIcon, MinimizeIcon, TerminalIcon } from "./icons";
 import type { PiDesktopApi } from "./ipc";
 import { formatRelativeTime } from "./string-utils";
 
@@ -40,6 +40,7 @@ export function DisplayModeView({ api }: { readonly api: PiDesktopApi }) {
   const [filter, setFilter] = useState<DisplayModeFilter>("all");
   const [workspaceFilter, setWorkspaceFilter] = useState<string>("");
   const [colCount, setColCount] = useState<number>(3);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
   const [terminalKeys, setTerminalKeys] = useState<ReadonlySet<string>>(() => new Set());
   const [drawerTab, setDrawerTab] = useState<DrawerTab>("preview");
   const [previewUrl, setPreviewUrl] = useState("http://localhost:5173");
@@ -278,11 +279,14 @@ export function DisplayModeView({ api }: { readonly api: PiDesktopApi }) {
                       record={record}
                       terminalOpen={terminalKeys.has(key)}
                       isPinned={key === pinnedThreadKey}
+                      isExpanded={key === expandedId}
+                      expandedColSpan={Math.max(1, Math.ceil(colCount / 2))}
                       onFilesUpdate={key === pinnedThreadKey ? setPinnedThreadFiles : undefined}
                       onOpenThread={() => void api.selectSession({ workspaceId: record.workspace.id, sessionId: record.session.id })}
                       onOpenVSCode={() => void api.openWorkspaceInVSCode(record.workspace.id)}
                       onPinPreview={() => setPinnedThreadKey(key)}
                       onToggleTerminal={() => toggleTerminal(key)}
+                      onToggleExpand={() => setExpandedId((c) => c === key ? null : key)}
                     />
                   );
                 })}
@@ -416,24 +420,27 @@ export function DisplayModeView({ api }: { readonly api: PiDesktopApi }) {
 /* ── Tile ─────────────────────────────────────────────────────────── */
 
 function DisplayModeTile({
-  api, id, record, terminalOpen, isPinned,
-  onFilesUpdate, onOpenThread, onOpenVSCode, onPinPreview, onToggleTerminal,
+  api, id, record, terminalOpen, isPinned, isExpanded, expandedColSpan,
+  onFilesUpdate, onOpenThread, onOpenVSCode, onPinPreview, onToggleTerminal, onToggleExpand,
 }: {
   readonly api: PiDesktopApi;
   readonly id: string;
   readonly record: DisplayModeThreadRecord;
   readonly terminalOpen: boolean;
   readonly isPinned: boolean;
+  readonly isExpanded: boolean;
+  readonly expandedColSpan: number;
   readonly onFilesUpdate: ((files: readonly ChangedFile[]) => void) | undefined;
   readonly onOpenThread: () => void;
   readonly onOpenVSCode: () => void;
   readonly onPinPreview: () => void;
   readonly onToggleTerminal: () => void;
+  readonly onToggleExpand: () => void;
 }) {
   const [renaming, setRenaming] = useState(false);
   const [renameDraft, setRenameDraft] = useState("");
   const renameInputRef = useRef<HTMLInputElement | null>(null);
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id, disabled: isExpanded });
   const [draft, setDraft] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -496,8 +503,12 @@ function DisplayModeTile({
   return (
     <article
       ref={setNodeRef}
-      className={`display-mode-tile display-mode-tile--${tone}${isDragging ? " display-mode-tile--dragging" : ""}`}
-      style={{ transform: CSS.Transform.toString(transform), transition }}
+      className={`display-mode-tile display-mode-tile--${tone}${isDragging ? " display-mode-tile--dragging" : ""}${isExpanded ? " display-mode-tile--expanded" : ""}`}
+      style={{
+        transform: CSS.Transform.toString(transform),
+        transition,
+        ...(isExpanded ? { gridColumn: `span ${expandedColSpan}`, height: "auto", minHeight: "600px" } : {}),
+      }}
       data-testid="display-mode-thread-tile"
       onKeyDown={handleTileKeyDown}
       {...attributes}
@@ -507,10 +518,20 @@ function DisplayModeTile({
         <div className="display-mode-tile__head-top">
           <div
             className="display-mode-tile__drag"
-            {...listeners}
+            {...(isExpanded ? {} : listeners)}
             aria-label="Drag to reorder"
             title="Drag to reorder"
+            style={isExpanded ? { opacity: 0.3, pointerEvents: "none" } : undefined}
           >⠿</div>
+          <button
+            className={`display-mode-tile__expand-btn${isExpanded ? " display-mode-tile__expand-btn--active" : ""}`}
+            type="button"
+            aria-label={isExpanded ? "Collapse tile" : "Expand tile to half width"}
+            title={isExpanded ? "Collapse" : "Expand to half"}
+            onClick={(e) => { e.stopPropagation(); onToggleExpand(); }}
+          >
+            {isExpanded ? <MinimizeIcon /> : <MaximizeIcon />}
+          </button>
           <span className="display-mode-tile__workspace">{record.workspace.name}</span>
           <span className={`display-mode-tile__status-pill display-mode-tile__status-pill--${tone}`}>
             <span className="display-mode-tile__status-dot" aria-hidden="true" />
