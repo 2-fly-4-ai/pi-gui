@@ -1,14 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import {
   DndContext,
+  DragOverlay,
   closestCenter,
   KeyboardSensor,
   PointerSensor,
   useSensor,
   useSensors,
-  type DraggableAttributes,
-  type DraggableSyntheticListeners,
   type DragEndEvent,
+  type DragStartEvent,
 } from "@dnd-kit/core";
 import {
   arrayMove,
@@ -34,11 +34,6 @@ interface ChangedFile {
   readonly staged: boolean;
 }
 
-interface DragHandleProps {
-  readonly attributes: DraggableAttributes;
-  readonly listeners: DraggableSyntheticListeners;
-}
-
 export function DisplayModeView({ api }: { readonly api: PiDesktopApi }) {
   const [threads, setThreads] = useState<readonly DisplayModeThreadRecord[]>([]);
   const [loading, setLoading] = useState(true);
@@ -50,6 +45,7 @@ export function DisplayModeView({ api }: { readonly api: PiDesktopApi }) {
   const [pinnedThreadKey, setPinnedThreadKey] = useState<string>("");
   const [tileOrder, setTileOrder] = useState<readonly string[]>([]);
   const [pinnedThreadFiles, setPinnedThreadFiles] = useState<readonly ChangedFile[]>([]);
+  const [draggingId, setDraggingId] = useState<string | null>(null);
 
   const [drawerWidth, setDrawerWidth] = useState(320);
   const lastFetchAt = useRef<number>(0);
@@ -174,7 +170,12 @@ export function DisplayModeView({ api }: { readonly api: PiDesktopApi }) {
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
 
+  const handleDragStart = (event: DragStartEvent) => {
+    setDraggingId(event.active.id as string);
+  };
+
   const handleDragEnd = (event: DragEndEvent) => {
+    setDraggingId(null);
     const { active, over } = event;
     if (!over || active.id === over.id) return;
     setTileOrder((c) => {
@@ -227,32 +228,34 @@ export function DisplayModeView({ api }: { readonly api: PiDesktopApi }) {
         ) : orderedThreads.length === 0 ? (
           <div className="display-mode__empty">No threads match this filter.</div>
         ) : (
-          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
             <SortableContext items={[...tileOrder]} strategy={rectSortingStrategy}>
               <div className="display-mode__grid">
                 {orderedThreads.map((record) => {
                   const key = threadKey(record.workspace.id, record.session.id);
                   return (
-                    <SortableTile key={key} id={key}>
-                      {(dragHandleProps) => (
-                        <DisplayModeTile
-                          api={api}
-                          dragHandleProps={dragHandleProps}
-                          record={record}
-                          terminalOpen={terminalKeys.has(key)}
-                          isPinned={key === pinnedThreadKey}
-                          onFilesUpdate={key === pinnedThreadKey ? setPinnedThreadFiles : undefined}
-                          onOpenThread={() => void api.selectSession({ workspaceId: record.workspace.id, sessionId: record.session.id })}
-                          onOpenVSCode={() => void api.openWorkspaceInVSCode(record.workspace.id)}
-                          onPinPreview={() => setPinnedThreadKey(key)}
-                          onToggleTerminal={() => toggleTerminal(key)}
-                        />
-                      )}
-                    </SortableTile>
+                    <DisplayModeTile
+                      api={api}
+                      id={key}
+                      key={key}
+                      record={record}
+                      terminalOpen={terminalKeys.has(key)}
+                      isPinned={key === pinnedThreadKey}
+                      onFilesUpdate={key === pinnedThreadKey ? setPinnedThreadFiles : undefined}
+                      onOpenThread={() => void api.selectSession({ workspaceId: record.workspace.id, sessionId: record.session.id })}
+                      onOpenVSCode={() => void api.openWorkspaceInVSCode(record.workspace.id)}
+                      onPinPreview={() => setPinnedThreadKey(key)}
+                      onToggleTerminal={() => toggleTerminal(key)}
+                    />
                   );
                 })}
               </div>
             </SortableContext>
+            <DragOverlay>
+              {draggingId ? (
+                <div className="display-mode-tile display-mode-tile--drag-overlay" />
+              ) : null}
+            </DragOverlay>
           </DndContext>
         )}
       </div>
@@ -373,31 +376,14 @@ export function DisplayModeView({ api }: { readonly api: PiDesktopApi }) {
   );
 }
 
-/* ── Sortable wrapper ─────────────────────────────────────────────── */
-
-function SortableTile({ id, children }: {
-  readonly id: string;
-  readonly children: (dragHandleProps: DragHandleProps) => React.ReactNode;
-}) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
-  return (
-    <div
-      ref={setNodeRef}
-      style={{ transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.45 : 1, position: "relative", zIndex: isDragging ? 10 : undefined }}
-    >
-      {children({ attributes, listeners })}
-    </div>
-  );
-}
-
 /* ── Tile ─────────────────────────────────────────────────────────── */
 
 function DisplayModeTile({
-  api, dragHandleProps, record, terminalOpen, isPinned,
+  api, id, record, terminalOpen, isPinned,
   onFilesUpdate, onOpenThread, onOpenVSCode, onPinPreview, onToggleTerminal,
 }: {
   readonly api: PiDesktopApi;
-  readonly dragHandleProps: DragHandleProps;
+  readonly id: string;
   readonly record: DisplayModeThreadRecord;
   readonly terminalOpen: boolean;
   readonly isPinned: boolean;
@@ -407,6 +393,7 @@ function DisplayModeTile({
   readonly onPinPreview: () => void;
   readonly onToggleTerminal: () => void;
 }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
   const [draft, setDraft] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -457,18 +444,20 @@ function DisplayModeTile({
 
   return (
     <article
-      className={`display-mode-tile display-mode-tile--${tone}`}
+      ref={setNodeRef}
+      className={`display-mode-tile display-mode-tile--${tone}${isDragging ? " display-mode-tile--dragging" : ""}`}
+      style={{ transform: CSS.Transform.toString(transform), transition }}
       data-testid="display-mode-thread-tile"
-      tabIndex={0}
       onKeyDown={handleTileKeyDown}
+      {...attributes}
     >
       {/* Header */}
       <header className="display-mode-tile__head">
         <div
           className="display-mode-tile__drag"
-          {...dragHandleProps.attributes}
-          {...dragHandleProps.listeners}
+          {...listeners}
           aria-label="Drag to reorder"
+          title="Drag to reorder"
         >⠿</div>
         <span className={`display-mode-tile__status-dot display-mode-tile__status-dot--${tone}`} aria-hidden="true" />
         <div className="display-mode-tile__identity">

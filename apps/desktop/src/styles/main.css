@@ -3608,6 +3608,14 @@ mark.thread-find-active {
 .display-mode-tile--running { border-color: #c3e6cb; }
 .display-mode-tile--waiting { border-color: #fde8a8; }
 .display-mode-tile--error   { border-color: #f5c6cb; }
+.display-mode-tile--dragging { opacity: 0.4; }
+.display-mode-tile--drag-overlay {
+  height: 500px;
+  border-radius: 14px;
+  background: rgba(107, 125, 216, 0.12);
+  border: 2px dashed rgba(107, 125, 216, 0.5);
+  box-shadow: 0 8px 32px rgba(107, 125, 216, 0.2);
+}
 
 /* Tile header */
 
