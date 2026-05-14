@@ -6,11 +6,13 @@ export interface ReviewSnapshot {
   readonly createdAt: string;
   readonly source: ReviewSnapshotSource;
   readonly files: readonly ReviewFileSnapshot[];
+  readonly agentComments?: readonly ReviewDraftComment[];
 }
 
 export interface ReviewSnapshotSource {
   readonly kind: "working-tree" | "base";
   readonly base?: string;
+  readonly agent?: boolean;
 }
 
 export interface ReviewFileSnapshot {
@@ -44,9 +46,10 @@ export interface ReviewDraftComment {
   readonly body: string;
   readonly createdAt: string;
   readonly updatedAt: string;
-  readonly source?: "user";
+  readonly source?: "user" | "agent";
 }
 
 export interface CreateReviewSnapshotOptions {
   readonly base?: string;
+  readonly agent?: boolean;
 }

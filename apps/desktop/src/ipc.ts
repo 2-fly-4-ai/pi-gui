@@ -112,6 +112,7 @@ export const desktopIpc = {
   getFileDiff: "pi-gui:get-file-diff",
   stageFile: "pi-gui:stage-file",
   createReviewSnapshot: "pi-gui:create-review-snapshot",
+  runReviewAgentPreReview: "pi-gui:run-review-agent-pre-review",
   getThemeMode: "pi-gui:get-theme-mode",
   getResolvedTheme: "pi-gui:get-resolved-theme",
   setThemeMode: "pi-gui:set-theme-mode",
@@ -343,6 +344,7 @@ export interface PiDesktopApi {
   getFileDiff(workspaceId: string, filePath: string): Promise<string>;
   stageFile(workspaceId: string, filePath: string): Promise<void>;
   createReviewSnapshot(workspaceId: string, options?: CreateReviewSnapshotOptions): Promise<ReviewSnapshot>;
+  runReviewAgentPreReview(workspaceId: string, sessionId: string, snapshot: ReviewSnapshot): Promise<readonly import("./review/review-types").ReviewDraftComment[]>;
   toggleWindowMaximize(): Promise<void>;
   openExternal(url: string): Promise<void>;
   getThemeMode(): Promise<"system" | "light" | "dark">;

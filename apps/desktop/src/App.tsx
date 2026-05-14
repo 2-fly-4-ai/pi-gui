@@ -436,6 +436,13 @@ export default function App() {
     setReviewLoading(true);
     setReviewSnapshot(undefined);
     void api.createReviewSnapshot(selectedWorkspace.id, snapshot.reviewRequest)
+      .then(async (next) => {
+        if (!snapshot.reviewRequest?.agent || !selectedSession) {
+          return next;
+        }
+        const agentComments = await api.runReviewAgentPreReview(selectedWorkspace.id, selectedSession.id, next);
+        return { ...next, agentComments };
+      })
       .then((next) => {
         if (!cancelled) {
           setReviewSnapshot(next);
@@ -450,7 +457,7 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [api, selectedWorkspace?.id, snapshot?.activeView, snapshot?.reviewRequest]);
+  }, [api, selectedSession?.id, selectedWorkspace?.id, snapshot?.activeView, snapshot?.reviewRequest]);
 
   useEffect(() => {
     if (snapshot && snapshot.workspaces.length === 0) {

@@ -20,7 +20,7 @@ export async function createReviewSnapshot(
     id: randomUUID(),
     workspaceId,
     createdAt: new Date().toISOString(),
-    source: options.base ? { kind: "base", base: options.base } : { kind: "working-tree" },
+    source: options.base ? { kind: "base", base: options.base, agent: options.agent } : { kind: "working-tree", agent: options.agent },
     files,
   };
 }

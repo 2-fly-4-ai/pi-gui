@@ -16,8 +16,9 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { DesktopAppStore } from "./app-store";
 import { getChangedFiles, getFileDiff, stageFile } from "./app-store-diff";
+import { buildAgentPreReviewPrompt, parseAgentPreReviewComments } from "./review/agent-pre-review";
 import { createReviewSnapshot } from "./review/review-snapshot";
-import type { CreateReviewSnapshotOptions } from "../src/review/review-types";
+import type { CreateReviewSnapshotOptions, ReviewSnapshot } from "../src/review/review-types";
 import { listWorkspaceFiles } from "./app-store-files";
 import { ensureVSCodeServer, killAllVSCodeServers } from "./vscode-server-manager";
 import { MAIN_DEV_RELOAD_MARKER } from "./dev-reload-main-probe";
@@ -740,6 +741,14 @@ app.whenReady().then(async () => {
       throw new Error(`Unknown workspace: ${workspaceId}`);
     }
     return createReviewSnapshot(workspaceId, workspacePath, options);
+  });
+  ipcMain.handle(desktopIpc.runReviewAgentPreReview, async (_event, workspaceId: string, sessionId: string, snapshot: ReviewSnapshot) => {
+    const sessionRef = { workspaceId, sessionId };
+    await store.driver.sendUserMessage(sessionRef, { text: buildAgentPreReviewPrompt(snapshot) });
+    await store.reloadTranscriptFromDriver(sessionRef);
+    const transcript = await store.driver.getTranscript(sessionRef);
+    const assistantText = [...transcript].reverse().find((message) => message.role === "assistant")?.text ?? "";
+    return parseAgentPreReviewComments(snapshot, assistantText);
   });
   ipcMain.handle(desktopIpc.toggleWindowMaximize, (event) => {
     const window = BrowserWindow.fromWebContents(event.sender);

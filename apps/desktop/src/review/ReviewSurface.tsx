@@ -84,7 +84,7 @@ export function ReviewSurface({ snapshot, onCancel, onSubmitPrompt }: ReviewSurf
       <header className="review-mode__header">
         <div>
           <div className="chat-header__eyebrow">Review</div>
-          <h1>Review changes</h1>
+          <h1>{snapshot.source.agent ? "Agent pre-review" : "Review changes"}</h1>
           <p>{snapshot.files.length} changed files · {formatReviewSource(snapshot)} · frozen {new Date(snapshot.createdAt).toLocaleTimeString()}</p>
         </div>
         <div className="review-mode__actions">
@@ -150,7 +150,7 @@ export function ReviewSurface({ snapshot, onCancel, onSubmitPrompt }: ReviewSurf
                 {selectedFileDrafts.map((comment) => (
                   <article className="review-mode__comment" key={comment.id}>
                     <div className="review-mode__comment-header">
-                      <span>User</span>
+                      <span>{comment.source === "agent" ? "Agent" : "User"}</span>
                     </div>
                     <p>{comment.body}</p>
                     <div className="review-mode__comment-actions">
@@ -178,7 +178,7 @@ function reviewDraftStorageKey(snapshot: ReviewSnapshot): string {
 
 function loadStoredDrafts(storageKey: string, snapshot: ReviewSnapshot): readonly ReviewDraftComment[] {
   const stored = readStoredDrafts(storageKey);
-  return stored;
+  return stored.length > 0 ? stored : snapshot.agentComments ?? [];
 }
 
 function readStoredDrafts(storageKey: string): readonly ReviewDraftComment[] {

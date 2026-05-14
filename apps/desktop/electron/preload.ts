@@ -33,7 +33,7 @@ import type {
   StartThreadInput,
   WorkspaceSessionTarget,
 } from "../src/desktop-state";
-import type { CreateReviewSnapshotOptions, ReviewSnapshot } from "../src/review/review-types";
+import type { CreateReviewSnapshotOptions, ReviewDraftComment, ReviewSnapshot } from "../src/review/review-types";
 
 const devReloadMarkersEnabled = process.env.PI_APP_DEV_RELOAD_MARKERS === "1";
 
@@ -270,6 +270,8 @@ contextBridge.exposeInMainWorld("piApp", {
     ipcRenderer.invoke(desktopIpc.stageFile, workspaceId, filePath) as Promise<void>,
   createReviewSnapshot: (workspaceId: string, options?: CreateReviewSnapshotOptions) =>
     ipcRenderer.invoke(desktopIpc.createReviewSnapshot, workspaceId, options) as Promise<ReviewSnapshot>,
+  runReviewAgentPreReview: (workspaceId: string, sessionId: string, snapshot: ReviewSnapshot) =>
+    ipcRenderer.invoke(desktopIpc.runReviewAgentPreReview, workspaceId, sessionId, snapshot) as Promise<readonly ReviewDraftComment[]>,
   toggleWindowMaximize: () => ipcRenderer.invoke(desktopIpc.toggleWindowMaximize) as Promise<void>,
   openExternal: (url: string) => ipcRenderer.invoke(desktopIpc.openExternal, url) as Promise<void>,
   getThemeMode: () => ipcRenderer.invoke(desktopIpc.getThemeMode) as Promise<"system" | "light" | "dark">,
