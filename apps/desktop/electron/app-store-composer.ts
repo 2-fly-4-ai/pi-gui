@@ -423,10 +423,83 @@ export async function setSessionThinkingLevel(
   });
 }
 
+export async function submitComposerToSession(
+  store: AppStoreInternals,
+  target: WorkspaceSessionTarget,
+  textInput: string,
+  options: { readonly deliverAs?: "steer" | "followUp" } = {},
+): Promise<DesktopAppState> {
+  await store.initialize();
+  const text = textInput.trim();
+  if (!text) {
+    return store.emit();
+  }
+
+  const sessionRef = toSessionRef(target);
+  const selectedSession = store.sessionFromState(sessionRef);
+  if (!selectedSession) {
+    return store.withError("Select an existing thread before sending a message.");
+  }
+
+  const key = sessionKey(sessionRef);
+  const isRunning = selectedSession.status === "running";
+  let optimisticSteerMessage: SessionQueuedMessage | undefined;
+  try {
+    if (isRunning) {
+      const deliverAs = options.deliverAs ?? "followUp";
+      const nextMessage = buildQueuedComposerMessage({
+        text,
+        attachments: [],
+        mode: deliverAs,
+      });
+      const nextQueuedMessages = [
+        ...store.getQueuedComposerMessages(sessionRef),
+        nextMessage,
+      ];
+      const nextSessionQueuedMessages = toSessionQueuedMessages(nextQueuedMessages);
+      optimisticSteerMessage = deliverAs === "steer"
+        ? nextSessionQueuedMessages.find((message) => message.id === nextMessage.id)
+        : undefined;
+      if (optimisticSteerMessage) {
+        appendQueuedUserMessage(store.sessionState.transcriptCache, sessionRef, optimisticSteerMessage);
+        store.publishSelectedTranscriptFor(sessionRef);
+        store.persistTranscriptCacheForSession(sessionRef);
+      }
+      await store.driver.replaceQueuedMessages(sessionRef, nextSessionQueuedMessages);
+      return store.refreshState({
+        clearLastError: true,
+        markSelectedSessionViewed: false,
+      });
+    }
+
+    await sendMessageToSession(store, sessionRef, text, []);
+    return store.refreshState({
+      clearLastError: true,
+      markSelectedSessionViewed: false,
+    });
+  } catch (error) {
+    if (optimisticSteerMessage) {
+      removeOptimisticQueuedUserMessage(store, sessionRef, optimisticSteerMessage.id);
+    }
+    store.sessionState.sessionErrorsBySession.set(key, error instanceof Error ? error.message : String(error));
+    return store.withError(error);
+  }
+}
+
 export async function cancelCurrentRun(store: AppStoreInternals): Promise<DesktopAppState> {
   await store.initialize();
   const sessionRef = store.selectedSessionRef();
   if (!sessionRef) {
+    return store.emit();
+  }
+
+  return cancelSessionRun(store, sessionRef);
+}
+
+export async function cancelSessionRun(store: AppStoreInternals, target: WorkspaceSessionTarget): Promise<DesktopAppState> {
+  await store.initialize();
+  const sessionRef = toSessionRef(target);
+  if (!store.sessionFromState(sessionRef)) {
     return store.emit();
   }
 

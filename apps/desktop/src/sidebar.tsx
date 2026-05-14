@@ -14,7 +14,7 @@ import {
 import { arrayMove, SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import type { AppView, SessionRecord, WorkspaceRecord, WorktreeRecord } from "./desktop-state";
-import { ArchiveIcon, ChevronDownIcon, ExtensionIcon, FolderIcon, PlusIcon, RestoreIcon, SettingsIcon, SkillIcon, WorktreeIcon } from "./icons";
+import { ArchiveIcon, ChevronDownIcon, ExtensionIcon, FolderIcon, MaximizeIcon, PlusIcon, RestoreIcon, SettingsIcon, SkillIcon, WorktreeIcon } from "./icons";
 import type { PiDesktopApi } from "./ipc";
 import { formatRelativeTime } from "./string-utils";
 import type { WorkspaceMenuState } from "./hooks/use-workspace-menu";
@@ -138,6 +138,14 @@ export function Sidebar(props: SidebarProps) {
           >
             <FolderIcon />
             <span>Threads</span>
+          </button>
+          <button
+            className={`sidebar__nav-item ${activeView === "display-mode" ? "sidebar__nav-item--active" : ""}`}
+            type="button"
+            onClick={() => onSetActiveView("display-mode")}
+          >
+            <MaximizeIcon />
+            <span>Display Mode</span>
           </button>
           <button
             className="sidebar__nav-item"

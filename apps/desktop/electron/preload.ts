@@ -26,6 +26,7 @@ import type {
   CreateSessionInput,
   CreateWorktreeInput,
   DesktopAppState,
+  DisplayModeThreadRecord,
   NotificationPreferences,
   RemoveWorktreeInput,
   SelectedTranscriptRecord,
@@ -75,6 +76,8 @@ contextBridge.exposeInMainWorld("piApp", {
   },
   getSelectedTranscript: () =>
     ipcRenderer.invoke(desktopIpc.selectedTranscriptRequest) as Promise<SelectedTranscriptRecord | null>,
+  getDisplayModeThreads: () =>
+    ipcRenderer.invoke(desktopIpc.displayModeThreadsRequest) as Promise<readonly DisplayModeThreadRecord[]>,
   onSelectedTranscriptChanged: (listener: (payload: SelectedTranscriptRecord | null) => void) => {
     const handle = (_event: Electron.IpcRendererEvent, payload: SelectedTranscriptRecord | null) => {
       listener(payload);
@@ -125,6 +128,8 @@ contextBridge.exposeInMainWorld("piApp", {
     ipcRenderer.invoke(desktopIpc.reorderWorkspaces, workspaceOrder) as Promise<DesktopAppState>,
   openWorkspaceInFinder: (workspaceId: string) =>
     ipcRenderer.invoke(desktopIpc.openWorkspaceInFinder, workspaceId) as Promise<void>,
+  openWorkspaceInVSCode: (workspaceId: string) =>
+    ipcRenderer.invoke(desktopIpc.openWorkspaceInVSCode, workspaceId) as Promise<void>,
   createWorktree: (input: CreateWorktreeInput) =>
     ipcRenderer.invoke(desktopIpc.createWorktree, input) as Promise<DesktopAppState>,
   removeWorktree: (input: RemoveWorktreeInput) =>
@@ -146,6 +151,8 @@ contextBridge.exposeInMainWorld("piApp", {
   startThread: (input: StartThreadInput) =>
     ipcRenderer.invoke(desktopIpc.startThread, input) as Promise<DesktopAppState>,
   cancelCurrentRun: () => ipcRenderer.invoke(desktopIpc.cancelCurrentRun) as Promise<DesktopAppState>,
+  cancelSessionRun: (target: WorkspaceSessionTarget) =>
+    ipcRenderer.invoke(desktopIpc.cancelSessionRun, target) as Promise<DesktopAppState>,
   setActiveView: (view: AppView) =>
     ipcRenderer.invoke(desktopIpc.setActiveView, view) as Promise<DesktopAppState>,
   setSidebarCollapsed: (collapsed: boolean) =>
@@ -239,6 +246,8 @@ contextBridge.exposeInMainWorld("piApp", {
     ipcRenderer.invoke(desktopIpc.updateComposerDraft, composerDraft) as Promise<DesktopAppState>,
   submitComposer: (text: string, options?: { readonly deliverAs?: "steer" | "followUp" }) =>
     ipcRenderer.invoke(desktopIpc.submitComposer, text, options) as Promise<DesktopAppState>,
+  submitComposerToSession: (target: WorkspaceSessionTarget, text: string, options?: { readonly deliverAs?: "steer" | "followUp" }) =>
+    ipcRenderer.invoke(desktopIpc.submitComposerToSession, target, text, options) as Promise<DesktopAppState>,
   getSessionTree: (target: WorkspaceSessionTarget) =>
     ipcRenderer.invoke(desktopIpc.getSessionTree, target) as Promise<SessionTreeSnapshot>,
   navigateSessionTree: (target: WorkspaceSessionTarget, targetId: string, options?: NavigateSessionTreeOptions) =>

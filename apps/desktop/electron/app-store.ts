@@ -43,6 +43,7 @@ import {
   type CreateSessionInput,
   type CreateWorktreeInput,
   type DesktopAppState,
+  type DisplayModeThreadRecord,
   type NotificationPreferences,
   type QueuedComposerMessage,
   type RemoveWorktreeInput,
@@ -192,6 +193,37 @@ export class DesktopAppStore implements AppStoreInternals {
     }
     await this.ensureTranscriptLoaded(sessionRef);
     return this.buildSelectedTranscriptRecord(sessionRef);
+  }
+
+  async getDisplayModeThreads(): Promise<readonly DisplayModeThreadRecord[]> {
+    await this.initialize();
+    const activeSessions = this.state.workspaces.flatMap((workspaceEntry) =>
+      workspaceEntry.sessions
+        .filter((session) => !session.archivedAt && session.status === "running")
+        .map((session) => ({ workspace: workspaceEntry, session })),
+    );
+    const fallbackSessions = activeSessions.length > 0
+      ? []
+      : this.state.workspaces
+          .flatMap((workspaceEntry) =>
+            workspaceEntry.sessions
+              .filter((session) => !session.archivedAt)
+              .map((session) => ({ workspace: workspaceEntry, session })),
+          )
+          .sort((a, b) => Date.parse(b.session.updatedAt) - Date.parse(a.session.updatedAt))
+          .slice(0, 6);
+    const entries = activeSessions.length > 0 ? activeSessions : fallbackSessions;
+
+    await Promise.all(entries.map(({ workspace: workspaceEntry, session }) =>
+      this.ensureTranscriptLoaded({ workspaceId: workspaceEntry.id, sessionId: session.id }),
+    ));
+
+    return entries.map(({ workspace: workspaceEntry, session }) => ({
+      workspace: structuredClone(workspaceEntry),
+      session: structuredClone(session),
+      transcript: (this.sessionState.transcriptCache.get(sessionKey({ workspaceId: workspaceEntry.id, sessionId: session.id })) ?? [])
+        .map(cloneTranscriptMessage),
+    }));
   }
 
   async flushPersistence(): Promise<void> {
@@ -359,6 +391,14 @@ export class DesktopAppStore implements AppStoreInternals {
     return composer.submitComposer(this, textInput, options);
   }
 
+  async submitComposerToSession(
+    target: WorkspaceSessionTarget,
+    textInput: string,
+    options?: { readonly deliverAs?: "steer" | "followUp" },
+  ): Promise<DesktopAppState> {
+    return composer.submitComposerToSession(this, target, textInput, options);
+  }
+
   async editQueuedComposerMessage(messageId: string, currentDraft?: string): Promise<DesktopAppState> {
     return composer.editQueuedComposerMessage(this, messageId, currentDraft);
   }
@@ -377,6 +417,10 @@ export class DesktopAppStore implements AppStoreInternals {
 
   async cancelCurrentRun(): Promise<DesktopAppState> {
     return composer.cancelCurrentRun(this);
+  }
+
+  async cancelSessionRun(target: WorkspaceSessionTarget): Promise<DesktopAppState> {
+    return composer.cancelSessionRun(this, target);
   }
 
   async getSessionTree(target: WorkspaceSessionTarget): Promise<SessionTreeSnapshot> {

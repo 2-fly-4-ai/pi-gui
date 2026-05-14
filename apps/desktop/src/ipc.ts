@@ -11,6 +11,7 @@ import type {
   CreateSessionInput,
   CreateWorktreeInput,
   DesktopAppState,
+  DisplayModeThreadRecord,
   ModelSettingsScopeMode,
   NotificationPreferences,
   RemoveWorktreeInput,
@@ -31,6 +32,7 @@ export const desktopIpc = {
   stateChanged: "pi-gui:state-changed",
   selectedTranscriptRequest: "pi-gui:selected-transcript-request",
   selectedTranscriptChanged: "pi-gui:selected-transcript-changed",
+  displayModeThreadsRequest: "pi-gui:display-mode-threads-request",
   appCommand: "pi-gui:app-command",
   workspacePicked: "pi-gui:workspace-picked",
   clipboardImagePasted: "pi-gui:clipboard-image-pasted",
@@ -41,6 +43,7 @@ export const desktopIpc = {
   removeWorkspace: "pi-gui:remove-workspace",
   reorderWorkspaces: "pi-gui:reorder-workspaces",
   openWorkspaceInFinder: "pi-gui:open-workspace-in-finder",
+  openWorkspaceInVSCode: "pi-gui:open-workspace-in-vscode",
   createWorktree: "pi-gui:create-worktree",
   removeWorktree: "pi-gui:remove-worktree",
   openSkillInFinder: "pi-gui:open-skill-in-finder",
@@ -52,6 +55,7 @@ export const desktopIpc = {
   createSession: "pi-gui:create-session",
   startThread: "pi-gui:start-thread",
   cancelCurrentRun: "pi-gui:cancel-current-run",
+  cancelSessionRun: "pi-gui:cancel-session-run",
   setActiveView: "pi-gui:set-active-view",
   setSidebarCollapsed: "pi-gui:set-sidebar-collapsed",
   refreshRuntime: "pi-gui:refresh-runtime",
@@ -96,6 +100,7 @@ export const desktopIpc = {
   steerQueuedComposerMessage: "pi-gui:steer-queued-composer-message",
   updateComposerDraft: "pi-gui:update-composer-draft",
   submitComposer: "pi-gui:submit-composer",
+  submitComposerToSession: "pi-gui:submit-composer-to-session",
   getSessionTree: "pi-gui:get-session-tree",
   navigateSessionTree: "pi-gui:navigate-session-tree",
   toggleWindowMaximize: "pi-gui:toggle-window-maximize",
@@ -214,6 +219,7 @@ export interface PiDesktopApi {
   onStateChanged(listener: PiDesktopStateListener): () => void;
   getSelectedTranscript(): Promise<SelectedTranscriptRecord | null>;
   onSelectedTranscriptChanged(listener: PiDesktopSelectedTranscriptListener): () => void;
+  getDisplayModeThreads(): Promise<readonly DisplayModeThreadRecord[]>;
   onCommand(listener: (command: PiDesktopCommand) => void): () => void;
   onWorkspacePicked(listener: (workspaceId: string) => void): () => void;
   onClipboardImagePasted(listener: (attachment: ComposerImageAttachment) => void): () => void;
@@ -225,6 +231,7 @@ export interface PiDesktopApi {
   removeWorkspace(workspaceId: string): Promise<DesktopAppState>;
   reorderWorkspaces(workspaceOrder: readonly string[]): Promise<DesktopAppState>;
   openWorkspaceInFinder(workspaceId: string): Promise<void>;
+  openWorkspaceInVSCode(workspaceId: string): Promise<void>;
   createWorktree(input: CreateWorktreeInput): Promise<DesktopAppState>;
   removeWorktree(input: RemoveWorktreeInput): Promise<DesktopAppState>;
   openSkillInFinder(workspaceId: string, filePath: string): Promise<void>;
@@ -236,6 +243,7 @@ export interface PiDesktopApi {
   createSession(input: CreateSessionInput): Promise<DesktopAppState>;
   startThread(input: StartThreadInput): Promise<DesktopAppState>;
   cancelCurrentRun(): Promise<DesktopAppState>;
+  cancelSessionRun(target: WorkspaceSessionTarget): Promise<DesktopAppState>;
   setActiveView(view: AppView): Promise<DesktopAppState>;
   setSidebarCollapsed(collapsed: boolean): Promise<DesktopAppState>;
   refreshRuntime(workspaceId?: string): Promise<DesktopAppState>;
@@ -313,6 +321,11 @@ export interface PiDesktopApi {
   steerQueuedComposerMessage(messageId: string): Promise<DesktopAppState>;
   updateComposerDraft(composerDraft: string): Promise<DesktopAppState>;
   submitComposer(text: string, options?: { readonly deliverAs?: "steer" | "followUp" }): Promise<DesktopAppState>;
+  submitComposerToSession(
+    target: WorkspaceSessionTarget,
+    text: string,
+    options?: { readonly deliverAs?: "steer" | "followUp" },
+  ): Promise<DesktopAppState>;
   getSessionTree(target: WorkspaceSessionTarget): Promise<SessionTreeSnapshot>;
   navigateSessionTree(
     target: WorkspaceSessionTarget,

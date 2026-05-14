@@ -493,6 +493,7 @@ app.whenReady().then(async () => {
   });
   ipcMain.handle(desktopIpc.stateRequest, () => store.getState());
   ipcMain.handle(desktopIpc.selectedTranscriptRequest, () => store.getSelectedTranscript());
+  ipcMain.handle(desktopIpc.displayModeThreadsRequest, () => store.getDisplayModeThreads());
   ipcMain.handle(desktopIpc.addWorkspacePath, (_event, workspacePath: string) => store.addWorkspace(workspacePath));
   ipcMain.handle(desktopIpc.pickWorkspace, () => pickWorkspaceViaDialog());
   ipcMain.handle(desktopIpc.selectWorkspace, (_event, workspaceId: string) => store.selectWorkspace(workspaceId));
@@ -507,6 +508,13 @@ app.whenReady().then(async () => {
       throw new Error(`Unknown workspace: ${workspaceId}`);
     }
     await shell.openPath(workspacePath);
+  });
+  ipcMain.handle(desktopIpc.openWorkspaceInVSCode, async (_event, workspaceId: string) => {
+    const workspacePath = store.getWorkspacePath(workspaceId);
+    if (!workspacePath) {
+      throw new Error(`Unknown workspace: ${workspaceId}`);
+    }
+    await shell.openExternal(`vscode://file${workspacePath}`);
   });
   ipcMain.handle(desktopIpc.createWorktree, (_event, input: CreateWorktreeInput) =>
     store.createWorktree(input),
@@ -634,6 +642,7 @@ app.whenReady().then(async () => {
     await shell.openPath(path.dirname(resolved));
   });
   ipcMain.handle(desktopIpc.cancelCurrentRun, () => store.cancelCurrentRun());
+  ipcMain.handle(desktopIpc.cancelSessionRun, (_event, target: WorkspaceSessionTarget) => store.cancelSessionRun(target));
   ipcMain.handle(desktopIpc.pickComposerAttachments, async () => {
     const result = await dialog.showOpenDialog({
       properties: ["openFile", "multiSelections"],
@@ -673,6 +682,11 @@ app.whenReady().then(async () => {
   ipcMain.handle(
     desktopIpc.submitComposer,
     (_event, text: string, options?: { readonly deliverAs?: "steer" | "followUp" }) => store.submitComposer(text, options),
+  );
+  ipcMain.handle(
+    desktopIpc.submitComposerToSession,
+    (_event, target: WorkspaceSessionTarget, text: string, options?: { readonly deliverAs?: "steer" | "followUp" }) =>
+      store.submitComposerToSession(target, text, options),
   );
   ipcMain.handle(desktopIpc.getSessionTree, (_event, target: WorkspaceSessionTarget) =>
     store.getSessionTree(target),

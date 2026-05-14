@@ -31,6 +31,7 @@ import { SkillsView } from "./skills-view";
 import { ExtensionsView } from "./extensions-view";
 import { SettingsView, type SettingsSection } from "./settings-view";
 import { SecondarySurface } from "./secondary-surface";
+import { DisplayModeView } from "./display-mode-view";
 import { NewThreadView } from "./new-thread-view";
 import { buildThreadGroups } from "./thread-groups";
 import { Sidebar } from "./sidebar";
@@ -109,7 +110,7 @@ function isEventInsideTerminal(event: globalThis.KeyboardEvent): boolean {
 }
 
 function canTogglePrimarySidebar(view: AppView | undefined): boolean {
-  return view === "threads" || view === "new-thread";
+  return view === "threads" || view === "new-thread" || view === "display-mode";
 }
 
 function useRunningLabel(startedAt: string | undefined) {
@@ -2066,7 +2067,9 @@ export default function App() {
           terminalPanel
         ) : (
           <>
-        {snapshot.activeView === "new-thread" ? (
+        {snapshot.activeView === "display-mode" ? (
+          <DisplayModeView api={api} />
+        ) : snapshot.activeView === "new-thread" ? (
           rootWorkspaceOptions.length > 0 ? (
             <NewThreadView
               workspaces={rootWorkspaceOptions}
