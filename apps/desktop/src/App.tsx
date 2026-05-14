@@ -436,17 +436,24 @@ export default function App() {
     setReviewLoading(true);
     setReviewSnapshot(undefined);
     void api.createReviewSnapshot(selectedWorkspace.id, snapshot.reviewRequest)
-      .then(async (next) => {
-        if (!snapshot.reviewRequest?.agent || !selectedSession) {
-          return next;
-        }
-        const agentComments = await api.runReviewAgentPreReview(selectedWorkspace.id, selectedSession.id, next);
-        return { ...next, agentComments };
-      })
       .then((next) => {
-        if (!cancelled) {
-          setReviewSnapshot(next);
+        if (cancelled) {
+          return;
         }
+
+        setReviewSnapshot(next);
+        setReviewLoading(false);
+
+        if (!snapshot.reviewRequest?.agent || !selectedSession) {
+          return;
+        }
+
+        void api.runReviewAgentPreReview(selectedWorkspace.id, selectedSession.id, next)
+          .then((agentComments) => {
+            if (!cancelled) {
+              setReviewSnapshot((current) => current?.id === next.id ? { ...current, agentComments } : current);
+            }
+          });
       })
       .finally(() => {
         if (!cancelled) {

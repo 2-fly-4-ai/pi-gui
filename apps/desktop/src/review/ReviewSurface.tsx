@@ -146,6 +146,7 @@ export function ReviewSurface({ snapshot, onCancel, onSubmitPrompt }: ReviewSurf
               </section>
               <section className="review-mode__comments">
                 <h2>Comments</h2>
+                {snapshot.source.agent && !snapshot.agentComments ? <p>Agent review is running. Comments will appear here when it returns structured feedback.</p> : null}
                 {selectedFileDrafts.length === 0 ? <p>No comments for this file yet.</p> : null}
                 {selectedFileDrafts.map((comment) => (
                   <article className="review-mode__comment" key={comment.id}>
