@@ -1,6 +1,6 @@
 import type { MouseEvent as ReactMouseEvent, Dispatch, SetStateAction } from "react";
 import type { AppView, DesktopAppState, SessionRecord, WorkspaceRecord, WorktreeRecord } from "./desktop-state";
-import { DiffIcon, FolderIcon, TerminalIcon } from "./icons";
+import { DiffIcon, FolderIcon, SidebarToggleIcon, TerminalIcon } from "./icons";
 import { getDesktopShortcutLabel, type PiDesktopApi } from "./ipc";
 import type { WorkspaceMenuState } from "./hooks/use-workspace-menu";
 
@@ -26,6 +26,8 @@ interface TopbarProps {
   readonly onToggleTerminal: () => void;
   readonly showDiffPanel: boolean;
   readonly onToggleDiffPanel: () => void;
+  readonly drawerOpen?: boolean;
+  readonly onToggleDrawer?: () => void;
 }
 
 export function Topbar(props: TopbarProps) {
@@ -47,6 +49,8 @@ export function Topbar(props: TopbarProps) {
     onToggleTerminal,
     showDiffPanel,
     onToggleDiffPanel,
+    drawerOpen,
+    onToggleDrawer,
   } = props;
   const terminalShortcut = getDesktopShortcutLabel(api.platform, "J");
   const diffShortcut = getDesktopShortcutLabel(api.platform, "D");
@@ -162,6 +166,21 @@ export function Topbar(props: TopbarProps) {
             <kbd>{diffShortcut}</kbd>
           </span>
         </div>
+        {onToggleDrawer !== undefined && (
+          <div className="shortcut-tooltip-wrap topbar__tooltip-wrap">
+            <button
+              aria-label="Toggle side panel"
+              className={`icon-button topbar__icon ${drawerOpen ? "icon-button--active" : ""}`}
+              type="button"
+              onClick={onToggleDrawer}
+            >
+              <SidebarToggleIcon />
+            </button>
+            <span className="shortcut-tooltip topbar__tooltip" role="tooltip">
+              <span>Toggle side panel</span>
+            </span>
+          </div>
+        )}
         <button
           aria-label="Add folder"
           className="icon-button topbar__icon"

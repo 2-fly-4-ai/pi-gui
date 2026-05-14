@@ -199,6 +199,8 @@ export default function App() {
   const handledComposerSyncNonceRef = useRef(0);
   const [showJumpToLatest, setShowJumpToLatest] = useState(false);
   const [showDiffPanel, setShowDiffPanel] = useState(false);
+  const [dmDrawerOpen, setDmDrawerOpen] = useState(() => { try { return localStorage.getItem("dm:drawerOpen") !== "false"; } catch { return true; } });
+  const toggleDmDrawer = useCallback(() => { setDmDrawerOpen((o) => { try { localStorage.setItem("dm:drawerOpen", String(!o)); } catch {} return !o; }); }, []);
   const [openTerminalSessionKeys, setOpenTerminalSessionKeys] = useState<ReadonlySet<string>>(() => new Set());
   const [takeoverTerminalSessionKeys, setTakeoverTerminalSessionKeys] = useState<ReadonlySet<string>>(() => new Set());
   const [terminalHeight, setTerminalHeight] = useState(340);
@@ -2061,6 +2063,8 @@ export default function App() {
           onToggleTerminal={toggleTerminal}
           showDiffPanel={showDiffPanel}
           onToggleDiffPanel={toggleDiffPanel}
+          drawerOpen={snapshot.activeView === "display-mode" ? dmDrawerOpen : undefined}
+          onToggleDrawer={snapshot.activeView === "display-mode" ? toggleDmDrawer : undefined}
         />
 
         {showTerminalTakeover ? (
@@ -2068,7 +2072,7 @@ export default function App() {
         ) : (
           <>
         {snapshot.activeView === "display-mode" ? (
-          <DisplayModeView api={api} />
+          <DisplayModeView api={api} drawerOpen={dmDrawerOpen} onToggleDrawer={toggleDmDrawer} />
         ) : snapshot.activeView === "new-thread" ? (
           rootWorkspaceOptions.length > 0 ? (
             <NewThreadView

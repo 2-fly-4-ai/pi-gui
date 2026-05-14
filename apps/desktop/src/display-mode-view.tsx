@@ -34,7 +34,7 @@ interface ChangedFile {
   readonly staged: boolean;
 }
 
-export function DisplayModeView({ api }: { readonly api: PiDesktopApi }) {
+export function DisplayModeView({ api, drawerOpen, onToggleDrawer }: { readonly api: PiDesktopApi; readonly drawerOpen: boolean; readonly onToggleDrawer: () => void; }) {
   const [threads, setThreads] = useState<readonly DisplayModeThreadRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<DisplayModeFilter>("all");
@@ -52,13 +52,11 @@ export function DisplayModeView({ api }: { readonly api: PiDesktopApi }) {
   const [draggingId, setDraggingId] = useState<string | null>(null);
 
   const [drawerWidth, setDrawerWidth] = useState<number>(() => lsGetNum("dm:drawerWidth", 320));
-  const [drawerOpen, setDrawerOpen] = useState<boolean>(() => lsGetBool("dm:drawerOpen", true));
 
   // Persist preferences
   useEffect(() => { lsSet("dm:colCount", colCount); }, [colCount]);
   useEffect(() => { lsSet("dm:compact", compact); }, [compact]);
   useEffect(() => { lsSet("dm:drawerWidth", drawerWidth); }, [drawerWidth]);
-  useEffect(() => { lsSet("dm:drawerOpen", drawerOpen); }, [drawerOpen]);
   const lastFetchAt = useRef<number>(0);
   const pendingRefresh = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const sectionRef = useRef<HTMLElement | null>(null);
@@ -283,15 +281,6 @@ export function DisplayModeView({ api }: { readonly api: PiDesktopApi }) {
               <span><strong>{errorCount}</strong> errors</span>
               <span><strong>{threads.length}</strong> threads</span>
             </div>
-            <button
-              className={`button display-mode__drawer-toggle${drawerOpen ? " display-mode__drawer-toggle--active" : ""}`}
-              type="button"
-              aria-label={drawerOpen ? "Close side panel" : "Open side panel"}
-              title={drawerOpen ? "Close side panel" : "Open side panel"}
-              onClick={() => setDrawerOpen((o) => !o)}
-            >
-              <SidebarToggleIcon />
-            </button>
             <button className="button display-mode__pause-btn" type="button" disabled={runningCount === 0} onClick={pauseAll}>
               Pause all
             </button>
