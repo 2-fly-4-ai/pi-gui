@@ -1,4 +1,23 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DraggableAttributes,
+  type DraggableSyntheticListeners,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  arrayMove,
+  rectSortingStrategy,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import type { DisplayModeThreadRecord, SessionRecord } from "./desktop-state";
 import { ComposerSurface } from "./composer-surface";
 import { TimelineItem } from "./timeline-item";
@@ -9,6 +28,12 @@ import { formatRelativeTime } from "./string-utils";
 
 type DisplayModeFilter = "all" | "running" | "waiting" | "error";
 type DrawerTab = "preview" | "logs" | "files";
+
+interface ChangedFile {
+  readonly path: string;
+  readonly status: "added" | "modified" | "deleted" | "untracked";
+  readonly staged: boolean;
+}
 
 interface DisplayModeViewProps {
   readonly api: PiDesktopApi;
@@ -24,9 +49,9 @@ export function DisplayModeView({ api }: DisplayModeViewProps) {
   const [previewUrl, setPreviewUrl] = useState("http://localhost:5173");
   const [previewDevice, setPreviewDevice] = useState<"desktop" | "mobile">("desktop");
   const [pinnedThreadKey, setPinnedThreadKey] = useState<string>("");
+  const [tileOrder, setTileOrder] = useState<readonly string[]>([]);
+  const [pinnedThreadFiles, setPinnedThreadFiles] = useState<readonly ChangedFile[]>([]);
 
-  // Throttle: track last-fetch timestamp and any pending timer so rapid onStateChanged
-  // firings (one per token during a run) collapse to at most ~1 refresh/sec.
   const lastFetchAt = useRef<number>(0);
   const pendingRefresh = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
@@ -66,7 +91,6 @@ export function DisplayModeView({ api }: DisplayModeViewProps) {
       }, delay);
     };
 
-    // Initial load — show spinner only here
     setLoading(true);
     void api.getDisplayModeThreads().then((records) => {
       if (!active) return;
@@ -77,7 +101,6 @@ export function DisplayModeView({ api }: DisplayModeViewProps) {
       if (active) setLoading(false);
     });
 
-    // Live updates — silently re-fetch on state changes, throttled to 1/sec
     const unsub = api.onStateChanged(scheduleRefresh);
 
     return () => {
@@ -87,19 +110,59 @@ export function DisplayModeView({ api }: DisplayModeViewProps) {
     };
   }, [api, applyRecords]);
 
-  const visibleThreads = useMemo(() => threads.filter((record) => matchesFilter(record.session, filter)), [filter, threads]);
-  const runningCount = threads.filter((record) => record.session.status === "running").length;
-  const errorCount = threads.filter((record) => record.session.status === "failed").length;
-  const pinnedThread = threads.find((record) => threadKey(record.workspace.id, record.session.id) === pinnedThreadKey);
+  const visibleThreads = useMemo(
+    () => threads.filter((record) => matchesFilter(record.session, filter)),
+    [filter, threads],
+  );
+
+  // Stable key string — only changes when the actual set of visible threads changes
+  const visibleKeysStr = useMemo(
+    () => visibleThreads.map((r) => threadKey(r.workspace.id, r.session.id)).join(","),
+    [visibleThreads],
+  );
+
+  // Reconcile tile order when visible threads change: keep existing order, append new ones at end
+  useEffect(() => {
+    const keys = visibleKeysStr ? visibleKeysStr.split(",") : [];
+    setTileOrder((current) => {
+      const keySet = new Set(keys);
+      const kept = current.filter((k) => keySet.has(k));
+      const added = keys.filter((k) => !current.includes(k));
+      return [...kept, ...added];
+    });
+  }, [visibleKeysStr]);
+
+  const orderedVisibleThreads = useMemo(() => {
+    if (tileOrder.length === 0) return visibleThreads;
+    const orderMap = new Map(tileOrder.map((k, i) => [k, i]));
+    return [...visibleThreads].sort((a, b) => {
+      const ia = orderMap.get(threadKey(a.workspace.id, a.session.id)) ?? Infinity;
+      const ib = orderMap.get(threadKey(b.workspace.id, b.session.id)) ?? Infinity;
+      return ia - ib;
+    });
+  }, [visibleThreads, tileOrder]);
+
+  const runningCount = threads.filter((r) => r.session.status === "running").length;
+  const errorCount = threads.filter((r) => r.session.status === "failed").length;
+  const pinnedThread = threads.find((r) => threadKey(r.workspace.id, r.session.id) === pinnedThreadKey);
+
+  // Scan all transcripts for localhost URLs to offer as quick-pick in Preview drawer
+  const detectedUrls = useMemo(() => {
+    const seen = new Set<string>();
+    for (const record of threads) {
+      for (const msg of record.transcript) {
+        if (msg.kind !== "message") continue;
+        const matches = (msg as { text: string }).text.match(/https?:\/\/localhost:\d+/g);
+        if (matches) { for (const u of matches) seen.add(u); }
+      }
+    }
+    return [...seen];
+  }, [threads]);
 
   const toggleExpanded = (key: string) => {
     setExpandedKeys((current) => {
       const next = new Set(current);
-      if (next.has(key)) {
-        next.delete(key);
-      } else {
-        next.add(key);
-      }
+      if (next.has(key)) { next.delete(key); } else { next.add(key); }
       return next;
     });
   };
@@ -107,22 +170,32 @@ export function DisplayModeView({ api }: DisplayModeViewProps) {
   const toggleTerminal = (key: string) => {
     setTerminalKeys((current) => {
       const next = new Set(current);
-      if (next.has(key)) {
-        next.delete(key);
-      } else {
-        next.add(key);
-      }
+      if (next.has(key)) { next.delete(key); } else { next.add(key); }
       return next;
     });
   };
 
   const pauseAll = () => {
     for (const record of threads) {
-      if (record.session.status !== "running") {
-        continue;
-      }
+      if (record.session.status !== "running") continue;
       void api.cancelSessionRun({ workspaceId: record.workspace.id, sessionId: record.session.id });
     }
+  };
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    setTileOrder((current) => {
+      const oldIdx = current.indexOf(active.id as string);
+      const newIdx = current.indexOf(over.id as string);
+      if (oldIdx === -1 || newIdx === -1) return current;
+      return arrayMove([...current], oldIdx, newIdx);
+    });
   };
 
   return (
@@ -136,14 +209,14 @@ export function DisplayModeView({ api }: DisplayModeViewProps) {
           </div>
           <div className="display-mode__controls">
             <div className="display-mode__filters" aria-label="Display mode filters">
-              {(["all", "running", "waiting", "error"] as const).map((nextFilter) => (
+              {(["all", "running", "waiting", "error"] as const).map((f) => (
                 <button
-                  className={`display-mode__filter ${filter === nextFilter ? "display-mode__filter--active" : ""}`}
-                  key={nextFilter}
+                  className={`display-mode__filter ${filter === f ? "display-mode__filter--active" : ""}`}
+                  key={f}
                   type="button"
-                  onClick={() => setFilter(nextFilter)}
+                  onClick={() => setFilter(f)}
                 >
-                  {filterLabel(nextFilter)}
+                  {filterLabel(f)}
                 </button>
               ))}
             </div>
@@ -161,32 +234,41 @@ export function DisplayModeView({ api }: DisplayModeViewProps) {
 
         {loading ? (
           <div className="display-mode__empty">Loading active threads…</div>
-        ) : visibleThreads.length === 0 ? (
+        ) : orderedVisibleThreads.length === 0 ? (
           <div className="display-mode__empty">No threads match this filter.</div>
         ) : (
-          <div className="display-mode__grid">
-            {visibleThreads.map((record) => {
-              const key = threadKey(record.workspace.id, record.session.id);
-              return (
-                <DisplayModeTile
-                  api={api}
-                  expanded={expandedKeys.has(key)}
-                  key={key}
-                  record={record}
-                  terminalOpen={terminalKeys.has(key)}
-                  onOpenThread={() => {
-                    void api.selectSession({ workspaceId: record.workspace.id, sessionId: record.session.id });
-                  }}
-                  onOpenVSCode={() => {
-                    void api.openWorkspaceInVSCode(record.workspace.id);
-                  }}
-                  onPinPreview={() => setPinnedThreadKey(key)}
-                  onToggleExpanded={() => toggleExpanded(key)}
-                  onToggleTerminal={() => toggleTerminal(key)}
-                />
-              );
-            })}
-          </div>
+          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+            <SortableContext items={[...tileOrder]} strategy={rectSortingStrategy}>
+              <div className="display-mode__grid">
+                {orderedVisibleThreads.map((record) => {
+                  const key = threadKey(record.workspace.id, record.session.id);
+                  return (
+                    <SortableTile key={key} id={key}>
+                      {(dragHandleProps) => (
+                        <DisplayModeTile
+                          api={api}
+                          dragHandleProps={dragHandleProps}
+                          expanded={expandedKeys.has(key)}
+                          record={record}
+                          terminalOpen={terminalKeys.has(key)}
+                          onFilesUpdate={key === pinnedThreadKey ? setPinnedThreadFiles : undefined}
+                          onOpenThread={() => {
+                            void api.selectSession({ workspaceId: record.workspace.id, sessionId: record.session.id });
+                          }}
+                          onOpenVSCode={() => {
+                            void api.openWorkspaceInVSCode(record.workspace.id);
+                          }}
+                          onPinPreview={() => setPinnedThreadKey(key)}
+                          onToggleExpanded={() => toggleExpanded(key)}
+                          onToggleTerminal={() => toggleTerminal(key)}
+                        />
+                      )}
+                    </SortableTile>
+                  );
+                })}
+              </div>
+            </SortableContext>
+          </DndContext>
         )}
       </div>
 
@@ -205,15 +287,33 @@ export function DisplayModeView({ api }: DisplayModeViewProps) {
             </button>
           ))}
         </div>
-        {drawerTab === "preview" ? (
+
+        {drawerTab === "preview" && (
           <div className="display-mode-drawer__body">
             <div className="display-mode-drawer__meta">
               Pinned to: {pinnedThread ? `${pinnedThread.workspace.name} / ${pinnedThread.session.title}` : "No thread"}
             </div>
             <label className="display-mode-drawer__field">
               <span>Preview URL</span>
-              <input value={previewUrl} onChange={(event) => setPreviewUrl(event.target.value)} />
+              <input value={previewUrl} onChange={(e) => setPreviewUrl(e.target.value)} />
             </label>
+            {detectedUrls.length > 0 && (
+              <div className="display-mode-drawer__detected">
+                <div className="display-mode-drawer__detected-label">Detected</div>
+                <div className="display-mode-drawer__detected-urls">
+                  {detectedUrls.map((url) => (
+                    <button
+                      key={url}
+                      className={`display-mode-drawer__detected-url ${previewUrl === url ? "is-active" : ""}`}
+                      type="button"
+                      onClick={() => setPreviewUrl(url)}
+                    >
+                      {url.replace("http://", "").replace("https://", "")}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
             <div className="display-mode-drawer__device-toggle">
               <button className={previewDevice === "desktop" ? "is-active" : ""} type="button" onClick={() => setPreviewDevice("desktop")}>Desktop</button>
               <button className={previewDevice === "mobile" ? "is-active" : ""} type="button" onClick={() => setPreviewDevice("mobile")}>Mobile</button>
@@ -222,20 +322,66 @@ export function DisplayModeView({ api }: DisplayModeViewProps) {
               {isHttpUrl(previewUrl) ? (
                 <iframe title="Pinned preview" src={previewUrl} />
               ) : (
-                <div className="display-mode-preview__empty">Enter an http:// or https:// URL.</div>
+                <div className="display-mode-preview__empty">Enter an http:// or https:// URL above.</div>
               )}
             </div>
             <button className="button" type="button" disabled={!isHttpUrl(previewUrl)} onClick={() => void api.openExternal(previewUrl)}>
               Open browser
             </button>
           </div>
-        ) : drawerTab === "logs" ? (
+        )}
+
+        {drawerTab === "logs" && (
           <div className="display-mode-drawer__body">
-            <div className="display-mode-drawer__placeholder">Logs will aggregate run and terminal output here.</div>
+            {threads.length === 0 ? (
+              <div className="display-mode-drawer__placeholder">No threads yet.</div>
+            ) : (
+              <div className="display-mode-logs">
+                {[...threads]
+                  .sort((a, b) => Date.parse(b.session.updatedAt) - Date.parse(a.session.updatedAt))
+                  .map((record) => {
+                    const tone = statusTone(record.session);
+                    return (
+                      <div className="display-mode-log-entry" key={threadKey(record.workspace.id, record.session.id)}>
+                        <span className={`display-mode-tile__status display-mode-tile__status--${tone}`} aria-hidden="true" />
+                        <div className="display-mode-log-entry__body">
+                          <div className="display-mode-log-entry__title">
+                            {record.workspace.name}
+                            <span className="display-mode-log-entry__sep"> / </span>
+                            {record.session.title}
+                          </div>
+                          {record.session.preview ? (
+                            <div className="display-mode-log-entry__preview">{record.session.preview}</div>
+                          ) : null}
+                          <div className="display-mode-log-entry__time">{formatRelativeTime(record.session.updatedAt)}</div>
+                        </div>
+                      </div>
+                    );
+                  })}
+              </div>
+            )}
           </div>
-        ) : (
+        )}
+
+        {drawerTab === "files" && (
           <div className="display-mode-drawer__body">
-            <div className="display-mode-drawer__placeholder">Files will show changed files for the pinned thread.</div>
+            <div className="display-mode-drawer__meta">
+              {pinnedThread ? `${pinnedThread.workspace.name} / ${pinnedThread.session.title}` : "No thread pinned"}
+            </div>
+            {pinnedThreadFiles.length === 0 ? (
+              <div className="display-mode-drawer__placeholder">No changed files for pinned thread.</div>
+            ) : (
+              <div className="display-mode-drawer__files">
+                {pinnedThreadFiles.map((file) => (
+                  <div className="display-mode-drawer__file" key={file.path}>
+                    <span className={`display-mode-drawer__file-status display-mode-drawer__file-status--${file.status}`}>
+                      {fileStatusBadge(file.status)}
+                    </span>
+                    <span className="display-mode-drawer__file-path">{file.path}</span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
       </aside>
@@ -243,11 +389,46 @@ export function DisplayModeView({ api }: DisplayModeViewProps) {
   );
 }
 
+/* ── Sortable wrapper ──────────────────────────────────────────────── */
+
+interface DragHandleProps {
+  readonly attributes: DraggableAttributes;
+  readonly listeners: DraggableSyntheticListeners;
+}
+
+function SortableTile({
+  id,
+  children,
+}: {
+  readonly id: string;
+  readonly children: (dragHandleProps: DragHandleProps) => React.ReactNode;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
+  return (
+    <div
+      ref={setNodeRef}
+      style={{
+        transform: CSS.Transform.toString(transform),
+        transition,
+        opacity: isDragging ? 0.4 : 1,
+        zIndex: isDragging ? 10 : undefined,
+        position: "relative",
+      }}
+    >
+      {children({ attributes, listeners })}
+    </div>
+  );
+}
+
+/* ── Tile ──────────────────────────────────────────────────────────── */
+
 function DisplayModeTile({
   api,
+  dragHandleProps,
   record,
   expanded,
   terminalOpen,
+  onFilesUpdate,
   onOpenThread,
   onOpenVSCode,
   onPinPreview,
@@ -255,9 +436,11 @@ function DisplayModeTile({
   onToggleTerminal,
 }: {
   readonly api: PiDesktopApi;
+  readonly dragHandleProps: DragHandleProps;
   readonly record: DisplayModeThreadRecord;
   readonly expanded: boolean;
   readonly terminalOpen: boolean;
+  readonly onFilesUpdate: ((files: readonly ChangedFile[]) => void) | undefined;
   readonly onOpenThread: () => void;
   readonly onOpenVSCode: () => void;
   readonly onPinPreview: () => void;
@@ -276,20 +459,17 @@ function DisplayModeTile({
   useEffect(() => {
     let active = true;
     void api.getChangedFiles(record.workspace.id).then((files) => {
-      if (active) {
-        setChangedFiles(files.slice(0, 4));
-      }
+      if (!active) return;
+      const sliced = files.slice(0, 8);
+      setChangedFiles(sliced);
+      onFilesUpdate?.(sliced);
     }).catch(() => undefined);
-    return () => {
-      active = false;
-    };
-  }, [api, record.workspace.id, record.session.updatedAt]);
+    return () => { active = false; };
+  }, [api, record.workspace.id, record.session.updatedAt, onFilesUpdate]);
 
   const submitReply = () => {
     const text = replyDraft.trim();
-    if (!text || submitting) {
-      return;
-    }
+    if (!text || submitting) return;
     setSubmitting(true);
     setReplyDraft("");
     void api.submitComposerToSession(
@@ -299,18 +479,40 @@ function DisplayModeTile({
     ).finally(() => setSubmitting(false));
   };
 
-  const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (event.key !== "Enter" || event.shiftKey) {
-      return;
-    }
+  const handleComposerKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (event.key !== "Enter" || event.shiftKey) return;
     event.preventDefault();
     submitReply();
   };
 
+  // Tile-level keyboard shortcuts: only fire when focus is on the tile itself (not a child input)
+  const handleTileKeyDown = (event: KeyboardEvent<HTMLElement>) => {
+    const tag = (event.target as HTMLElement).tagName;
+    if (tag === "TEXTAREA" || tag === "INPUT" || tag === "BUTTON") return;
+    if (event.key === "t" || event.key === "T") { event.preventDefault(); onToggleTerminal(); }
+    else if (event.key === "v" || event.key === "V") { event.preventDefault(); onOpenVSCode(); }
+    else if (event.key === "o" || event.key === "O") { event.preventDefault(); onOpenThread(); }
+    else if (event.key === "e" || event.key === "E") { event.preventDefault(); onToggleExpanded(); }
+  };
+
   return (
-    <article className={`display-mode-tile display-mode-tile--${status} ${expanded ? "display-mode-tile--expanded" : "display-mode-tile--compact"}`} data-testid="display-mode-thread-tile">
+    <article
+      className={`display-mode-tile display-mode-tile--${status} ${expanded ? "display-mode-tile--expanded" : "display-mode-tile--compact"}`}
+      data-testid="display-mode-thread-tile"
+      tabIndex={0}
+      onKeyDown={handleTileKeyDown}
+    >
       <header className="display-mode-tile__header">
         <div className="display-mode-tile__identity">
+          <div
+            className="display-mode-tile__drag-handle"
+            {...dragHandleProps.attributes}
+            {...dragHandleProps.listeners}
+            aria-label="Drag to reorder"
+            title="Drag to reorder"
+          >
+            ⠿
+          </div>
           <span className={`display-mode-tile__status display-mode-tile__status--${status}`} aria-hidden="true" />
           <div>
             <div className="display-mode-tile__workspace">{record.workspace.name}</div>
@@ -343,10 +545,12 @@ function DisplayModeTile({
             <div className="display-mode-tile__section-title">Diff</div>
             {changedFiles.length > 0 ? (
               <div className="display-mode-tile__files">
-                {changedFiles.map((file) => (
+                {changedFiles.slice(0, 4).map((file) => (
                   <div className="display-mode-tile__file" key={file.path}>
                     <span>{file.path}</span>
-                    <span>{file.status}</span>
+                    <span className={`display-mode-tile__file-badge display-mode-tile__file-badge--${file.status}`}>
+                      {fileStatusBadge(file.status)}
+                    </span>
                   </div>
                 ))}
               </div>
@@ -389,7 +593,7 @@ function DisplayModeTile({
             onCancelQueuedEdit={() => undefined}
             onClearSlashCommand={() => undefined}
             onComposerDrop={(event) => event.preventDefault()}
-            onComposerKeyDown={handleKeyDown}
+            onComposerKeyDown={handleComposerKeyDown}
             onComposerPaste={() => undefined}
             onEditQueuedMessage={() => undefined}
             onRemoveAttachment={() => undefined}
@@ -427,30 +631,24 @@ function DisplayModeTile({
         <button className="button" type="button" onClick={onOpenVSCode}>VS Code</button>
         <button className="button" type="button" onClick={onPinPreview}><MaximizeIcon /> Pin preview</button>
       </footer>
+
+      <div className="display-mode-tile__shortcuts-hint">
+        <kbd>O</kbd> open · <kbd>T</kbd> terminal · <kbd>V</kbd> VS Code · <kbd>E</kbd> expand
+      </div>
     </article>
   );
 }
 
-interface ChangedFile {
-  readonly path: string;
-  readonly status: "added" | "modified" | "deleted" | "untracked";
-  readonly staged: boolean;
-}
+/* ── Helpers ───────────────────────────────────────────────────────── */
 
 function threadKey(workspaceId: string, sessionId: string): string {
   return `${workspaceId}:${sessionId}`;
 }
 
 function matchesFilter(session: SessionRecord, filter: DisplayModeFilter): boolean {
-  if (filter === "all") {
-    return true;
-  }
-  if (filter === "running") {
-    return session.status === "running";
-  }
-  if (filter === "error") {
-    return session.status === "failed";
-  }
+  if (filter === "all") return true;
+  if (filter === "running") return session.status === "running";
+  if (filter === "error") return session.status === "failed";
   return false;
 }
 
@@ -480,6 +678,13 @@ function statusLabel(session: SessionRecord): string {
   if (tone === "waiting") return "Waiting for input";
   if (tone === "error") return "Error";
   return "Idle";
+}
+
+function fileStatusBadge(status: ChangedFile["status"]): string {
+  if (status === "added") return "A";
+  if (status === "deleted") return "D";
+  if (status === "untracked") return "U";
+  return "M";
 }
 
 function isHttpUrl(value: string): boolean {
