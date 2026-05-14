@@ -39,6 +39,7 @@ export function DisplayModeView({ api }: { readonly api: PiDesktopApi }) {
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<DisplayModeFilter>("all");
   const [workspaceFilter, setWorkspaceFilter] = useState<string>("");
+  const [colCount, setColCount] = useState<number>(3);
   const [terminalKeys, setTerminalKeys] = useState<ReadonlySet<string>>(() => new Set());
   const [drawerTab, setDrawerTab] = useState<DrawerTab>("preview");
   const [previewUrl, setPreviewUrl] = useState("http://localhost:5173");
@@ -235,6 +236,19 @@ export function DisplayModeView({ api }: { readonly api: PiDesktopApi }) {
                 ))}
               </select>
             )}
+            <div className="display-mode__col-picker" aria-label="Grid columns">
+              {([2, 3, 4, 5, 6, 7, 8] as const).map((n) => (
+                <button
+                  key={n}
+                  className={`display-mode__col-btn${colCount === n ? " display-mode__col-btn--active" : ""}`}
+                  type="button"
+                  aria-label={`${n} columns`}
+                  onClick={() => setColCount(n)}
+                >
+                  {n}
+                </button>
+              ))}
+            </div>
             <div className="display-mode__summary">
               <span><strong>{runningCount}</strong> running</span>
               <span><strong>{errorCount}</strong> errors</span>
@@ -253,7 +267,7 @@ export function DisplayModeView({ api }: { readonly api: PiDesktopApi }) {
         ) : (
           <DndContext sensors={sensors} collisionDetection={closestCenter} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
             <SortableContext items={[...tileOrder]} strategy={rectSortingStrategy}>
-              <div className="display-mode__grid">
+              <div className="display-mode__grid" style={{ gridTemplateColumns: `repeat(${colCount}, minmax(0, 1fr))` }}>
                 {orderedThreads.map((record) => {
                   const key = threadKey(record.workspace.id, record.session.id);
                   return (
