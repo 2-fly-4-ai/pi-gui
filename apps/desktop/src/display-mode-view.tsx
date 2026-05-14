@@ -530,7 +530,7 @@ function DisplayModeTile({
       style={{
         transform: CSS.Transform.toString(transform),
         transition,
-        ...(isExpanded && !compact ? { gridColumn: `span ${expandedColSpan}`, height: "auto", minHeight: "600px" } : {}),
+        ...(isExpanded && !compact ? { gridColumn: `span ${expandedColSpan}`, height: "auto", minHeight: "1000px" } : {}),
       }}
       data-testid="display-mode-thread-tile"
       onKeyDown={handleTileKeyDown}
