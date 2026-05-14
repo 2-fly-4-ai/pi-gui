@@ -3479,6 +3479,7 @@ mark.thread-find-active {
   display: flex;
   flex-direction: column;
   gap: 14px;
+  container-type: inline-size;
 }
 
 /* Header */
@@ -3627,6 +3628,31 @@ mark.thread-find-active {
   box-shadow: 0 0 0 3px rgba(84, 99, 220, 0.08);
 }
 
+.display-mode__drawer-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid #d8dde9;
+  background: #fff;
+  color: var(--text-muted);
+  border-radius: 7px;
+  flex-shrink: 0;
+}
+
+.display-mode__drawer-toggle:hover {
+  background: #f0f2f8;
+  color: var(--text-strong);
+}
+
+.display-mode__drawer-toggle--active {
+  background: #eef1fb;
+  color: var(--accent, #5865f2);
+  border-color: #c5caee;
+}
+
 .display-mode__pause-btn {
   border: 1px solid #d8dde9;
   background: #fff;
@@ -3657,6 +3683,53 @@ mark.thread-find-active {
   grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
   gap: 14px;
   align-items: start;
+}
+
+/* Split-panel mode — focus tile left, rest grid right */
+
+.display-mode__main--split {
+  overflow: hidden;
+}
+
+.display-mode__split {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid #e0e4ef;
+  border-radius: 12px;
+  background: #f4f5f9;
+}
+
+@container (min-width: 1200px) {
+  .display-mode__split {
+    grid-template-columns: 1fr 2fr;
+  }
+}
+
+.display-mode__split-focus {
+  overflow-y: auto;
+  border-right: 1px solid #e0e4ef;
+  display: flex;
+  flex-direction: column;
+}
+
+.display-mode__split-focus .display-mode-tile {
+  flex: 1;
+  height: auto;
+  min-height: 0;
+  border-radius: 0;
+  border: none;
+  box-shadow: none;
+}
+
+.display-mode__split-rest {
+  overflow-y: auto;
+  padding: 12px;
+  display: grid;
+  gap: 10px;
+  align-content: start;
 }
 
 /* Tile — fixed-height card, flex column */
@@ -3982,9 +4055,23 @@ mark.thread-find-active {
 }
 
 .display-mode-tile__terminal .terminal-panel {
-  height: 200px !important;
+  /* no !important — inline height prop controls this */
+  min-height: 0;
   border-radius: 0;
   border: none;
+}
+
+/* When terminal is open: shrink transcript, let terminal fill remaining space */
+
+.display-mode-tile--terminal-open .display-mode-tile__transcript {
+  flex: 0 0 auto;
+  max-height: 120px;
+}
+
+.display-mode-tile--terminal-open .display-mode-tile__terminal {
+  flex: 1;
+  height: auto;
+  min-height: 0;
 }
 
 /* Reply composer — inherits real .composer styles */
@@ -4270,6 +4357,9 @@ mark.thread-find-active {
 /* ── Dark mode ─────────────────────────────────────────────── */
 
 :root.dark .display-mode { background: var(--main); }
+:root.dark .display-mode__split { background: var(--main); border-color: var(--line); }
+:root.dark .display-mode__split-focus { border-color: var(--line); }
+:root.dark .display-mode__split-focus .display-mode-tile { background: var(--surface); }
 :root.dark .display-mode__filters { background: var(--surface); border-color: var(--line); }
 :root.dark .display-mode__filter { color: var(--muted-strong); }
 :root.dark .display-mode__filter:hover:not(.display-mode__filter--active) { background: rgba(255,255,255,0.07); color: var(--text-strong); }

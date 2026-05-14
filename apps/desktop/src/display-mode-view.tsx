@@ -21,7 +21,7 @@ import { CSS } from "@dnd-kit/utilities";
 import type { DisplayModeThreadRecord, SessionRecord } from "./desktop-state";
 import { TimelineItem } from "./timeline-item";
 import { TerminalPanel } from "./terminal-panel";
-import { ArrowUpIcon, MaximizeIcon, MinimizeIcon, StopSquareIcon, TerminalIcon } from "./icons";
+import { ArrowUpIcon, MaximizeIcon, MinimizeIcon, SidebarToggleIcon, StopSquareIcon, TerminalIcon } from "./icons";
 import type { PiDesktopApi } from "./ipc";
 import { formatRelativeTime } from "./string-utils";
 
@@ -52,11 +52,13 @@ export function DisplayModeView({ api }: { readonly api: PiDesktopApi }) {
   const [draggingId, setDraggingId] = useState<string | null>(null);
 
   const [drawerWidth, setDrawerWidth] = useState<number>(() => lsGetNum("dm:drawerWidth", 320));
+  const [drawerOpen, setDrawerOpen] = useState<boolean>(() => lsGetBool("dm:drawerOpen", true));
 
   // Persist preferences
   useEffect(() => { lsSet("dm:colCount", colCount); }, [colCount]);
   useEffect(() => { lsSet("dm:compact", compact); }, [compact]);
   useEffect(() => { lsSet("dm:drawerWidth", drawerWidth); }, [drawerWidth]);
+  useEffect(() => { lsSet("dm:drawerOpen", drawerOpen); }, [drawerOpen]);
   const lastFetchAt = useRef<number>(0);
   const pendingRefresh = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const sectionRef = useRef<HTMLElement | null>(null);
@@ -155,6 +157,19 @@ export function DisplayModeView({ api }: { readonly api: PiDesktopApi }) {
   const errorCount = threads.filter((r) => r.session.status === "failed").length;
   const pinnedThread = threads.find((r) => threadKey(r.workspace.id, r.session.id) === pinnedThreadKey);
 
+  const focusRecord = expandedId
+    ? (orderedThreads.find((r) => threadKey(r.workspace.id, r.session.id) === expandedId) ?? null)
+    : null;
+  const focusKey = focusRecord ? threadKey(focusRecord.workspace.id, focusRecord.session.id) : null;
+  const restRecords = focusRecord
+    ? orderedThreads.filter((r) => threadKey(r.workspace.id, r.session.id) !== expandedId)
+    : orderedThreads;
+
+  // Collapse when expanded thread is filtered out
+  useEffect(() => {
+    if (expandedId && !focusRecord) setExpandedId(null);
+  }, [expandedId, focusRecord]);
+
   const detectedUrls = useMemo(() => {
     const seen = new Set<string>();
     for (const r of threads) {
@@ -208,10 +223,10 @@ export function DisplayModeView({ api }: { readonly api: PiDesktopApi }) {
     <section
       ref={sectionRef}
       className="display-mode"
-      style={{ gridTemplateColumns: `minmax(0, 1fr) 5px ${drawerWidth}px` }}
+      style={{ gridTemplateColumns: drawerOpen ? `minmax(0, 1fr) 5px ${drawerWidth}px` : "minmax(0, 1fr) 0 0" }}
       data-testid="display-mode-surface"
     >
-      <div className="display-mode__main">
+      <div className={`display-mode__main${expandedId ? " display-mode__main--split" : ""}`}>
         <header className="display-mode__header">
           <div>
             <div className="display-mode__eyebrow">Display Mode</div>
@@ -268,6 +283,15 @@ export function DisplayModeView({ api }: { readonly api: PiDesktopApi }) {
               <span><strong>{errorCount}</strong> errors</span>
               <span><strong>{threads.length}</strong> threads</span>
             </div>
+            <button
+              className={`button display-mode__drawer-toggle${drawerOpen ? " display-mode__drawer-toggle--active" : ""}`}
+              type="button"
+              aria-label={drawerOpen ? "Close side panel" : "Open side panel"}
+              title={drawerOpen ? "Close side panel" : "Open side panel"}
+              onClick={() => setDrawerOpen((o) => !o)}
+            >
+              <SidebarToggleIcon />
+            </button>
             <button className="button display-mode__pause-btn" type="button" disabled={runningCount === 0} onClick={pauseAll}>
               Pause all
             </button>
@@ -278,7 +302,53 @@ export function DisplayModeView({ api }: { readonly api: PiDesktopApi }) {
           <div className="display-mode__empty">Loading threads…</div>
         ) : orderedThreads.length === 0 ? (
           <div className="display-mode__empty">No threads match this filter.</div>
+        ) : expandedId && focusRecord && focusKey ? (
+          /* ── Split-panel mode ── */
+          <div className="display-mode__split">
+            <div className="display-mode__split-focus">
+              <DisplayModeTile
+                api={api}
+                id={focusKey}
+                key={focusKey}
+                record={focusRecord}
+                terminalOpen={terminalKeys.has(focusKey)}
+                isPinned={focusKey === pinnedThreadKey}
+                isExpanded={true}
+                compact={false}
+                onFilesUpdate={focusKey === pinnedThreadKey ? setPinnedThreadFiles : undefined}
+                onOpenThread={() => void api.selectSession({ workspaceId: focusRecord.workspace.id, sessionId: focusRecord.session.id })}
+                onOpenVSCode={() => void api.openWorkspaceInVSCode(focusRecord.workspace.id)}
+                onPinPreview={() => setPinnedThreadKey(focusKey)}
+                onToggleTerminal={() => toggleTerminal(focusKey)}
+                onToggleExpand={() => setExpandedId(null)}
+              />
+            </div>
+            <div className="display-mode__split-rest" style={{ gridTemplateColumns: `repeat(${colCount}, minmax(0, 1fr))` }}>
+              {restRecords.map((record) => {
+                const key = threadKey(record.workspace.id, record.session.id);
+                return (
+                  <DisplayModeTile
+                    api={api}
+                    id={key}
+                    key={key}
+                    record={record}
+                    terminalOpen={terminalKeys.has(key)}
+                    isPinned={key === pinnedThreadKey}
+                    isExpanded={false}
+                    compact={compact}
+                    onFilesUpdate={key === pinnedThreadKey ? setPinnedThreadFiles : undefined}
+                    onOpenThread={() => void api.selectSession({ workspaceId: record.workspace.id, sessionId: record.session.id })}
+                    onOpenVSCode={() => void api.openWorkspaceInVSCode(record.workspace.id)}
+                    onPinPreview={() => setPinnedThreadKey(key)}
+                    onToggleTerminal={() => toggleTerminal(key)}
+                    onToggleExpand={() => setExpandedId(key)}
+                  />
+                );
+              })}
+            </div>
+          </div>
         ) : (
+          /* ── Normal DnD grid mode ── */
           <DndContext sensors={sensors} collisionDetection={closestCenter} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
             <SortableContext items={[...tileOrder]} strategy={rectSortingStrategy}>
               <div className="display-mode__grid" style={{ gridTemplateColumns: `repeat(${colCount}, minmax(0, 1fr))` }}>
@@ -292,8 +362,7 @@ export function DisplayModeView({ api }: { readonly api: PiDesktopApi }) {
                       record={record}
                       terminalOpen={terminalKeys.has(key)}
                       isPinned={key === pinnedThreadKey}
-                      isExpanded={key === expandedId}
-                      expandedColSpan={Math.max(1, Math.ceil(colCount / 2))}
+                      isExpanded={false}
                       compact={compact}
                       onFilesUpdate={key === pinnedThreadKey ? setPinnedThreadFiles : undefined}
                       onOpenThread={() => void api.selectSession({ workspaceId: record.workspace.id, sessionId: record.session.id })}
@@ -315,13 +384,15 @@ export function DisplayModeView({ api }: { readonly api: PiDesktopApi }) {
         )}
       </div>
 
-      <div
-        className="display-mode-drawer__resize"
-        onPointerDown={startDrawerResize}
-        role="separator"
-        aria-label="Resize drawer"
-        title="Drag to resize"
-      />
+      {drawerOpen && (
+        <div
+          className="display-mode-drawer__resize"
+          onPointerDown={startDrawerResize}
+          role="separator"
+          aria-label="Resize drawer"
+          title="Drag to resize"
+        />
+      )}
       <aside className="display-mode-drawer">
         <div className="display-mode-drawer__tabs" role="tablist">
           {(["preview", "logs", "files"] as const).map((tab) => (
@@ -434,7 +505,7 @@ export function DisplayModeView({ api }: { readonly api: PiDesktopApi }) {
 /* ── Tile ─────────────────────────────────────────────────────────── */
 
 function DisplayModeTile({
-  api, id, record, terminalOpen, isPinned, isExpanded, expandedColSpan, compact,
+  api, id, record, terminalOpen, isPinned, isExpanded, compact,
   onFilesUpdate, onOpenThread, onOpenVSCode, onPinPreview, onToggleTerminal, onToggleExpand,
 }: {
   readonly api: PiDesktopApi;
@@ -443,7 +514,6 @@ function DisplayModeTile({
   readonly terminalOpen: boolean;
   readonly isPinned: boolean;
   readonly isExpanded: boolean;
-  readonly expandedColSpan: number;
   readonly compact: boolean;
   readonly onFilesUpdate: ((files: readonly ChangedFile[]) => void) | undefined;
   readonly onOpenThread: () => void;
@@ -460,8 +530,25 @@ function DisplayModeTile({
   const [submitting, setSubmitting] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const transcriptRef = useRef<HTMLDivElement | null>(null);
+  const terminalWrapperRef = useRef<HTMLDivElement | null>(null);
+  const [terminalHeight, setTerminalHeight] = useState(200);
   const tone = statusTone(record.session);
   const recentMessages = record.transcript.slice(-8);
+
+  // Measure terminal wrapper height so TerminalPanel fills it exactly
+  useEffect(() => {
+    if (!terminalOpen) { setTerminalHeight(200); return; }
+    const el = terminalWrapperRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => {
+      const h = el.clientHeight;
+      if (h > 0) setTerminalHeight(h);
+    });
+    ro.observe(el);
+    const h = el.clientHeight;
+    if (h > 0) setTerminalHeight(h);
+    return () => ro.disconnect();
+  }, [terminalOpen]);
 
   // Auto-scroll transcript to bottom while running
   useEffect(() => {
@@ -526,11 +613,10 @@ function DisplayModeTile({
   return (
     <article
       ref={setNodeRef}
-      className={`display-mode-tile display-mode-tile--${tone}${isDragging ? " display-mode-tile--dragging" : ""}${isExpanded ? " display-mode-tile--expanded" : ""}${compact ? " display-mode-tile--compact" : ""}`}
+      className={`display-mode-tile display-mode-tile--${tone}${isDragging ? " display-mode-tile--dragging" : ""}${isExpanded ? " display-mode-tile--expanded" : ""}${compact ? " display-mode-tile--compact" : ""}${terminalOpen ? " display-mode-tile--terminal-open" : ""}`}
       style={{
         transform: CSS.Transform.toString(transform),
         transition,
-        ...(isExpanded && !compact ? { gridColumn: `span ${expandedColSpan}`, height: "auto", minHeight: "1000px" } : {}),
       }}
       data-testid="display-mode-thread-tile"
       onKeyDown={handleTileKeyDown}
@@ -618,11 +704,11 @@ function DisplayModeTile({
 
       {/* Terminal (when open) */}
       {!compact && terminalOpen && (
-        <div className="display-mode-tile__terminal">
+        <div className="display-mode-tile__terminal" ref={terminalWrapperRef}>
           <TerminalPanel
             workspace={record.workspace}
             sessionId={record.session.id}
-            height={200}
+            height={terminalHeight}
             isTakeover={false}
             onHeightChange={() => undefined}
             onToggleTakeover={() => undefined}
