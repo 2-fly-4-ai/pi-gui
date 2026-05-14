@@ -244,7 +244,7 @@ export function DisplayModeView({ api }: { readonly api: PiDesktopApi }) {
               </select>
             )}
             <div className="display-mode__col-picker" aria-label="Grid columns">
-              {([2, 3, 4, 5, 6, 7, 8] as const).map((n) => (
+              {([1, 2, 3, 4, 5, 6, 7, 8] as const).map((n) => (
                 <button
                   key={n}
                   className={`display-mode__col-btn${colCount === n ? " display-mode__col-btn--active" : ""}`}
