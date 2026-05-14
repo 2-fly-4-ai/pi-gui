@@ -54,7 +54,25 @@ test("opens Display Mode from the sidebar and renders thread command-center tile
     await expect(window.getByTestId("display-mode-thread-tile").first()).toContainText(basename(workspacePath));
     await expect(window.getByTestId("display-mode-thread-tile").first()).toContainText("Display mode seed thread");
     await expect(window.getByTestId("display-mode-thread-tile").first()).toContainText("Display mode assistant tile transcript");
-    await expect(window.getByLabel("Reply to Display mode seed thread")).toBeVisible();
+    await expect(window.getByPlaceholder("Reply to Display mode seed thread…")).toBeVisible();
+
+    await window.getByTestId("display-mode-thread-tile").first().getByRole("button", { name: "VS Code" }).click();
+    await expect(window.locator(".display-mode-vscode")).toBeVisible();
+    await expect(window.locator(".display-mode-vscode__webview")).toHaveAttribute("title", "VS Code");
+    await expect.poll(async () => window.evaluate(() => {
+      const surface = document.querySelector<HTMLElement>(".display-mode");
+      const panel = document.querySelector<HTMLElement>(".display-mode-vscode");
+      const webview = document.querySelector<HTMLElement>(".display-mode-vscode__webview");
+      if (!surface || !panel || !webview) return 0;
+      const surfaceHeight = surface.getBoundingClientRect().height;
+      const panelHeight = panel.getBoundingClientRect().height;
+      const webviewHeight = webview.getBoundingClientRect().height;
+      return Math.abs(surfaceHeight - panelHeight) <= 2 && Math.abs(panelHeight - webviewHeight) <= 2 && webviewHeight > 500
+        ? webviewHeight
+        : 0;
+    })).toBeGreaterThan(500);
+    await expect(window.frameLocator(".display-mode-vscode__webview").getByText("workbench failed to connect")).toHaveCount(0);
+    await expect(window.frameLocator(".display-mode-vscode__webview").getByText("README.md")).toBeVisible({ timeout: 45_000 });
   } finally {
     await harness.close();
   }

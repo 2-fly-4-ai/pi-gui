@@ -212,6 +212,7 @@ export default function App() {
   }, []);
   const [openTerminalSessionKeys, setOpenTerminalSessionKeys] = useState<ReadonlySet<string>>(() => new Set());
   const [takeoverTerminalSessionKeys, setTakeoverTerminalSessionKeys] = useState<ReadonlySet<string>>(() => new Set());
+  const [activeTerminalSessionKey, setActiveTerminalSessionKey] = useState("");
   const [terminalHeight, setTerminalHeight] = useState(340);
   const [diffFileRequest, setDiffFileRequest] = useState<DiffPanelFileRequest | null>(null);
   const [timelinePaneMountVersion, setTimelinePaneMountVersion] = useState(0);
@@ -385,7 +386,24 @@ export default function App() {
   const runningLabel = useRunningLabel(selectedSession?.status === "running" ? selectedSession.runningSince : undefined);
   const selectedSessionKey = selectedWorkspace && selectedSession ? `${selectedWorkspace.id}:${selectedSession.id}` : "";
   const isTerminalVisibleForSelectedThread = Boolean(selectedSessionKey) && openTerminalSessionKeys.has(selectedSessionKey);
-  const isTerminalTakeoverForSelectedThread = Boolean(selectedSessionKey) && takeoverTerminalSessionKeys.has(selectedSessionKey);
+  const openTerminalTargets = useMemo(() => {
+    if (!snapshot) return [];
+    return [...openTerminalSessionKeys].flatMap((key) => {
+      const parsed = parseTerminalSessionKey(key);
+      if (!parsed) return [];
+      const workspace = snapshot.workspaces.find((entry) => entry.id === parsed.workspaceId);
+      const session = workspace?.sessions.find((entry) => entry.id === parsed.sessionId);
+      return workspace && session ? [{ key, workspace, session }] : [];
+    });
+  }, [openTerminalSessionKeys, snapshot]);
+  const visibleTerminalKey = openTerminalSessionKeys.has(activeTerminalSessionKey)
+    ? activeTerminalSessionKey
+    : isTerminalVisibleForSelectedThread
+      ? selectedSessionKey
+      : openTerminalTargets[0]?.key ?? "";
+  const visibleTerminalTarget = openTerminalTargets.find((target) => target.key === visibleTerminalKey);
+  const isTerminalVisible = Boolean(visibleTerminalTarget);
+  const isVisibleTerminalTakeover = Boolean(visibleTerminalKey) && takeoverTerminalSessionKeys.has(visibleTerminalKey);
   const activeTranscript =
     selectedTranscript &&
     selectedWorkspace &&
@@ -410,6 +428,11 @@ export default function App() {
       setTakeoverTerminalSessionKeys(new Set());
     }
   }, [snapshot]);
+  useEffect(() => {
+    if (snapshot?.activeView !== "display-mode" && selectedSessionKey && openTerminalSessionKeys.has(selectedSessionKey)) {
+      setActiveTerminalSessionKey(selectedSessionKey);
+    }
+  }, [openTerminalSessionKeys, selectedSessionKey, snapshot?.activeView]);
   const selectedExtensionDock = useMemo(() => buildExtensionDockModel(selectedExtensionUi), [selectedExtensionUi]);
   const displayedSessionTitle = selectedExtensionUi?.title ?? selectedSession?.title ?? "";
   const activeExtensionDialog = selectedExtensionUi?.pendingDialogs[0];
@@ -428,21 +451,38 @@ export default function App() {
     if (!selectedSessionKey) {
       return;
     }
-    if (openTerminalSessionKeys.has(selectedSessionKey)) {
-      setOpenTerminalSessionKeys((current) => {
-        const next = new Set(current);
+    setOpenTerminalSessionKeys((current) => {
+      const next = new Set(current);
+      if (next.has(selectedSessionKey)) {
         next.delete(selectedSessionKey);
+        setTakeoverTerminalSessionKeys((currentTakeover) => {
+          const nextTakeover = new Set(currentTakeover);
+          nextTakeover.delete(selectedSessionKey);
+          return nextTakeover;
+        });
         return next;
-      });
-      setTakeoverTerminalSessionKeys((current) => {
-        const next = new Set(current);
-        next.delete(selectedSessionKey);
-        return next;
-      });
-      return;
-    }
-    setOpenTerminalSessionKeys((current) => new Set(current).add(selectedSessionKey));
-  }, [openTerminalSessionKeys, selectedSessionKey]);
+      }
+      next.add(selectedSessionKey);
+      setActiveTerminalSessionKey(selectedSessionKey);
+      return next;
+    });
+  }, [selectedSessionKey]);
+  const toggleDisplayModeTerminal = useCallback((workspaceId: string, sessionId: string) => {
+    const key = `${workspaceId}:${sessionId}`;
+    setOpenTerminalSessionKeys((current) => {
+      const next = new Set(current);
+      if (next.has(key)) {
+        next.delete(key);
+        if (activeTerminalSessionKey === key) {
+          setActiveTerminalSessionKey([...next][0] ?? "");
+        }
+      } else {
+        next.add(key);
+        setActiveTerminalSessionKey(key);
+      }
+      return next;
+    });
+  }, [activeTerminalSessionKey]);
   const focusNewThreadComposer = () => {
     window.requestAnimationFrame(() => {
       newThreadComposerRef.current?.focus();
@@ -1279,52 +1319,75 @@ export default function App() {
     );
   }
 
-  const showTerminalTakeover = isTerminalVisibleForSelectedThread && isTerminalTakeoverForSelectedThread && Boolean(selectedWorkspace);
+  const showTerminalTakeover = isTerminalVisible && isVisibleTerminalTakeover && Boolean(visibleTerminalTarget);
   const mainClassName = [
     "main",
     showDiffPanel ? "main--with-diff" : "",
-    isTerminalVisibleForSelectedThread ? "main--with-terminal" : "",
+    isTerminalVisible ? "main--with-terminal" : "",
     showTerminalTakeover ? "main--terminal-takeover" : "",
   ].filter(Boolean).join(" ");
-  const terminalPanel = isTerminalVisibleForSelectedThread && selectedWorkspace ? (
-    <TerminalPanel
-      workspace={selectedWorkspace}
-      sessionId={selectedSession?.id ?? ""}
-      height={terminalHeight}
-      isTakeover={isTerminalTakeoverForSelectedThread}
-      onHeightChange={(nextHeight) => {
-        setTerminalHeight(nextHeight);
-        setTakeoverTerminalSessionKeys((current) => {
-          const next = new Set(current);
-          next.delete(selectedSessionKey);
-          return next;
-        });
-      }}
-      onToggleTakeover={() => {
-        setTakeoverTerminalSessionKeys((current) => {
-          const next = new Set(current);
-          if (next.has(selectedSessionKey)) {
-            next.delete(selectedSessionKey);
-          } else {
-            next.add(selectedSessionKey);
-          }
-          return next;
-        });
-      }}
-      onHide={() => {
-        setOpenTerminalSessionKeys((current) => {
-          const next = new Set(current);
-          next.delete(selectedSessionKey);
-          return next;
-        });
-        setTakeoverTerminalSessionKeys((current) => {
-          const next = new Set(current);
-          next.delete(selectedSessionKey);
-          return next;
-        });
-        focusComposer();
-      }}
-    />
+  const terminalPanel = isTerminalVisible && visibleTerminalTarget ? (
+    <div className="terminal-stack">
+      {openTerminalTargets.length > 1 ? (
+        <div className="terminal-stack__tabs" role="tablist" aria-label="Open card terminals">
+          {openTerminalTargets.map((target) => (
+            <button
+              className={`terminal-stack__tab${target.key === visibleTerminalKey ? " terminal-stack__tab--active" : ""}`}
+              key={target.key}
+              type="button"
+              role="tab"
+              aria-selected={target.key === visibleTerminalKey}
+              data-testid="open-terminal-tab"
+              onClick={() => setActiveTerminalSessionKey(target.key)}
+            >
+              {target.workspace.name} / {target.session.title}
+            </button>
+          ))}
+        </div>
+      ) : null}
+      <TerminalPanel
+        key={visibleTerminalTarget.key}
+        workspace={visibleTerminalTarget.workspace}
+        sessionId={visibleTerminalTarget.session.id}
+        height={terminalHeight}
+        isTakeover={isVisibleTerminalTakeover}
+        onHeightChange={(nextHeight) => {
+          setTerminalHeight(nextHeight);
+          setTakeoverTerminalSessionKeys((current) => {
+            const next = new Set(current);
+            next.delete(visibleTerminalTarget.key);
+            return next;
+          });
+        }}
+        onToggleTakeover={() => {
+          setTakeoverTerminalSessionKeys((current) => {
+            const next = new Set(current);
+            if (next.has(visibleTerminalTarget.key)) {
+              next.delete(visibleTerminalTarget.key);
+            } else {
+              next.add(visibleTerminalTarget.key);
+            }
+            return next;
+          });
+        }}
+        onHide={() => {
+          setOpenTerminalSessionKeys((current) => {
+            const next = new Set(current);
+            next.delete(visibleTerminalTarget.key);
+            if (activeTerminalSessionKey === visibleTerminalTarget.key) {
+              setActiveTerminalSessionKey([...next][0] ?? "");
+            }
+            return next;
+          });
+          setTakeoverTerminalSessionKeys((current) => {
+            const next = new Set(current);
+            next.delete(visibleTerminalTarget.key);
+            return next;
+          });
+          focusComposer();
+        }}
+      />
+    </div>
   ) : null;
 
   const setActiveView = (view: AppView) => {
@@ -2068,7 +2131,7 @@ export default function App() {
           setSnapshot={setSnapshot}
           updateSnapshot={updateSnapshot}
           terminalAvailable={Boolean(selectedSessionKey)}
-          terminalVisible={isTerminalVisibleForSelectedThread}
+          terminalVisible={isTerminalVisible}
           onToggleTerminal={toggleTerminal}
           showDiffPanel={showDiffPanel}
           onToggleDiffPanel={toggleDiffPanel}
@@ -2092,6 +2155,8 @@ export default function App() {
             vsCodeFolderPath={vsCodeFolderPath}
             onToggleVsCode={toggleVsCode}
             onOpenVsCodeForWorkspace={openVsCodeForWorkspace}
+            openTerminalKeys={openTerminalSessionKeys}
+            onToggleTerminalForThread={toggleDisplayModeTerminal}
           />
         ) : snapshot.activeView === "new-thread" ? (
           rootWorkspaceOptions.length > 0 ? (
@@ -2300,6 +2365,17 @@ export default function App() {
 function buildTranscriptChangeMarker(sessionKey: string, transcript: SelectedTranscriptRecord["transcript"]): string {
   const lastItem = transcript.at(-1);
   return `${sessionKey}:${transcript.length}:${lastItem ? JSON.stringify(lastItem) : ""}`;
+}
+
+function parseTerminalSessionKey(key: string): { workspaceId: string; sessionId: string } | null {
+  const separatorIndex = key.lastIndexOf(":");
+  if (separatorIndex <= 0 || separatorIndex === key.length - 1) {
+    return null;
+  }
+  return {
+    workspaceId: key.slice(0, separatorIndex),
+    sessionId: key.slice(separatorIndex + 1),
+  };
 }
 
 function isNearBottom(element: HTMLDivElement): boolean {
