@@ -628,7 +628,7 @@
   padding: 5px;
   border-radius: 12px;
   border: 1px solid #d7dce8;
-  background: rgba(255, 255, 255, 0.97);
+  background: #fff;
   box-shadow: 0 16px 44px rgba(20, 27, 45, 0.18);
   display: grid;
   gap: 2px;
@@ -831,7 +831,7 @@
 
 :root.dark .session-row__menu {
   border-color: var(--line);
-  background: rgba(43, 45, 49, 0.97);
+  background: #2b2d31;
   box-shadow: 0 16px 44px rgba(0, 0, 0, 0.4);
 }
 
