@@ -156,17 +156,28 @@
 .topbar__action-button {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  min-height: 30px;
-  padding: 0 12px 0 10px;
   border: 1px solid #d9dee9;
-  border-radius: 10px;
   background: #fff;
   color: var(--text-strong);
-  font-size: 13px;
   font-weight: 560;
   letter-spacing: -0.01em;
   box-shadow: 0 1px 2px rgba(22, 35, 62, 0.05);
+}
+
+.topbar__action-button {
+  gap: 4px;
+  min-height: 26px;
+  padding: 0 8px;
+  border-radius: 8px;
+  font-size: 12px;
+}
+
+.topbar__saved-action {
+  gap: 6px;
+  min-height: 30px;
+  padding: 0 12px 0 10px;
+  border-radius: 10px;
+  font-size: 13px;
 }
 
 .topbar__saved-action:hover:not(:disabled),
@@ -189,8 +200,8 @@
 }
 
 .topbar__action-button svg {
-  width: 15px;
-  height: 15px;
+  width: 13px;
+  height: 13px;
 }
 
 .topbar__icon {
