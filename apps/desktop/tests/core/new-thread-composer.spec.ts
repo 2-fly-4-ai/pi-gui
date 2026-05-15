@@ -30,6 +30,12 @@ test("new thread reuses composer behaviors for slash commands, image previews, a
     await openNewThread(window);
 
     const composer = window.getByTestId("new-thread-composer");
+    await expect(window.locator(".new-thread .checkout-selector__bar")).toContainText("Local checkout");
+    await window.locator(".new-thread .checkout-selector__button").click();
+    await expect(window.locator(".new-thread .checkout-selector__popover")).toBeVisible();
+    await window.keyboard.press("Escape");
+    await expect(window.locator(".new-thread .checkout-selector__popover")).toHaveCount(0);
+    await composer.focus();
     await expect(window.getByTestId("new-thread-logo")).toBeVisible();
     await expect(window.getByRole("heading", { name: "Let's build" })).toBeVisible();
     await expect(composer).toBeFocused();

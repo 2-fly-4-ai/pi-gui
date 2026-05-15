@@ -1,4 +1,4 @@
-import { type ClipboardEvent, type Dispatch, type DragEvent, type KeyboardEvent, type RefObject, type SetStateAction } from "react";
+import { type ClipboardEvent, type Dispatch, type DragEvent, type KeyboardEvent, type ReactNode, type RefObject, type SetStateAction } from "react";
 import type { RuntimeSnapshot } from "@pi-gui/session-driver/runtime-types";
 import type { ComposerAttachment, QueuedComposerMessage, SessionRecord } from "./desktop-state";
 import { ArrowUpIcon, PlusIcon, StopSquareIcon } from "./icons";
@@ -61,6 +61,7 @@ interface ComposerPanelProps {
   readonly extensionDock?: ExtensionDockModel;
   readonly extensionDockExpanded: boolean;
   readonly onToggleExtensionDock: () => void;
+  readonly checkoutSelector?: ReactNode;
 }
 
 export function ComposerPanel({
@@ -110,6 +111,7 @@ export function ComposerPanel({
   extensionDock,
   extensionDockExpanded,
   onToggleExtensionDock,
+  checkoutSelector,
 }: ComposerPanelProps) {
   const hasComposerInput = composerDraft.trim().length > 0 || attachments.length > 0;
   const primaryActionIsStop = selectedSession.status === "running" && !hasComposerInput;
@@ -206,6 +208,7 @@ export function ComposerPanel({
             </div>
           )}
         />
+        {checkoutSelector}
       </div>
     </footer>
   );

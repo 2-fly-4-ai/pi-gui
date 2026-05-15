@@ -17,6 +17,7 @@ import {
 import { formatRelativeTime } from "./string-utils";
 import { AddActionDialog } from "./add-action-dialog";
 import { ComposerPanel } from "./composer-panel";
+import { CheckoutSelector, type CheckoutSelectorOption } from "./checkout-selector";
 import { DiffPanel, type DiffPanelFileRequest } from "./diff-panel";
 import { buildModelOptions } from "./composer-commands";
 import { parseTreeComposerCommand } from "./composer-commands";
@@ -1550,6 +1551,74 @@ export default function App() {
     setNewThreadComposerError(undefined);
   };
 
+  const createCheckoutSelector = (
+    workspace: WorkspaceRecord | undefined,
+    selectionMode: "app" | "new-thread" = "app",
+  ) => {
+    if (!snapshot || !workspace) {
+      return undefined;
+    }
+
+    const root = snapshot.workspaces.find((entry) => entry.id === (workspace.rootWorkspaceId ?? workspace.id));
+    if (!root) {
+      return undefined;
+    }
+
+    const currentWorktree = linkedWorktreeByWorkspaceId.get(workspace.id);
+    const currentRef =
+      currentWorktree?.branchName ??
+      currentWorktree?.name ??
+      workspace.branchName ??
+      root.branchName ??
+      (workspace.kind === "worktree" ? "worktree" : "main");
+    const selectLocalCheckout = () => {
+      if (selectionMode === "new-thread") {
+        setNewThreadRootWorkspaceId(root.id);
+        setNewThreadEnvironment("local");
+        return;
+      }
+      wsMenu.selectWorkspace(root.id);
+    };
+    const selectWorktreeCheckout = (linkedWorkspace: WorkspaceRecord | undefined, status: WorktreeRecord["status"]) => {
+      if (!linkedWorkspace || status !== "ready") {
+        return;
+      }
+      if (selectionMode === "new-thread") {
+        setNewThreadRootWorkspaceId(root.id);
+        setNewThreadEnvironment("worktree");
+        return;
+      }
+      wsMenu.selectWorkspace(linkedWorkspace.id);
+    };
+    const worktreeOptions = selectionMode === "app" ? snapshot.worktreesByWorkspace[root.id] ?? [] : [];
+    const options: CheckoutSelectorOption[] = [
+      {
+        id: root.id,
+        label: root.branchName ?? "main",
+        detail: "Local checkout",
+        current: workspace.id === root.id,
+        onSelect: selectLocalCheckout,
+      },
+      ...worktreeOptions.map((worktree) => {
+        const linkedWorkspace = worktree.linkedWorkspaceId
+          ? snapshot.workspaces.find((entry) => entry.id === worktree.linkedWorkspaceId)
+          : undefined;
+        const selectable = Boolean(linkedWorkspace) && worktree.status === "ready";
+
+        return {
+          id: worktree.id,
+          label: worktree.branchName ?? worktree.name,
+          detail: selectable ? worktree.name : `${worktree.name} · ${worktree.status === "ready" ? "unavailable" : worktree.status}`,
+          current: linkedWorkspace?.id === workspace.id,
+          disabled: !selectable,
+          onSelect: () => selectWorktreeCheckout(linkedWorkspace, worktree.status),
+        } satisfies CheckoutSelectorOption;
+      }),
+    ];
+
+    return <CheckoutSelector label="Local checkout" currentRef={currentRef} options={options} />;
+  };
+
   const submitComposerDraft = (options: { readonly deliverAs?: "steer" | "followUp" } = {}) => {
     if (!selectedSession) {
       return;
@@ -2358,6 +2427,7 @@ export default function App() {
               onAddAttachments={handleNewThreadAddAttachments}
               onRemoveAttachment={handleNewThreadRemoveAttachment}
               onSubmit={handleStartThread}
+              checkoutSelector={createCheckoutSelector(newThreadWorkspace, "new-thread")}
             />
           ) : (
             <section className="canvas canvas--empty">
@@ -2467,6 +2537,7 @@ export default function App() {
               extensionDock={selectedExtensionDock}
               extensionDockExpanded={isSelectedExtensionDockExpanded}
               onToggleExtensionDock={handleToggleExtensionDock}
+              checkoutSelector={createCheckoutSelector(selectedWorkspace)}
             />
             {activeExtensionDialog ? (
               <ExtensionDialog dialog={activeExtensionDialog} onRespond={handleRespondToExtensionDialog} />

@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ClipboardEvent, type DragEvent, type KeyboardEvent, type RefObject } from "react";
+import { useEffect, useRef, type ClipboardEvent, type DragEvent, type KeyboardEvent, type ReactNode, type RefObject } from "react";
 import type { RuntimeSnapshot } from "@pi-gui/session-driver/runtime-types";
 import type { ComposerAttachment, NewThreadEnvironment, WorkspaceRecord } from "./desktop-state";
 import { ArrowUpIcon, PiLogoMark, PlusIcon } from "./icons";
@@ -55,6 +55,7 @@ interface NewThreadViewProps {
   readonly onAddAttachments: (files: File[]) => void;
   readonly onRemoveAttachment: (attachmentId: string) => void;
   readonly onSubmit: () => void;
+  readonly checkoutSelector?: ReactNode;
 }
 
 export function NewThreadView({
@@ -98,6 +99,7 @@ export function NewThreadView({
   onAddAttachments,
   onRemoveAttachment,
   onSubmit,
+  checkoutSelector,
 }: NewThreadViewProps) {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const workspace = workspaces.find((entry) => entry.id === selectedWorkspaceId);
@@ -211,6 +213,7 @@ export function NewThreadView({
                 />
               )}
             />
+            {checkoutSelector}
           </div>
         </div>
       </div>

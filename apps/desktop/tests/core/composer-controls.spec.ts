@@ -65,6 +65,16 @@ test("supports keyboard shortcuts, slash menus, and topbar controls through the 
     await selectSession(window, "Controls session");
     await expect(composer).toBeFocused();
 
+    await expect(window.locator(".checkout-selector__bar")).toContainText("Local checkout");
+    await window.locator(".checkout-selector__button").click();
+    await expect(window.locator(".checkout-selector__popover")).toBeVisible();
+    await expect(window.locator(".checkout-selector__search")).toBeFocused();
+    await expect(window.locator(".checkout-selector__option")).toContainText("current");
+    await window.locator(".checkout-selector__search").fill("missing-ref");
+    await expect(window.locator(".checkout-selector__empty")).toHaveText("No refs found");
+    await window.keyboard.press("Escape");
+    await expect(window.locator(".checkout-selector__popover")).toHaveCount(0);
+
     await composer.fill("/stat");
     const slashMenu = window.getByTestId("slash-menu");
     await expect(slashMenu).toBeVisible();
