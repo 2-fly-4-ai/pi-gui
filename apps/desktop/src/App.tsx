@@ -1912,6 +1912,19 @@ export default function App() {
     );
   };
 
+  const handleRunFastCommand = (command: string) => {
+    if (!selectedSession) {
+      return;
+    }
+    const previousDraft = composerDraft;
+    setComposerDraft("");
+    void updateSnapshot(api, setSnapshot, () => api.submitComposer(command)).then((nextState) => {
+      setComposerDraft(nextState.composerDraft);
+    }).catch(() => {
+      setComposerDraft(previousDraft);
+    });
+  };
+
   const handleSetDefaultModel = (provider: string, modelId: string) => {
     if (!settingsWorkspace) {
       return;
@@ -2603,6 +2616,7 @@ export default function App() {
               modelId={resolvedSessionModelId}
               thinkingLevel={resolvedSessionThinkingLevel}
               toolAccess={resolvedSessionToolAccess}
+              sessionCommands={selectedSessionCommands}
               onSetToolAccess={() => undefined}
               onClearSlashCommand={slashMenu.resetSlashUi}
               onComposerKeyDown={handleComposerKeyDown}
@@ -2622,6 +2636,7 @@ export default function App() {
               }}
               onSetModel={handleSetSessionModel}
               onSetThinking={handleSetSessionThinking}
+              onRunFastCommand={handleRunFastCommand}
               modelOnboarding={selectedSessionModelOnboarding}
               onOpenModelSettings={(section) =>
                 openSettings(selectedWorkspace?.rootWorkspaceId ?? selectedWorkspace?.id, section)

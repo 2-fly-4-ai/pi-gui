@@ -227,7 +227,7 @@ export const THINKING_OPTIONS: readonly ComposerSlashOption[] = [
   {
     value: "low",
     label: "Low",
-    description: "Fast responses with lighter reasoning",
+    description: "Light reasoning for simple tasks",
   },
   {
     value: "medium",

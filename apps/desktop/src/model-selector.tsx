@@ -45,16 +45,18 @@ export function ModelSelector({
   onSetThinking,
 }: ModelSelectorProps) {
   const [open, setOpen] = useState<OpenDropdown>("none");
+  const [modelQuery, setModelQuery] = useState("");
   const containerRef = useRef<HTMLDivElement | null>(null);
 
-  const groupedModels = useMemo(() => groupByProvider(buildModelOptions(runtime)), [runtime]);
-  const hasModelControl = Boolean(provider && modelId) || groupedModels.length > 0;
+  const modelOptions = useMemo(() => buildModelOptions(runtime), [runtime]);
+  const groupedModels = useMemo(() => groupByProvider(filterModelOptions(modelOptions, modelQuery)), [modelOptions, modelQuery]);
+  const hasModelControl = Boolean(provider && modelId) || modelOptions.length > 0;
   const shouldRenderModelControl = hasModelControl || showEmptyModelControl;
   const modelBadgeLabel = provider && modelId
     ? variant === "composer"
       ? formatComposerModelLabel(provider, modelId, `${provider}:${modelId}`)
       : `${provider}:${modelId}`
-    : groupedModels.length > 0
+    : modelOptions.length > 0
       ? unselectedModelLabel
       : emptyModelLabel;
 
@@ -81,6 +83,12 @@ export function ModelSelector({
     };
   }, [open]);
 
+  useEffect(() => {
+    if (open !== "model") {
+      setModelQuery("");
+    }
+  }, [open]);
+
   if (!shouldRenderModelControl && !thinkingLevel) {
     return null;
   }
@@ -90,6 +98,7 @@ export function ModelSelector({
       {shouldRenderModelControl ? (
         <span className="model-selector__anchor">
           <button
+            aria-label={provider && modelId ? `${provider}:${modelId}` : modelBadgeLabel}
             className={`model-selector__badge${variant === "composer" ? " model-selector__badge--composer" : ""}`}
             type="button"
             disabled={disabled}
@@ -101,17 +110,30 @@ export function ModelSelector({
           </button>
           {open === "model" ? (
             <div
-              className={`model-selector__dropdown ${dropdownPlacement === "below" ? "model-selector__dropdown--below" : ""}`}
+              className={`model-selector__dropdown model-selector__dropdown--models ${dropdownPlacement === "below" ? "model-selector__dropdown--below" : ""}`}
               onWheel={(event) => event.stopPropagation()}
             >
+              <div className="model-selector__provider-heading">
+                <span className="model-selector__provider-mark"><ModelIcon /></span>
+                <span>{providerLabelFor(runtime, provider)}</span>
+              </div>
+              <label className="model-selector__search">
+                <span aria-hidden="true">⌕</span>
+                <input
+                  autoFocus
+                  placeholder="Search models..."
+                  value={modelQuery}
+                  onChange={(event) => setModelQuery(event.target.value)}
+                />
+              </label>
               {groupedModels.map((group) => (
-                <div key={group.provider}>
+                <div className="model-selector__model-group" key={group.provider}>
                   <div className="model-selector__group-title">{group.provider}</div>
-                  {group.items.map((option) => {
+                  {group.items.map((option, index) => {
                     const isActive = option.providerId === provider && option.modelId === modelId;
                     return (
                       <button
-                        className={`model-selector__item${isActive ? " model-selector__item--active" : ""}`}
+                        className={`model-selector__item model-selector__model-item${isActive ? " model-selector__item--active" : ""}`}
                         key={`${option.providerId}:${option.modelId}`}
                         type="button"
                         onClick={() => {
@@ -121,15 +143,21 @@ export function ModelSelector({
                           setOpen("none");
                         }}
                       >
-                        <span className="model-selector__item-label">{option.label}</span>
-                        {isActive ? <span className="model-selector__item-meta">active</span> : null}
+                        <span aria-hidden="true" className="model-selector__favorite">☆</span>
+                        <span className="model-selector__item-label">{formatComposerModelLabel(option.providerId, option.modelId, option.label)}</span>
+                        {isActive ? <span className="model-selector__item-meta">active</span> : <span className="model-selector__rank">⌘{index + 1}</span>}
                       </button>
                     );
                   })}
                 </div>
               ))}
-              {groupedModels.length === 0 ? (
-                <div className="model-selector__group-title">{emptyModelTitle}</div>
+              {modelOptions.length === 0 ? (
+                <div className="model-selector__empty">
+                  <strong>{emptyModelTitle}</strong>
+                </div>
+              ) : null}
+              {modelOptions.length > 0 && groupedModels.length === 0 ? (
+                <div className="model-selector__empty">No models match “{modelQuery}”.</div>
               ) : null}
             </div>
           ) : null}
@@ -184,6 +212,16 @@ interface ModelGroup {
   readonly items: readonly ComposerModelOption[];
 }
 
+function filterModelOptions(options: readonly ComposerModelOption[], query: string): readonly ComposerModelOption[] {
+  const normalized = query.trim().toLowerCase();
+  if (!normalized) {
+    return options;
+  }
+  return options.filter((option) =>
+    [option.label, option.description, option.providerId, option.modelId].some((value) => value.toLowerCase().includes(normalized)),
+  );
+}
+
 function groupByProvider(options: readonly ComposerModelOption[]): readonly ModelGroup[] {
   const groups = new Map<string, ComposerModelOption[]>();
   for (const option of options) {
@@ -197,13 +235,31 @@ function groupByProvider(options: readonly ComposerModelOption[]): readonly Mode
   return Array.from(groups.entries()).map(([provider, items]) => ({ provider, items }));
 }
 
+function providerLabelFor(runtime: RuntimeSnapshot | undefined, providerId: string | undefined): string {
+  const provider = runtime?.providers.find((entry) => entry.id === providerId);
+  if (provider) {
+    return provider.name;
+  }
+  if (providerId) {
+    return providerId;
+  }
+  return "Models";
+}
+
 function formatComposerModelLabel(provider: string | undefined, modelId: string | undefined, fallback: string): string {
+  const [, providedLabel] = fallback.split(" · ");
+  if (providedLabel) {
+    return providedLabel;
+  }
   if (!provider || !modelId) {
     return fallback;
   }
 
   if (/^gpt-/i.test(modelId)) {
-    return modelId.replace(/^gpt-/i, "GPT-");
+    return modelId
+      .replace(/^gpt-/i, "GPT-")
+      .replace(/-turbo$/i, " Turbo")
+      .replace(/-mini$/i, " Mini");
   }
   if (/^claude-/i.test(modelId)) {
     return modelId.replace(/^claude-/i, "Claude ");

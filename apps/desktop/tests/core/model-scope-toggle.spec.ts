@@ -212,7 +212,7 @@ async function expectNewThreadModelState(
   },
 ): Promise<void> {
   await expect(window.getByRole("button", { name: expectations.activeModel }).first()).toBeVisible();
-  await expectModelOptions(window, ".new-thread__hint", expectations);
+  await expectModelOptions(window, ".new-thread", expectations);
 }
 
 async function expectModelOptions(

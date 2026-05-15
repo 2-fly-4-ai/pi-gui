@@ -1,5 +1,5 @@
 import { type ClipboardEvent, type Dispatch, type DragEvent, type KeyboardEvent, type ReactNode, type RefObject, type SetStateAction } from "react";
-import type { RuntimeSnapshot } from "@pi-gui/session-driver/runtime-types";
+import type { RuntimeCommandRecord, RuntimeSnapshot } from "@pi-gui/session-driver/runtime-types";
 import type { ToolAccessSelection } from "@pi-gui/session-driver";
 import type { ComposerAttachment, QueuedComposerMessage, SessionRecord } from "./desktop-state";
 import type {
@@ -17,6 +17,7 @@ import { ComposerControlBar } from "./composer-control-bar";
 import { ReasoningSelector } from "./reasoning-selector";
 import { ToolAccessSelector } from "./tool-access-selector";
 import { ContextWindowIndicator } from "./context-window-indicator";
+import { FastModeSelector } from "./fast-mode-selector";
 
 interface ComposerPanelProps {
   readonly selectedSession: SessionRecord;
@@ -35,6 +36,7 @@ interface ComposerPanelProps {
   readonly thinkingLevel: string | undefined;
   readonly slashSections: readonly ComposerSlashCommandSection[];
   readonly slashOptions: readonly ComposerSlashOption[];
+  readonly sessionCommands: readonly RuntimeCommandRecord[];
   readonly selectedSlashCommand?: ComposerSlashCommand;
   readonly selectedSlashOption?: ComposerSlashOption;
   readonly showSlashMenu: boolean;
@@ -54,6 +56,7 @@ interface ComposerPanelProps {
   readonly onSelectSlashOption: (option: ComposerSlashOption) => void;
   readonly onSetModel: (provider: string, modelId: string) => void;
   readonly onSetThinking: (level: string) => void;
+  readonly onRunFastCommand: (command: string) => void;
   readonly modelOnboarding: ModelOnboardingState;
   readonly toolAccess: ToolAccessSelection;
   readonly onSetToolAccess: (selection: ToolAccessSelection) => void;
@@ -86,6 +89,7 @@ export function ComposerPanel({
   thinkingLevel,
   slashSections,
   slashOptions,
+  sessionCommands,
   selectedSlashCommand,
   selectedSlashOption,
   showSlashMenu,
@@ -105,6 +109,7 @@ export function ComposerPanel({
   onSelectSlashOption,
   onSetModel,
   onSetThinking,
+  onRunFastCommand,
   modelOnboarding,
   toolAccess,
   onSetToolAccess,
@@ -189,6 +194,13 @@ export function ComposerPanel({
                     thinkingLevel={thinkingLevel}
                     disabled={selectedSession.status === "running"}
                     onSetThinking={onSetThinking}
+                  />
+                )}
+                fastModeControl={(
+                  <FastModeSelector
+                    commands={sessionCommands}
+                    disabled={selectedSession.status === "running"}
+                    onRunFastCommand={onRunFastCommand}
                   />
                 )}
                 modeControl={<button className="composer-control" type="button">Build</button>}

@@ -11,7 +11,8 @@ interface ReasoningSelectorProps {
 export function ReasoningSelector({ thinkingLevel, disabled, onSetThinking }: ReasoningSelectorProps) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
-  const label = useMemo(() => formatThinkingLabel(thinkingLevel), [thinkingLevel]);
+  const selectedValue = thinkingLevel ?? "medium";
+  const label = useMemo(() => formatThinkingLabel(selectedValue), [selectedValue]);
 
   useEffect(() => {
     if (!open) {
@@ -38,7 +39,7 @@ export function ReasoningSelector({ thinkingLevel, disabled, onSetThinking }: Re
   }, [open]);
 
   return (
-    <div className="model-selector" ref={rootRef}>
+    <div className="model-selector reasoning-selector" ref={rootRef}>
       <span className="model-selector__anchor">
         <button
           className="model-selector__badge model-selector__badge--composer"
@@ -52,13 +53,13 @@ export function ReasoningSelector({ thinkingLevel, disabled, onSetThinking }: Re
           <ChevronDownIcon />
         </button>
         {open ? (
-          <div className="model-selector__dropdown" onWheel={(event) => event.stopPropagation()}>
+          <div className="model-selector__dropdown reasoning-selector__dropdown" onWheel={(event) => event.stopPropagation()}>
             <div className="model-selector__group-title">Reasoning</div>
             {THINKING_OPTIONS.map((option) => {
-              const isActive = option.value === thinkingLevel;
+              const isActive = option.value === selectedValue;
               return (
                 <button
-                  className={`model-selector__item${isActive ? " model-selector__item--active" : ""}`}
+                  className={`model-selector__item reasoning-selector__item${isActive ? " model-selector__item--active" : ""}`}
                   key={option.value}
                   type="button"
                   onClick={() => {
@@ -68,8 +69,10 @@ export function ReasoningSelector({ thinkingLevel, disabled, onSetThinking }: Re
                     setOpen(false);
                   }}
                 >
-                  <span className="model-selector__item-label">{formatThinkingLabel(option.value)}</span>
-                  <span className="model-selector__item-meta">{option.description}</span>
+                  <span aria-hidden="true" className="reasoning-selector__check">{isActive ? "✓" : ""}</span>
+                  <span className="model-selector__item-label">
+                    {option.label}{option.value === "medium" ? " (default)" : ""}
+                  </span>
                 </button>
               );
             })}
@@ -81,6 +84,5 @@ export function ReasoningSelector({ thinkingLevel, disabled, onSetThinking }: Re
 }
 
 function formatThinkingLabel(value: string | undefined): string {
-  const matched = THINKING_OPTIONS.find((option) => option.value === value);
-  return `${matched?.label ?? "Medium"} · Normal`;
+  return THINKING_OPTIONS.find((option) => option.value === value)?.label ?? "Medium";
 }

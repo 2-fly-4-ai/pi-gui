@@ -259,6 +259,20 @@ export function ReasoningIcon() {
   );
 }
 
+export function LightningIcon() {
+  return (
+    <Icon>
+      <path
+        d="M11.2 2.8 5.3 10.6h4.4l-.9 6.6 5.9-7.8h-4.4l.9-6.6Z"
+        fill="none"
+        stroke="currentColor"
+        strokeLinejoin="round"
+        strokeWidth="1.45"
+      />
+    </Icon>
+  );
+}
+
 export function StatusIcon() {
   return (
     <Icon>

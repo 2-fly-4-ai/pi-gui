@@ -4,6 +4,7 @@ import { ArrowUpIcon, PlusIcon, StopSquareIcon } from "./icons";
 interface ComposerControlBarProps {
   readonly modelControl: ReactNode;
   readonly reasoningControl: ReactNode;
+  readonly fastModeControl?: ReactNode;
   readonly modeControl: ReactNode;
   readonly supervisionControl: ReactNode;
   readonly contextControl: ReactNode;
@@ -17,6 +18,7 @@ interface ComposerControlBarProps {
 export function ComposerControlBar({
   modelControl,
   reasoningControl,
+  fastModeControl,
   modeControl,
   supervisionControl,
   contextControl,
@@ -32,6 +34,12 @@ export function ComposerControlBar({
         {modelControl}
         <span aria-hidden="true" className="composer-control-bar__separator" />
         {reasoningControl}
+        {fastModeControl ? (
+          <>
+            <span aria-hidden="true" className="composer-control-bar__separator" />
+            {fastModeControl}
+          </>
+        ) : null}
         <span aria-hidden="true" className="composer-control-bar__separator" />
         {modeControl}
         <span aria-hidden="true" className="composer-control-bar__separator" />

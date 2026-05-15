@@ -109,7 +109,21 @@ test("supports keyboard shortcuts, slash menus, and topbar controls through the 
     await composer.press("Enter");
     await expect(optionsMenu).toHaveCount(0);
     await expect(window.getByTestId("transcript")).toContainText("Thinking set to high");
-    await expect(window.getByTestId("reasoning-selector-trigger")).toContainText("High");
+    const reasoningTrigger = window.getByTestId("reasoning-selector-trigger");
+    await expect(reasoningTrigger).toContainText("High");
+    await reasoningTrigger.click();
+    const reasoningDropdown = window.locator(".reasoning-selector__dropdown");
+    await expect(reasoningDropdown).toBeVisible();
+    await expect(reasoningDropdown).toContainText("Medium (default)");
+    await expect(reasoningDropdown).not.toContainText("Normal");
+    await window.keyboard.press("Escape");
+
+    const fastModeTrigger = window.getByTestId("fast-mode-selector-trigger");
+    await expect(fastModeTrigger).toBeVisible();
+    await fastModeTrigger.click();
+    await expect(window.locator(".fast-mode-selector__dropdown")).toContainText("Fast Mode");
+    await expect(window.locator(".fast-mode-selector__dropdown")).toContainText("pi-openai-fast");
+    await window.keyboard.press("Escape");
 
     await composer.fill("Keep the draft /thinking");
     await expect(optionsMenu).toBeVisible();
