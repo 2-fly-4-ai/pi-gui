@@ -1094,7 +1094,7 @@ export class DesktopAppStore implements AppStoreInternals {
     }
   }
 
-  private async ensureRuntimeLoaded(
+  async ensureRuntimeLoaded(
     workspaceId: string,
     workspaces?: readonly { workspaceId: string; path: string; displayName: string }[],
   ): Promise<void> {

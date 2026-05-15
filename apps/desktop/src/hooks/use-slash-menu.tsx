@@ -75,6 +75,7 @@ interface UseSlashMenuParams {
   readonly allowTreeCommand?: boolean;
   readonly immediateCommandMode?: "submit" | "prefill";
   readonly onRunTreeCommand?: () => void;
+  readonly onSubmitImmediateCommand?: (command: string) => void;
   readonly onSelectModelOption?: (provider: string, modelId: string) => void;
   readonly onSelectThinkingOption?: (level: string) => void;
   readonly onSelectLoginProvider?: (providerId: string) => void;
@@ -119,6 +120,7 @@ export function useSlashMenu(params: UseSlashMenuParams): SlashMenuState {
     allowTreeCommand = true,
     immediateCommandMode = "submit",
     onRunTreeCommand,
+    onSubmitImmediateCommand,
     onSelectModelOption,
     onSelectThinkingOption,
     onSelectLoginProvider,
@@ -278,6 +280,11 @@ export function useSlashMenu(params: UseSlashMenuParams): SlashMenuState {
           return;
         }
         resetSlashUi();
+        if (onSubmitImmediateCommand) {
+          setComposerDraft("");
+          onSubmitImmediateCommand(command.command);
+          return;
+        }
         setComposerDraft(command.command);
         void updateSnapshot(api, setSnapshot, () => api.submitComposer(command.command)).then((state) => {
           setComposerDraft(state.composerDraft);

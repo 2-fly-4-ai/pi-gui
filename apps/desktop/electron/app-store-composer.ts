@@ -443,6 +443,21 @@ export async function submitComposerToSession(
   }
 
   const key = sessionKey(sessionRef);
+  await store.ensureRuntimeLoaded(sessionRef.workspaceId);
+  const runtime = store.runtimeByWorkspace.get(sessionRef.workspaceId);
+  const sessionCommands = store.sessionState.sessionCommandsBySession.get(key) ?? [];
+  const runtimeSlashCommand = hasRuntimeSlashCommand(text, runtime, sessionCommands);
+  const resolvedRuntimeSlashCommand = runtimeSlashCommand
+    ? resolveRuntimeSlashCommand(text, runtime, sessionCommands)
+    : undefined;
+
+  if (text.startsWith("/") && !runtimeSlashCommand) {
+    const handled = await runComposerCommand(store, sessionRef, text);
+    if (handled) {
+      return handled;
+    }
+  }
+
   const isRunning = selectedSession.status === "running";
   let optimisticSteerMessage: SessionQueuedMessage | undefined;
   try {

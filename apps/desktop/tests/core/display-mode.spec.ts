@@ -113,6 +113,10 @@ test("opens Display Mode from the sidebar and renders thread command-center tile
       const replyZIndex = Number(window.getComputedStyle(reply).zIndex);
       return tileOverflow === "visible" && replyZIndex > 0;
     })).toBe(true);
+    await firstTile.locator("textarea").fill("/reload");
+    await firstTile.getByRole("button", { name: "Send reply" }).click();
+    await expect(firstTile).toContainText("Reloaded session resources");
+    await expect(firstTile).not.toContainText("You need to type");
     await firstTile.locator("textarea").fill("");
 
     await window.getByTestId("display-mode-thread-tile").first().getByRole("button", { name: "Terminal" }).click();

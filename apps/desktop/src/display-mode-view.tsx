@@ -715,6 +715,18 @@ function DisplayModeTile({
   const focusComposer = () => {
     window.requestAnimationFrame(() => textareaRef.current?.focus());
   };
+  const submitText = useCallback((textInput: string) => {
+    const text = textInput.trim();
+    if (!text || submitting) return;
+    setSubmitting(true);
+    setDraft("");
+    void api.submitComposerToSession(
+      { workspaceId: record.workspace.id, sessionId: record.session.id },
+      text,
+      record.session.status === "running" ? { deliverAs: "followUp" } : undefined,
+    ).finally(() => setSubmitting(false));
+  }, [api, record.session.id, record.session.status, record.workspace.id, submitting]);
+
   const slashMenu = useSlashMenu({
     composerDraft: draft,
     setComposerDraft: setDraft,
@@ -732,7 +744,8 @@ function DisplayModeTile({
     openSettings,
     updateSnapshot,
     allowTreeCommand: false,
-    immediateCommandMode: "prefill",
+    immediateCommandMode: "submit",
+    onSubmitImmediateCommand: submitText,
   });
 
   useEffect(() => {
@@ -815,15 +828,7 @@ function DisplayModeTile({
   }, [draft]);
 
   const submit = () => {
-    const text = draft.trim();
-    if (!text || submitting) return;
-    setSubmitting(true);
-    setDraft("");
-    void api.submitComposerToSession(
-      { workspaceId: record.workspace.id, sessionId: record.session.id },
-      text,
-      record.session.status === "running" ? { deliverAs: "followUp" } : undefined,
-    ).finally(() => setSubmitting(false));
+    submitText(draft);
   };
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
