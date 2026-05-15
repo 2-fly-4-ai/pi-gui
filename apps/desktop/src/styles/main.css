@@ -1496,6 +1496,7 @@
   position: relative;
   display: grid;
   gap: 10px;
+  padding-right: 34px;
 }
 
 .composer__slash-intent {
@@ -1592,6 +1593,13 @@
 
 .composer-control-bar__left {
   flex-wrap: wrap;
+}
+
+.composer-control-bar__context {
+  position: absolute;
+  top: 12px;
+  right: 14px;
+  z-index: 6;
 }
 
 .composer-control-bar__separator {

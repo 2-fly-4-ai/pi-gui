@@ -28,6 +28,9 @@ export function ComposerControlBar({
 }: ComposerControlBarProps) {
   return (
     <div className="composer-control-bar">
+      <div className="composer-control-bar__context">
+        {contextControl}
+      </div>
       <div className="composer-control-bar__left">
         {modelControl}
         <span aria-hidden="true" className="composer-control-bar__separator" />
@@ -38,7 +41,6 @@ export function ComposerControlBar({
         {supervisionControl}
       </div>
       <div className="composer-control-bar__right">
-        {contextControl}
         <button aria-label="Attach files" className="icon-button composer__attach" type="button" onClick={onAttach}>
           <PlusIcon />
         </button>
