@@ -1576,16 +1576,16 @@
 
 .composer-control-bar {
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   justify-content: space-between;
   gap: 12px;
-  min-height: 34px;
+  min-height: 36px;
 }
 
 .composer-control-bar__left,
 .composer-control-bar__right {
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   gap: 10px;
   min-width: 0;
 }
