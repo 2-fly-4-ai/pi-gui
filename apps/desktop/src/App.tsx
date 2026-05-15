@@ -519,6 +519,16 @@ export default function App() {
       return next;
     });
   };
+  const addActionToComposer = useCallback(() => {
+    if (snapshot?.activeView === "new-thread") {
+      updateNewThreadPrompt((current) => current.trim() ? current : "/");
+      window.requestAnimationFrame(() => newThreadComposerRef.current?.focus());
+      return;
+    }
+    setComposerDraft((current) => current.trim() ? current : "/");
+    focusComposer();
+  }, [snapshot?.activeView]);
+
   const toggleTerminal = useCallback(() => {
     if (!selectedSessionKey) {
       return;
@@ -2224,8 +2234,9 @@ export default function App() {
           api={api}
           setSnapshot={setSnapshot}
           updateSnapshot={updateSnapshot}
-          terminalAvailable={Boolean(selectedSessionKey)}
+          terminalAvailable={Boolean(selectedSessionKey) || snapshot.activeView === "new-thread"}
           terminalVisible={isTerminalVisible}
+          onAddAction={addActionToComposer}
           onToggleTerminal={toggleTerminal}
           showDiffPanel={showDiffPanel}
           onToggleDiffPanel={toggleDiffPanel}

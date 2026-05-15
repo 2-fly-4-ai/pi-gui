@@ -152,6 +152,37 @@
   place-items: center;
 }
 
+.topbar__action-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 0 12px 0 10px;
+  border: 1px solid #d9dee9;
+  border-radius: 10px;
+  background: #fff;
+  color: var(--text-strong);
+  font-size: 13px;
+  font-weight: 560;
+  letter-spacing: -0.01em;
+  box-shadow: 0 1px 2px rgba(22, 35, 62, 0.05);
+}
+
+.topbar__action-button:hover:not(:disabled) {
+  border-color: #cbd3e2;
+  background: #f8fafc;
+}
+
+.topbar__action-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.topbar__action-button svg {
+  width: 15px;
+  height: 15px;
+}
+
 .topbar__icon {
   width: 30px;
   height: 30px;
@@ -3507,6 +3538,17 @@ mark.thread-find-active {
 :root.dark .topbar {
   border-bottom-color: var(--line);
   background: rgba(30, 31, 34, 0.94);
+}
+
+:root.dark .topbar__action-button {
+  border-color: var(--line);
+  background: var(--surface);
+  color: var(--text-strong);
+}
+
+:root.dark .topbar__action-button:hover:not(:disabled) {
+  border-color: rgba(255, 255, 255, 0.14);
+  background: var(--surface-muted);
 }
 
 :root.dark .environment-picker__button {

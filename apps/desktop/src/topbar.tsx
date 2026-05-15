@@ -1,6 +1,6 @@
 import type { MouseEvent as ReactMouseEvent, Dispatch, SetStateAction } from "react";
 import type { AppView, DesktopAppState, SessionRecord, WorkspaceRecord, WorktreeRecord } from "./desktop-state";
-import { DiffIcon, FolderIcon, SidebarToggleIcon, TerminalIcon, VSCodeIcon } from "./icons";
+import { DiffIcon, FolderIcon, PlusIcon, SidebarToggleIcon, TerminalIcon, VSCodeIcon } from "./icons";
 import { getDesktopShortcutLabel, type PiDesktopApi } from "./ipc";
 import type { WorkspaceMenuState } from "./hooks/use-workspace-menu";
 
@@ -23,6 +23,7 @@ interface TopbarProps {
   ) => Promise<DesktopAppState>;
   readonly terminalAvailable: boolean;
   readonly terminalVisible: boolean;
+  readonly onAddAction: () => void;
   readonly onToggleTerminal: () => void;
   readonly showDiffPanel: boolean;
   readonly onToggleDiffPanel: () => void;
@@ -48,6 +49,7 @@ export function Topbar(props: TopbarProps) {
     updateSnapshot,
     terminalAvailable,
     terminalVisible,
+    onAddAction,
     onToggleTerminal,
     showDiffPanel,
     onToggleDiffPanel,
@@ -141,6 +143,16 @@ export function Topbar(props: TopbarProps) {
       </div>
 
       <div className="topbar__actions">
+        <button
+          aria-label="Add action"
+          className="topbar__action-button"
+          type="button"
+          disabled={!terminalAvailable}
+          onClick={onAddAction}
+        >
+          <PlusIcon />
+          <span>Add action</span>
+        </button>
         <div className="shortcut-tooltip-wrap topbar__tooltip-wrap">
           <button
             aria-label="Toggle terminal"
