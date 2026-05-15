@@ -152,6 +152,7 @@
   place-items: center;
 }
 
+.topbar__saved-action,
 .topbar__action-button {
   display: inline-flex;
   align-items: center;
@@ -168,11 +169,20 @@
   box-shadow: 0 1px 2px rgba(22, 35, 62, 0.05);
 }
 
+.topbar__saved-action:hover:not(:disabled),
 .topbar__action-button:hover:not(:disabled) {
   border-color: #cbd3e2;
   background: #f8fafc;
 }
 
+.topbar__saved-action {
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.topbar__saved-action:disabled,
 .topbar__action-button:disabled {
   cursor: not-allowed;
   opacity: 0.45;
@@ -3095,6 +3105,7 @@
   word-break: break-word;
 }
 
+.action-dialog-backdrop,
 .extension-dialog-backdrop {
   position: fixed;
   inset: 0;
@@ -3115,6 +3126,125 @@
   background: #fff;
   border: 1px solid #dfe4ee;
   box-shadow: 0 28px 80px rgba(22, 29, 41, 0.16);
+}
+
+.action-dialog {
+  position: relative;
+  width: min(512px, 100%);
+  display: grid;
+  gap: 18px;
+  padding: 24px;
+  border: 1px solid #dfe4ee;
+  border-radius: 20px;
+  background: #fff;
+  box-shadow: 0 28px 80px rgba(22, 29, 41, 0.18);
+}
+
+.action-dialog h2 {
+  margin: 0;
+  color: var(--text-strong);
+  font-size: 21px;
+  font-weight: 680;
+}
+
+.action-dialog p {
+  max-width: 420px;
+  margin: 6px 0 0;
+  color: var(--muted-strong);
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.action-dialog__close {
+  position: absolute;
+  top: 18px;
+  right: 18px;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  color: var(--muted-soft);
+}
+
+.action-dialog__close:hover {
+  background: #eef1f6;
+  color: var(--text-strong);
+}
+
+.action-dialog__field {
+  display: grid;
+  gap: 8px;
+  color: var(--text-strong);
+  font-size: 14px;
+  font-weight: 580;
+}
+
+.action-dialog__field input,
+.action-dialog__field textarea {
+  width: 100%;
+  border: 1px solid #d9e0ec;
+  border-radius: 10px;
+  background: #fff;
+  color: var(--text-strong);
+  font: inherit;
+  font-weight: 450;
+}
+
+.action-dialog__field input {
+  min-height: 34px;
+  padding: 0 12px;
+}
+
+.action-dialog__field textarea {
+  min-height: 72px;
+  padding: 12px;
+  resize: vertical;
+}
+
+.action-dialog__field small {
+  color: var(--muted-soft);
+  font-size: 12px;
+  font-weight: 450;
+}
+
+.action-dialog__input-row {
+  display: grid;
+  grid-template-columns: 36px 1fr;
+  gap: 6px;
+}
+
+.action-dialog__leading-icon {
+  display: grid;
+  place-items: center;
+  min-height: 34px;
+  border: 1px solid #d9e0ec;
+  border-radius: 10px;
+  color: var(--muted-soft);
+}
+
+.action-dialog__toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 40px;
+  padding: 0 12px;
+  border: 1px solid #edf0f6;
+  border-radius: 10px;
+  color: var(--text-strong);
+  font-size: 14px;
+}
+
+.action-dialog__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin: 6px -24px -24px;
+  padding: 16px 24px;
+  border-top: 1px solid #edf0f6;
+  border-radius: 0 0 20px 20px;
+  background: #f8fafc;
 }
 
 .extension-dialog__title {
@@ -3540,12 +3670,14 @@ mark.thread-find-active {
   background: rgba(30, 31, 34, 0.94);
 }
 
+:root.dark .topbar__saved-action,
 :root.dark .topbar__action-button {
   border-color: var(--line);
   background: var(--surface);
   color: var(--text-strong);
 }
 
+:root.dark .topbar__saved-action:hover:not(:disabled),
 :root.dark .topbar__action-button:hover:not(:disabled) {
   border-color: rgba(255, 255, 255, 0.14);
   background: var(--surface-muted);
@@ -3878,9 +4010,23 @@ mark.thread-find-active {
 
 :root.dark .extension-dock__toggle,
 :root.dark .extension-dock--expanded,
-:root.dark .extension-dialog {
+:root.dark .extension-dialog,
+:root.dark .action-dialog {
   border-color: var(--line);
   background: var(--surface);
+}
+
+:root.dark .action-dialog__field input,
+:root.dark .action-dialog__field textarea,
+:root.dark .action-dialog__leading-icon,
+:root.dark .action-dialog__toggle-row {
+  border-color: var(--line);
+  background: var(--surface-muted);
+}
+
+:root.dark .action-dialog__actions {
+  border-color: var(--line);
+  background: var(--surface-muted);
 }
 
 :root.dark .extension-dock__toggle:hover,

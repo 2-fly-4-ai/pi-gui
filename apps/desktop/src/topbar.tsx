@@ -1,5 +1,6 @@
 import type { MouseEvent as ReactMouseEvent, Dispatch, SetStateAction } from "react";
 import type { AppView, DesktopAppState, SessionRecord, WorkspaceRecord, WorktreeRecord } from "./desktop-state";
+import type { ProjectActionRecord } from "./project-actions";
 import { DiffIcon, FolderIcon, PlusIcon, SidebarToggleIcon, TerminalIcon, VSCodeIcon } from "./icons";
 import { getDesktopShortcutLabel, type PiDesktopApi } from "./ipc";
 import type { WorkspaceMenuState } from "./hooks/use-workspace-menu";
@@ -23,7 +24,9 @@ interface TopbarProps {
   ) => Promise<DesktopAppState>;
   readonly terminalAvailable: boolean;
   readonly terminalVisible: boolean;
+  readonly projectActions: readonly ProjectActionRecord[];
   readonly onAddAction: () => void;
+  readonly onRunProjectAction: (action: ProjectActionRecord) => void;
   readonly onToggleTerminal: () => void;
   readonly showDiffPanel: boolean;
   readonly onToggleDiffPanel: () => void;
@@ -49,7 +52,9 @@ export function Topbar(props: TopbarProps) {
     updateSnapshot,
     terminalAvailable,
     terminalVisible,
+    projectActions,
     onAddAction,
+    onRunProjectAction,
     onToggleTerminal,
     showDiffPanel,
     onToggleDiffPanel,
@@ -153,6 +158,18 @@ export function Topbar(props: TopbarProps) {
           <PlusIcon />
           <span>Add action</span>
         </button>
+        {projectActions.slice(0, 3).map((action) => (
+          <button
+            aria-label={`Run action ${action.name}`}
+            className="topbar__saved-action"
+            key={action.id}
+            type="button"
+            disabled={!terminalAvailable}
+            onClick={() => onRunProjectAction(action)}
+          >
+            {action.name}
+          </button>
+        ))}
         <div className="shortcut-tooltip-wrap topbar__tooltip-wrap">
           <button
             aria-label="Toggle terminal"

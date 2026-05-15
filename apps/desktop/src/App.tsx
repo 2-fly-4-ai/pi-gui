@@ -15,6 +15,7 @@ import {
   type WorkspaceRecord,
 } from "./desktop-state";
 import { formatRelativeTime } from "./string-utils";
+import { AddActionDialog } from "./add-action-dialog";
 import { ComposerPanel } from "./composer-panel";
 import { DiffPanel, type DiffPanelFileRequest } from "./diff-panel";
 import { buildModelOptions } from "./composer-commands";
@@ -38,6 +39,7 @@ import { ReviewSurface } from "./review/ReviewSurface";
 import type { ReviewSnapshot } from "./review/review-types";
 import { VSCodePanel } from "./vscode-panel";
 import { VSCodeIcon } from "./icons";
+import { createProjectAction, loadProjectActions, saveProjectActions, type ProjectActionRecord, type ProjectActionsByWorkspace } from "./project-actions";
 import { buildThreadGroups } from "./thread-groups";
 import { Sidebar } from "./sidebar";
 import { SidebarToggleButton } from "./sidebar-toggle-button";
@@ -159,6 +161,8 @@ export default function App() {
   const [snapshot, setSnapshot, selectedTranscript] = useDesktopAppState();
   const [composerDraft, setComposerDraft] = useState("");
   const [skillUsageByPath, setSkillUsageByPath] = useState<SkillUsageByPath>(() => loadSkillUsage());
+  const [projectActionsByWorkspace, setProjectActionsByWorkspace] = useState<ProjectActionsByWorkspace>(() => loadProjectActions());
+  const [addActionDialogOpen, setAddActionDialogOpen] = useState(false);
   const [settingsSection, setSettingsSection] = useState<SettingsSection>("general");
   const [settingsWorkspaceId, setSettingsWorkspaceId] = useState("");
   const [skillsWorkspaceId, setSkillsWorkspaceId] = useState("");
@@ -494,6 +498,9 @@ export default function App() {
       setActiveTerminalSessionKey(selectedSessionKey);
     }
   }, [openTerminalSessionKeys, selectedSessionKey, snapshot?.activeView]);
+  const selectedProjectActions = selectedWorkspace ? projectActionsByWorkspace[selectedWorkspace.rootWorkspaceId || selectedWorkspace.id] ?? [] : [];
+  const newThreadProjectActions = newThreadWorkspace ? projectActionsByWorkspace[newThreadWorkspace.rootWorkspaceId || newThreadWorkspace.id] ?? [] : [];
+  const topbarProjectActions = snapshot?.activeView === "new-thread" ? newThreadProjectActions : selectedProjectActions;
   const selectedExtensionDock = useMemo(() => buildExtensionDockModel(selectedExtensionUi), [selectedExtensionUi]);
   const displayedSessionTitle = selectedExtensionUi?.title ?? selectedSession?.title ?? "";
   const activeExtensionDialog = selectedExtensionUi?.pendingDialogs[0];
@@ -519,15 +526,50 @@ export default function App() {
       return next;
     });
   };
-  const addActionToComposer = useCallback(() => {
-    if (snapshot?.activeView === "new-thread") {
-      updateNewThreadPrompt((current) => current.trim() ? current : "/");
-      window.requestAnimationFrame(() => newThreadComposerRef.current?.focus());
+  const openAddActionDialog = useCallback(() => {
+    setAddActionDialogOpen(true);
+  }, []);
+
+  const saveProjectAction = (input: {
+    readonly name: string;
+    readonly command: string;
+    readonly keybinding?: string;
+    readonly runOnWorktreeCreation: boolean;
+  }) => {
+    const targetWorkspace = snapshot?.activeView === "new-thread" ? newThreadWorkspace : selectedWorkspace;
+    const workspaceId = targetWorkspace?.rootWorkspaceId || targetWorkspace?.id;
+    if (!workspaceId) {
       return;
     }
-    setComposerDraft((current) => current.trim() ? current : "/");
-    focusComposer();
-  }, [snapshot?.activeView]);
+    const action = createProjectAction({ workspaceId, ...input });
+    setProjectActionsByWorkspace((current) => {
+      const next = {
+        ...current,
+        [workspaceId]: [...(current[workspaceId] ?? []), action],
+      };
+      saveProjectActions(next);
+      return next;
+    });
+    setAddActionDialogOpen(false);
+  };
+
+  const runProjectAction = (action: ProjectActionRecord) => {
+    if (!api || !selectedWorkspace || !selectedSession) {
+      return;
+    }
+    setOpenTerminalSessionKeys((current) => {
+      const next = new Set(current);
+      next.add(selectedSessionKey);
+      return next;
+    });
+    setActiveTerminalSessionKey(selectedSessionKey);
+    void api.ensureTerminalPanel(selectedWorkspace.id, selectedSession.id, { cols: 80, rows: 24 }).then((panel) => {
+      const terminalId = panel.activeSessionId;
+      if (terminalId) {
+        void api.writeTerminal(terminalId, `${action.command.trim()}\n`);
+      }
+    });
+  };
 
   const toggleTerminal = useCallback(() => {
     if (!selectedSessionKey) {
@@ -2236,7 +2278,9 @@ export default function App() {
           updateSnapshot={updateSnapshot}
           terminalAvailable={Boolean(selectedSessionKey) || snapshot.activeView === "new-thread"}
           terminalVisible={isTerminalVisible}
-          onAddAction={addActionToComposer}
+          projectActions={topbarProjectActions}
+          onAddAction={openAddActionDialog}
+          onRunProjectAction={runProjectAction}
           onToggleTerminal={toggleTerminal}
           showDiffPanel={showDiffPanel}
           onToggleDiffPanel={toggleDiffPanel}
@@ -2485,6 +2529,12 @@ export default function App() {
           />
         ) : null}
       </main>
+      {addActionDialogOpen ? (
+        <AddActionDialog
+          onClose={() => setAddActionDialogOpen(false)}
+          onSave={saveProjectAction}
+        />
+      ) : null}
     </div>
   );
 }
