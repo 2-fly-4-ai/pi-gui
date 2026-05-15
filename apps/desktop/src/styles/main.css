@@ -3968,7 +3968,7 @@ mark.thread-find-active {
   height: 3px;
   flex-shrink: 0;
   background: #e0e4ef;
-  border-radius: 14px 14px 0 0;
+  border-radius: 13px 13px 0 0;
 }
 
 .display-mode-tile--running .display-mode-tile__accent { background: #2ea043; }
@@ -3983,6 +3983,11 @@ mark.thread-find-active {
 }
 
 /* Tile header */
+
+.display-mode-tile--compact .display-mode-tile__head {
+  border-bottom: 0;
+  border-radius: 0 0 13px 13px;
+}
 
 .display-mode-tile__head {
   display: flex;
@@ -4275,6 +4280,7 @@ mark.thread-find-active {
   flex-shrink: 0;
   padding: 8px 10px 10px;
   border-top: 1px solid #f0f2f8;
+  border-radius: 0 0 13px 13px;
   background: #fafbfd;
 }
 
