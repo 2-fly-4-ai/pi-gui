@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import type { RuntimeSkillRecord, RuntimeSnapshot } from "@pi-gui/session-driver/runtime-types";
+import type { RuntimeSkillMode, RuntimeSkillRecord, RuntimeSnapshot } from "@pi-gui/session-driver/runtime-types";
 import type { WorkspaceRecord } from "./desktop-state";
 import { CloseIcon, RefreshIcon, SkillIcon } from "./icons";
 import type { SkillUsageByPath, SkillUsageRecord } from "./skill-usage";
@@ -37,7 +37,7 @@ interface SkillsViewProps {
   readonly usageByPath?: SkillUsageByPath;
   readonly onRefresh: () => void;
   readonly onOpenSkillFolder: (filePath: string) => void;
-  readonly onToggleSkill: (filePath: string, enabled: boolean) => void;
+  readonly onSetSkillMode: (filePath: string, mode: RuntimeSkillMode) => void;
   readonly onTrySkill: (skill: RuntimeSkillRecord) => void;
 }
 
@@ -47,7 +47,7 @@ export function SkillsView({
   usageByPath = {},
   onRefresh,
   onOpenSkillFolder,
-  onToggleSkill,
+  onSetSkillMode,
   onTrySkill,
 }: SkillsViewProps) {
   const [query, setQuery] = useState("");
@@ -122,6 +122,7 @@ export function SkillsView({
                   enabled: true,
                   disableModelInvocation: false,
                   slashCommand: "/skill:new-skill",
+                  mode: "auto",
                 })
               }
             >
@@ -196,16 +197,9 @@ export function SkillsView({
                 >
                   <span className="skill-card__title-row">
                     <span className="skill-card__title">{titleCase(model.skill.name)}</span>
-                    <button
-                      className={`skill-card__badge skill-card__badge--toggle ${model.skill.enabled ? "skill-card__badge--enabled" : ""}`}
-                      type="button"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        onToggleSkill(model.skill.filePath, !model.skill.enabled);
-                      }}
-                    >
-                      {model.skill.enabled ? "Enabled" : "Disabled"}
-                    </button>
+                    <span className={`skill-card__badge ${model.skill.mode !== "off" ? "skill-card__badge--enabled" : ""}`}>
+                      {skillModeLabel(model.skill.mode)}
+                    </span>
                   </span>
                   <span className="skill-card__description">{model.summary}</span>
                   <span className="skill-card__tags">
@@ -213,13 +207,18 @@ export function SkillsView({
                       <span className="skill-tag" key={tag}>{tag}</span>
                     ))}
                   </span>
+                  <SkillModeControl
+                    compact
+                    mode={model.skill.mode}
+                    onChange={(mode) => onSetSkillMode(model.skill.filePath, mode)}
+                  />
                   <span className="skill-card__stats">
                     <SkillUsageStats usage={usageByPath[model.skill.filePath]} compact />
                   </span>
                   <span className="skill-card__meta">
                     <span>{model.skill.source}</span>
                     <span>{model.skill.slashCommand}</span>
-                    {model.skill.disableModelInvocation ? <span>slash only</span> : null}
+                    {model.skill.mode === "manual" ? <span>slash only</span> : null}
                   </span>
                 </div>
               ))
@@ -236,8 +235,8 @@ export function SkillsView({
                       <div className="skill-detail__slash">{selectedSkill.slashCommand}</div>
                     </div>
                     <div className="skill-detail__header-end">
-                      <span className={`skill-detail__status ${selectedSkill.enabled ? "skill-detail__status--enabled" : ""}`}>
-                        {selectedSkill.enabled ? "Enabled" : "Disabled"}
+                      <span className={`skill-detail__status ${selectedSkill.mode !== "off" ? "skill-detail__status--enabled" : ""}`}>
+                        {skillModeLabel(selectedSkill.mode)}
                       </span>
                       <button
                         aria-label="Close detail panel"
@@ -250,6 +249,10 @@ export function SkillsView({
                     </div>
                   </div>
                   <p className="skill-detail__description">{selectedSkill.description}</p>
+                  <SkillModeControl
+                    mode={selectedSkill.mode}
+                    onChange={(mode) => onSetSkillMode(selectedSkill.filePath, mode)}
+                  />
                   <SkillUsageStats usage={usageByPath[selectedSkill.filePath]} />
                   {selectedSkillModel ? (
                     <div className="skill-detail__tags">
@@ -284,13 +287,6 @@ export function SkillsView({
                   <div className="skill-detail__actions">
                     <button className="button button--secondary" type="button" onClick={() => onOpenSkillFolder(selectedSkill.filePath)}>
                       Open folder
-                    </button>
-                    <button
-                      className="button button--secondary"
-                      type="button"
-                      onClick={() => onToggleSkill(selectedSkill.filePath, !selectedSkill.enabled)}
-                    >
-                      {selectedSkill.enabled ? "Disable" : "Enable"}
                     </button>
                   </div>
                 </>
@@ -385,6 +381,46 @@ function summarizeSkill(description: string): string {
   const normalized = description.trim().replace(/\s+/g, " ");
   const firstSentence = normalized.match(/^[^.!?]+[.!?]?/)?.[0]?.trim() ?? normalized;
   return firstSentence.length > 190 ? `${firstSentence.slice(0, 187).trimEnd()}...` : firstSentence;
+}
+
+function SkillModeControl({
+  mode,
+  compact = false,
+  onChange,
+}: {
+  readonly mode: RuntimeSkillMode;
+  readonly compact?: boolean;
+  readonly onChange: (mode: RuntimeSkillMode) => void;
+}) {
+  return (
+    <div className={compact ? "skill-mode-control skill-mode-control--compact" : "skill-mode-control"} aria-label="Skill mode">
+      {(["auto", "manual", "off"] as const).map((option) => (
+        <button
+          aria-pressed={mode === option}
+          className={`skill-mode-control__item${mode === option ? " skill-mode-control__item--active" : ""}`}
+          key={option}
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation();
+            onChange(option);
+          }}
+        >
+          {skillModeLabel(option)}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function skillModeLabel(mode: RuntimeSkillMode): string {
+  switch (mode) {
+    case "auto":
+      return "Auto";
+    case "manual":
+      return "Manual";
+    case "off":
+      return "Off";
+  }
 }
 
 function SkillUsageStats({ usage, compact = false }: { readonly usage?: SkillUsageRecord; readonly compact?: boolean }) {

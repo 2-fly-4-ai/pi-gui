@@ -259,6 +259,7 @@
 .canvas {
   padding: 20px 28px 0;
   overflow: auto;
+  scrollbar-gutter: stable;
 }
 
 .canvas--thread {
@@ -2732,12 +2733,37 @@
   font-weight: 600;
 }
 
-.skill-card__badge--toggle {
-  cursor: pointer;
+.skill-mode-control {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid #dfe4ee;
+  border-radius: 14px;
+  background: #f6f8fb;
 }
 
-.skill-card__badge--toggle:hover {
-  filter: brightness(0.97);
+.skill-mode-control--compact {
+  max-width: 260px;
+}
+
+.skill-mode-control__item {
+  min-height: 28px;
+  border-radius: 10px;
+  color: var(--muted-strong);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.skill-mode-control__item:hover {
+  background: rgba(255, 255, 255, 0.75);
+  color: var(--text-strong);
+}
+
+.skill-mode-control__item--active {
+  background: #fff;
+  color: var(--text-strong);
+  box-shadow: 0 1px 2px rgba(22, 35, 62, 0.08);
 }
 
 .skill-card__badge--enabled,
@@ -3767,6 +3793,16 @@ mark.thread-find-active {
 :root.dark .skill-card__badge,
 :root.dark .skill-detail__status {
   background: var(--surface-muted);
+}
+
+:root.dark .skill-mode-control {
+  border-color: var(--line);
+  background: var(--surface-muted);
+}
+
+:root.dark .skill-mode-control__item:hover,
+:root.dark .skill-mode-control__item--active {
+  background: rgba(255, 255, 255, 0.08);
 }
 
 :root.dark .skill-card__badge--enabled,

@@ -186,6 +186,8 @@ contextBridge.exposeInMainWorld("piApp", {
     ipcRenderer.invoke(desktopIpc.setScopedModelPatterns, workspaceId, patterns) as Promise<DesktopAppState>,
   setSkillEnabled: (workspaceId: string, filePath: string, enabled: boolean) =>
     ipcRenderer.invoke(desktopIpc.setSkillEnabled, workspaceId, filePath, enabled) as Promise<DesktopAppState>,
+  setSkillMode: (workspaceId: string, filePath: string, mode: "auto" | "manual" | "off") =>
+    ipcRenderer.invoke(desktopIpc.setSkillMode, workspaceId, filePath, mode) as Promise<DesktopAppState>,
   setExtensionEnabled: (workspaceId: string, filePath: string, enabled: boolean) =>
     ipcRenderer.invoke(desktopIpc.setExtensionEnabled, workspaceId, filePath, enabled) as Promise<DesktopAppState>,
   respondToHostUiRequest: (workspaceId: string, sessionId: string, response: HostUiResponse) =>

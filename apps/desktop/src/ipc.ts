@@ -73,6 +73,7 @@ export const desktopIpc = {
   setEnableSkillCommands: "pi-gui:set-enable-skill-commands",
   setScopedModelPatterns: "pi-gui:set-scoped-model-patterns",
   setSkillEnabled: "pi-gui:set-skill-enabled",
+  setSkillMode: "pi-gui:set-skill-mode",
   setExtensionEnabled: "pi-gui:set-extension-enabled",
   respondToHostUiRequest: "pi-gui:respond-to-host-ui-request",
   setNotificationPreferences: "pi-gui:set-notification-preferences",
@@ -277,6 +278,7 @@ export interface PiDesktopApi {
   setEnableSkillCommands(workspaceId: string, enabled: boolean): Promise<DesktopAppState>;
   setScopedModelPatterns(workspaceId: string, patterns: readonly string[]): Promise<DesktopAppState>;
   setSkillEnabled(workspaceId: string, filePath: string, enabled: boolean): Promise<DesktopAppState>;
+  setSkillMode(workspaceId: string, filePath: string, mode: "auto" | "manual" | "off"): Promise<DesktopAppState>;
   setExtensionEnabled(workspaceId: string, filePath: string, enabled: boolean): Promise<DesktopAppState>;
   respondToHostUiRequest(
     workspaceId: string,

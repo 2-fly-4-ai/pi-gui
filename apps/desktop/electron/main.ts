@@ -582,6 +582,9 @@ app.whenReady().then(async () => {
   ipcMain.handle(desktopIpc.setSkillEnabled, (_event, workspaceId: string, filePath: string, enabled: boolean) =>
     store.setSkillEnabled(workspaceId, filePath, enabled),
   );
+  ipcMain.handle(desktopIpc.setSkillMode, (_event, workspaceId: string, filePath: string, mode: "auto" | "manual" | "off") =>
+    store.setSkillMode(workspaceId, filePath, mode),
+  );
   ipcMain.handle(desktopIpc.setExtensionEnabled, (_event, workspaceId: string, filePath: string, enabled: boolean) =>
     store.setExtensionEnabled(workspaceId, filePath, enabled),
   );

@@ -8,7 +8,9 @@ import {
   type AgentSessionRuntime,
   type CreateAgentSessionOptions,
   type CreateAgentSessionRuntimeResult,
+  type Skill,
 } from "@earendil-works/pi-coding-agent";
+import { SkillCatalogStore } from "./skill-catalog.js";
 
 export function isGlobalNpmLookupError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
@@ -44,14 +46,19 @@ async function createAgentSessionServicesWithNpmFallback(
   cwd: string,
   agentDir: string,
   options?: Pick<CreateAgentSessionOptions, "authStorage" | "settingsManager" | "modelRegistry">,
+  skillCatalog?: SkillCatalogStore,
 ) {
   try {
+    if (skillCatalog) {
+      await skillCatalog.reload();
+    }
     return await createAgentSessionServices({
       cwd,
       agentDir,
       ...(options?.authStorage ? { authStorage: options.authStorage } : {}),
       ...(options?.settingsManager ? { settingsManager: options.settingsManager } : {}),
       ...(options?.modelRegistry ? { modelRegistry: options.modelRegistry } : {}),
+      ...(skillCatalog ? { resourceLoaderOptions: createSkillCatalogResourceLoaderOptions(skillCatalog) } : {}),
     });
   } catch (error) {
     if (!isGlobalNpmLookupError(error)) {
@@ -76,6 +83,7 @@ async function createAgentSessionServicesWithNpmFallback(
       ...(options?.authStorage ? { authStorage: options.authStorage } : {}),
       settingsManager: fallbackSettingsManager,
       ...(options?.modelRegistry ? { modelRegistry: options.modelRegistry } : {}),
+      ...(skillCatalog ? { resourceLoaderOptions: createSkillCatalogResourceLoaderOptions(skillCatalog) } : {}),
     });
   }
 }
@@ -85,8 +93,9 @@ async function createAgentSessionResultWithNpmFallback(
   agentDir: string,
   sessionManager: SessionManager,
   options?: CreateAgentSessionOptions,
+  skillCatalog?: SkillCatalogStore,
 ): Promise<CreateAgentSessionRuntimeResult> {
-  const services = await createAgentSessionServicesWithNpmFallback(cwd, agentDir, options);
+  const services = await createAgentSessionServicesWithNpmFallback(cwd, agentDir, options, skillCatalog);
   return {
     ...(await createAgentSessionFromServices({
       services,
@@ -110,8 +119,18 @@ export async function createAgentSessionWithNpmFallback(options?: CreateAgentSes
   return createAgentSessionResultWithNpmFallback(cwd, agentDir, sessionManager, options);
 }
 
+function createSkillCatalogResourceLoaderOptions(skillCatalog: SkillCatalogStore) {
+  return {
+    skillsOverride: (base: { skills: Skill[]; diagnostics: any[] }) => ({
+      skills: skillCatalog.applyToSkills(base.skills),
+      diagnostics: base.diagnostics,
+    }),
+  };
+}
+
 export async function createAgentSessionRuntimeWithNpmFallback(
   options?: CreateAgentSessionOptions,
+  skillCatalogFilePath?: string,
 ): Promise<AgentSessionRuntime> {
   const cwd = options?.cwd ?? process.cwd();
   const agentDir = options?.agentDir ?? getAgentDir();
@@ -125,6 +144,7 @@ export async function createAgentSessionRuntimeWithNpmFallback(
     thinkingLevel: initialThinkingLevel,
     ...stableOptions
   } = options ?? {};
+  const skillCatalog = skillCatalogFilePath ? new SkillCatalogStore(skillCatalogFilePath) : undefined;
   let useInitialSessionOptions = true;
   return createAgentSessionRuntime(
     ({ cwd: runtimeCwd, agentDir: runtimeAgentDir, sessionManager, sessionStartEvent }) => {
@@ -138,7 +158,7 @@ export async function createAgentSessionRuntimeWithNpmFallback(
         ...(sessionStartEvent ? { sessionStartEvent } : {}),
         ...(includeInitialSessionOptions && initialModel ? { model: initialModel } : {}),
         ...(includeInitialSessionOptions && initialThinkingLevel ? { thinkingLevel: initialThinkingLevel } : {}),
-      });
+      }, skillCatalog);
     },
     {
       cwd,

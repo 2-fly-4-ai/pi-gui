@@ -154,8 +154,10 @@ export class DesktopAppStore implements AppStoreInternals {
 
   constructor(options: DesktopAppStoreOptions) {
     const catalogFilePath = join(options.userDataDir, "catalogs.json");
+    const skillCatalogFilePath = join(options.userDataDir, "skill-catalog.json");
     const driverOptions: PiSdkDriverConfig = {
       catalogFilePath,
+      skillCatalogFilePath,
       ...(options.generateThreadTitleOverride
         ? { generateThreadTitleOverride: options.generateThreadTitleOverride }
         : {}),
@@ -737,6 +739,13 @@ export class DesktopAppStore implements AppStoreInternals {
   async setSkillEnabled(workspaceId: string, filePath: string, enabled: boolean): Promise<DesktopAppState> {
     return this.withRuntimeUpdate(workspaceId, (ws) =>
       this.driver.runtimeSupervisor.setSkillEnabled(ws, filePath, enabled),
+      { reloadSessions: true },
+    );
+  }
+
+  async setSkillMode(workspaceId: string, filePath: string, mode: "auto" | "manual" | "off"): Promise<DesktopAppState> {
+    return this.withRuntimeUpdate(workspaceId, (ws) =>
+      this.driver.runtimeSupervisor.setSkillMode(ws, filePath, mode),
       { reloadSessions: true },
     );
   }

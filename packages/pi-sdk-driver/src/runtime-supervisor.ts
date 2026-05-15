@@ -27,7 +27,8 @@ import type { WorkspaceRef } from "@pi-gui/session-driver";
 import { createRuntimeDependencies } from "./runtime-deps.js";
 import { createSettingsManagerWithoutNpmPackages, isGlobalNpmLookupError } from "./npm-package-fallback.js";
 import { skillSlashCommand } from "./runtime-command-utils.js";
-import type { AuthStatus, AuthStorage, ModelRegistry } from "@earendil-works/pi-coding-agent";
+import { SkillCatalogStore, toCatalogSkill, type SkillInvocationMode } from "./skill-catalog.js";
+import type { AuthStatus, AuthStorage, ModelRegistry, Skill } from "@earendil-works/pi-coding-agent";
 
 interface ModelSettingsSnapshot {
   readonly defaultProvider?: string;
@@ -52,6 +53,7 @@ export interface RuntimeSupervisorOptions {
   readonly agentDir?: string;
   readonly authStorage?: AuthStorage;
   readonly modelRegistry?: ModelRegistry;
+  readonly skillCatalogFilePath?: string;
 }
 
 type ResourceScope = "user" | "project";
@@ -61,6 +63,7 @@ export class RuntimeSupervisor implements RuntimeResourceDriver {
   private readonly agentDir: string;
   private readonly authStorage: AuthStorage;
   private readonly modelRegistry: ModelRegistry;
+  private readonly skillCatalog: SkillCatalogStore;
   private readonly contexts = new Map<string, RuntimeContext>();
 
   constructor(options: RuntimeSupervisorOptions = {}) {
@@ -68,6 +71,7 @@ export class RuntimeSupervisor implements RuntimeResourceDriver {
     this.agentDir = deps.agentDir;
     this.authStorage = deps.authStorage;
     this.modelRegistry = deps.modelRegistry;
+    this.skillCatalog = new SkillCatalogStore(options.skillCatalogFilePath);
   }
 
   async getRuntimeSnapshot(workspace: WorkspaceRef): Promise<RuntimeSnapshot> {
@@ -80,6 +84,7 @@ export class RuntimeSupervisor implements RuntimeResourceDriver {
     context.settingsManager.reload();
     this.authStorage.reload();
     this.modelRegistry.refresh();
+    await this.skillCatalog.reload();
     await context.resourceLoader.reload();
     await this.autoEnableModelsForAuthenticatedProviders(context);
     return this.buildSnapshot(context);
@@ -271,6 +276,27 @@ export class RuntimeSupervisor implements RuntimeResourceDriver {
     return this.buildSnapshot(context);
   }
 
+  async setSkillMode(workspace: WorkspaceRef, filePath: string, mode: SkillInvocationMode): Promise<RuntimeSnapshot> {
+    const context = await this.ensureContext(workspace);
+    const resolvedPaths = await this.resolveRuntimePaths(context);
+    const resource = resolvedPaths.skills.find((entry) => resolve(entry.path) === resolve(filePath));
+    if (!resource) {
+      throw new Error(`Unknown skill: ${filePath}`);
+    }
+
+    const skill = await this.catalogSkillForResource(context, resource);
+    await this.skillCatalog.setSkillMode(skill, mode);
+    if (mode === "off") {
+      this.toggleResource(context, resource, false, "skill");
+    } else if (!resource.enabled) {
+      this.toggleResource(context, resource, true, "skill");
+    }
+    await context.settingsManager.flush();
+    await this.skillCatalog.reload();
+    await context.resourceLoader.reload();
+    return this.buildSnapshot(context);
+  }
+
   async setExtensionEnabled(workspace: WorkspaceRef, filePath: string, enabled: boolean): Promise<RuntimeSnapshot> {
     const context = await this.ensureContext(workspace);
     const resolvedPaths = await this.resolveRuntimePaths(context);
@@ -297,10 +323,15 @@ export class RuntimeSupervisor implements RuntimeResourceDriver {
       agentDir: this.agentDir,
       settingsManager,
     });
+    await this.skillCatalog.reload();
     let resourceLoader = new DefaultResourceLoader({
       cwd: workspace.path,
       agentDir: this.agentDir,
       settingsManager,
+      skillsOverride: (base) => ({
+        skills: this.skillCatalog.applyToSkills(base.skills),
+        diagnostics: base.diagnostics,
+      }),
     });
     try {
       await resourceLoader.reload();
@@ -330,6 +361,10 @@ export class RuntimeSupervisor implements RuntimeResourceDriver {
         cwd: workspace.path,
         agentDir: this.agentDir,
         settingsManager,
+        skillsOverride: (base) => ({
+          skills: this.skillCatalog.applyToSkills(base.skills),
+          diagnostics: base.diagnostics,
+        }),
       });
       await resourceLoader.reload();
     }
@@ -500,6 +535,22 @@ export class RuntimeSupervisor implements RuntimeResourceDriver {
     await context.settingsManager.flush();
   }
 
+  private async catalogSkillForResource(
+    context: RuntimeContext,
+    resource: ResolvedResource,
+  ): Promise<Pick<Skill, "name" | "filePath"> & { readonly source?: string }> {
+    const filePath = resolve(resource.path);
+    const loaded = context.resourceLoader
+      .getSkills()
+      .skills.find((skill) => resolve(skill.filePath) === filePath);
+    const metadata = await readSkillMetadata(filePath);
+    return {
+      name: loaded?.name ?? metadata?.name ?? inferSkillName(filePath),
+      filePath,
+      source: resource.metadata.source,
+    };
+  }
+
   private async buildSkillRecords(
     context: RuntimeContext,
     resolvedSkills: readonly ResolvedResource[],
@@ -517,7 +568,21 @@ export class RuntimeSupervisor implements RuntimeResourceDriver {
         const metadata = await readSkillMetadata(filePath);
         const name = loaded?.name ?? metadata?.name ?? inferSkillName(filePath);
         const description = loaded?.description ?? metadata?.description ?? "No description provided.";
-        const disableModelInvocation = loaded?.disableModelInvocation ?? metadata?.disableModelInvocation ?? false;
+        const frontmatterDisableModelInvocation = metadata?.disableModelInvocation ?? false;
+        const baseDisableModelInvocation = loaded?.disableModelInvocation ?? frontmatterDisableModelInvocation;
+        const catalogEntry = this.skillCatalog.getEntry({
+          name,
+          filePath,
+          source: resource.metadata.source,
+        });
+        const catalogMode = catalogEntry?.mode;
+        const mode = !resource.enabled || catalogMode === "off"
+          ? "off"
+          : catalogMode ?? (baseDisableModelInvocation ? "manual" : "auto");
+        const disableModelInvocation = mode === "manual";
+        const summary = catalogEntry?.summary ?? metadata?.summary;
+        const category = catalogEntry?.category ?? metadata?.category;
+        const tags = catalogEntry?.tags ?? metadata?.tags;
 
         return {
           name,
@@ -525,12 +590,13 @@ export class RuntimeSupervisor implements RuntimeResourceDriver {
           filePath,
           baseDir: loaded?.baseDir ?? dirname(filePath),
           source: resource.metadata.source,
-          enabled: resource.enabled,
+          enabled: mode !== "off",
           disableModelInvocation,
           slashCommand: skillSlashCommand(name),
-          ...(metadata?.summary ? { summary: metadata.summary } : {}),
-          ...(metadata?.category ? { category: metadata.category } : {}),
-          ...(metadata?.tags ? { tags: metadata.tags } : {}),
+          mode,
+          ...(summary ? { summary } : {}),
+          ...(category ? { category } : {}),
+          ...(tags ? { tags } : {}),
         } satisfies RuntimeSkillRecord;
       }),
     );

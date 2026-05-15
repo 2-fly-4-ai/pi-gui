@@ -25,6 +25,7 @@ import {
 } from "./session-supervisor.js";
 import { RuntimeSupervisor, type RuntimeSupervisorOptions } from "./runtime-supervisor.js";
 import { createRuntimeDependencies } from "./runtime-deps.js";
+import { createAgentSessionRuntimeWithNpmFallback } from "./npm-package-fallback.js";
 import { generateThreadTitle, type GenerateThreadTitleOptions } from "./thread-title-generator.js";
 
 export interface PiSdkDriverConfig extends PiSdkDriverOptions, RuntimeSupervisorOptions {}
@@ -46,7 +47,12 @@ export class PiSdkDriver implements SessionDriver {
     this.modelRegistry = deps.modelRegistry;
     this.generateThreadTitleOverride = options.generateThreadTitleOverride;
 
-    this.supervisor = new SessionSupervisor({ ...options, modelRegistry: deps.modelRegistry });
+    this.supervisor = new SessionSupervisor({
+      ...options,
+      modelRegistry: deps.modelRegistry,
+      createAgentSessionRuntimeImpl: options.createAgentSessionRuntimeImpl
+        ?? ((createOptions) => createAgentSessionRuntimeWithNpmFallback(createOptions, options.skillCatalogFilePath)),
+    });
     this.runtimeSupervisor = new RuntimeSupervisor({ ...options, ...deps });
   }
 

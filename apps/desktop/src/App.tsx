@@ -1763,11 +1763,11 @@ export default function App() {
     return state.lastError;
   };
 
-  const handleToggleSkill = (filePath: string, enabled: boolean) => {
+  const handleSetSkillMode = (filePath: string, mode: "auto" | "manual" | "off") => {
     if (!skillsWorkspace) {
       return;
     }
-    void updateSnapshot(api, setSnapshot, () => api.setSkillEnabled(skillsWorkspace.id, filePath, enabled));
+    void updateSnapshot(api, setSnapshot, () => api.setSkillMode(skillsWorkspace.id, filePath, mode));
   };
 
   const handleOpenSkillFolder = (filePath: string) => {
@@ -2128,7 +2128,7 @@ export default function App() {
             }
             void updateSnapshot(api, setSnapshot, () => api.refreshRuntime(skillsWorkspace.id));
           }}
-          onToggleSkill={handleToggleSkill}
+          onSetSkillMode={handleSetSkillMode}
           onTrySkill={(skill) =>
             handleTrySkill(
               skill.filePath

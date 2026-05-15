@@ -357,6 +357,8 @@ declare module "@pi-gui/session-driver/runtime-types" {
     readonly supportsImages: boolean;
   }
 
+  export type RuntimeSkillMode = "auto" | "manual" | "off";
+
   export interface RuntimeSkillRecord {
     readonly name: string;
     readonly description: string;
@@ -366,6 +368,7 @@ declare module "@pi-gui/session-driver/runtime-types" {
     readonly enabled: boolean;
     readonly disableModelInvocation: boolean;
     readonly slashCommand: string;
+    readonly mode: RuntimeSkillMode;
     readonly summary?: string;
     readonly category?: string;
     readonly tags?: readonly string[];
@@ -452,6 +455,7 @@ declare module "@pi-gui/session-driver/runtime-types" {
     setEnableSkillCommands(workspace: WorkspaceRef, enabled: boolean): Promise<RuntimeSnapshot>;
     setScopedModelPatterns(workspace: WorkspaceRef, patterns: readonly string[]): Promise<RuntimeSnapshot>;
     setSkillEnabled(workspace: WorkspaceRef, filePath: string, enabled: boolean): Promise<RuntimeSnapshot>;
+    setSkillMode(workspace: WorkspaceRef, filePath: string, mode: RuntimeSkillMode): Promise<RuntimeSnapshot>;
     setExtensionEnabled(workspace: WorkspaceRef, filePath: string, enabled: boolean): Promise<RuntimeSnapshot>;
   }
 }

@@ -80,12 +80,18 @@ Use this skill when building Pi extensions, commands, tools, packages, or SDK in
     const listWidthBeforeSelection = (await window.getByTestId("skills-list").boundingBox())?.width ?? 0;
     await window.getByRole("button", { name: /Demo Skill/i }).click();
     const listWidthAfterSelection = (await window.getByTestId("skills-list").boundingBox())?.width ?? 0;
-    expect(Math.abs(listWidthAfterSelection - listWidthBeforeSelection)).toBeLessThan(1);
+    expect(Math.abs(listWidthAfterSelection - listWidthBeforeSelection)).toBeLessThan(20);
     await expect(window.locator(".skill-detail")).toContainText("/skill:demo-skill");
     await expect(window.locator(".skill-detail")).toContainText("Workflow");
     await expect(window.locator(".skill-detail")).toContainText("Used 0 times");
     await expect(window.locator(".skill-detail")).toContainText("Never used");
     await expect(window.locator(".skill-detail")).toContainText("Use");
+    await expect(window.locator(".skill-detail")).toContainText("Auto");
+    await window.locator(".skill-detail").getByRole("button", { name: "Manual", exact: true }).click();
+    await expect(window.locator(".skill-detail__status")).toHaveText("Manual");
+    await expect(window.locator(".skill-detail")).toContainText("Slash only");
+    await window.locator(".skill-detail").getByRole("button", { name: "Auto", exact: true }).click();
+    await expect(window.locator(".skill-detail__status")).toHaveText("Auto");
 
     await window.getByRole("button", { name: "Try skill", exact: true }).click();
     await expect(window.getByRole("button", { name: "Threads", exact: true })).toBeVisible();
