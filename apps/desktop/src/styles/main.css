@@ -3923,6 +3923,7 @@ mark.thread-find-active {
 /* Tile — fixed-height card, flex column */
 
 .display-mode-tile {
+  --display-mode-tile-accent: #e0e4ef;
   position: relative;
   display: flex;
   flex-direction: column;
@@ -3935,6 +3936,16 @@ mark.thread-find-active {
   outline: none;
 }
 
+.display-mode-tile::before {
+  content: "";
+  position: absolute;
+  inset: -1px -1px auto;
+  height: 8px;
+  border-top: 3px solid var(--display-mode-tile-accent);
+  border-radius: 14px 14px 0 0;
+  pointer-events: none;
+}
+
 .display-mode-tile:focus-within {
   z-index: 20;
 }
@@ -3943,12 +3954,13 @@ mark.thread-find-active {
   box-shadow: 0 0 0 3px rgba(107, 125, 216, 0.3);
 }
 
-.display-mode-tile--running { border-color: #c3e6cb; }
-.display-mode-tile--error   { border-color: #f5c6cb; }
+.display-mode-tile--running { --display-mode-tile-accent: #2ea043; border-color: #c3e6cb; }
+.display-mode-tile--error   { --display-mode-tile-accent: #f85149; border-color: #f5c6cb; }
 .display-mode-tile--dragging { opacity: 0.4; }
 
 /* Waiting: pulsing amber border to demand attention */
 .display-mode-tile--waiting {
+  --display-mode-tile-accent: #d29922;
   border-color: rgba(210, 153, 34, 0.5);
   animation: tile-waiting-pulse 2.4s ease-in-out infinite;
 }
@@ -3967,14 +3979,12 @@ mark.thread-find-active {
 .display-mode-tile__accent {
   height: 3px;
   flex-shrink: 0;
-  background: #e0e4ef;
-  border-radius: 13px 13px 0 0;
-  overflow: hidden;
+  background: transparent;
 }
 
-.display-mode-tile--running .display-mode-tile__accent { background: #2ea043; }
-.display-mode-tile--waiting .display-mode-tile__accent { background: #d29922; }
-.display-mode-tile--error   .display-mode-tile__accent { background: #f85149; }
+.display-mode-tile--running .display-mode-tile__accent,
+.display-mode-tile--waiting .display-mode-tile__accent,
+.display-mode-tile--error .display-mode-tile__accent { background: transparent; }
 .display-mode-tile--drag-overlay {
   height: 500px;
   border-radius: 14px;
@@ -4674,10 +4684,10 @@ mark.thread-find-active {
   0%, 100% { border-color: rgba(210,153,34,0.35); box-shadow: none; }
   50%       { border-color: rgba(210,153,34,0.65); box-shadow: 0 0 0 4px rgba(210,153,34,0.1); }
 }
-:root.dark .display-mode-tile__accent { background: rgba(255,255,255,0.08); }
-:root.dark .display-mode-tile--running .display-mode-tile__accent { background: #2ea043; }
-:root.dark .display-mode-tile--waiting .display-mode-tile__accent { background: #d29922; }
-:root.dark .display-mode-tile--error   .display-mode-tile__accent { background: #f85149; }
+:root.dark .display-mode-tile { --display-mode-tile-accent: rgba(255,255,255,0.08); }
+:root.dark .display-mode-tile--running { --display-mode-tile-accent: #2ea043; }
+:root.dark .display-mode-tile--waiting { --display-mode-tile-accent: #d29922; }
+:root.dark .display-mode-tile--error   { --display-mode-tile-accent: #f85149; }
 :root.dark .display-mode-tile__action-stop { background: rgba(248,81,73,0.12) !important; border-color: rgba(248,81,73,0.3) !important; color: #f85149 !important; }
 :root.dark .display-mode__compact-toggle { background: var(--surface); border-color: var(--line); color: var(--muted-strong); }
 :root.dark .display-mode__compact-toggle:hover { background: rgba(255,255,255,0.07); color: var(--text-strong); }
