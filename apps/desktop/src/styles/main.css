@@ -329,6 +329,23 @@
   line-height: 1.15;
 }
 
+.chat-header__actions {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.chat-header__vscode {
+  width: 28px;
+  height: 28px;
+}
+
+.chat-header__vscode svg {
+  width: 15px;
+  height: 15px;
+}
+
 .chat-header__status {
   flex: 0 0 auto;
   color: var(--muted-soft);

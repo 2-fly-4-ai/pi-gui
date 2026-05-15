@@ -36,6 +36,7 @@ import { NewThreadView } from "./new-thread-view";
 import { ReviewSurface } from "./review/ReviewSurface";
 import type { ReviewSnapshot } from "./review/review-types";
 import { VSCodePanel } from "./vscode-panel";
+import { VSCodeIcon } from "./icons";
 import { buildThreadGroups } from "./thread-groups";
 import { Sidebar } from "./sidebar";
 import { SidebarToggleButton } from "./sidebar-toggle-button";
@@ -291,6 +292,10 @@ export default function App() {
 
   const selectedWorkspace = snapshot ? (getSelectedWorkspace(snapshot) ?? snapshot.workspaces[0]) : undefined;
   const selectedSession = snapshot ? (getSelectedSession(snapshot) ?? selectedWorkspace?.sessions[0]) : undefined;
+  const openSelectedWorkspaceVsCode = useCallback(() => {
+    if (!selectedWorkspace) return;
+    openVsCodeForWorkspace(selectedWorkspace.id, selectedWorkspace.path);
+  }, [openVsCodeForWorkspace, selectedWorkspace]);
   const toggleSelectedWorkspaceVsCode = useCallback(() => {
     if (!selectedWorkspace) return;
     setVsCodeWorkspaceId(selectedWorkspace.id);
@@ -2304,8 +2309,19 @@ export default function App() {
                   </div>
                   <div className="chat-header__row">
                     <h1 className="chat-header__title">{displayedSessionTitle}</h1>
-                    <div className="chat-header__status">
-                      {selectedSession.status === "running" ? runningLabel : formatRelativeTime(selectedSession.updatedAt)}
+                    <div className="chat-header__actions">
+                      <button
+                        aria-label="Open VS Code for thread"
+                        className={`icon-button chat-header__vscode${vsCodeOpen && vsCodeWorkspaceId === selectedWorkspace.id ? " icon-button--active" : ""}`}
+                        title="Open VS Code for this thread's project"
+                        type="button"
+                        onClick={openSelectedWorkspaceVsCode}
+                      >
+                        <VSCodeIcon />
+                      </button>
+                      <div className="chat-header__status">
+                        {selectedSession.status === "running" ? runningLabel : formatRelativeTime(selectedSession.updatedAt)}
+                      </div>
                     </div>
                   </div>
                 </div>

@@ -67,6 +67,10 @@ test("opens Display Mode from the sidebar and renders thread command-center tile
     await expect(window.locator(".thread-vscode-panel .display-mode-vscode__webview")).toHaveAttribute("title", "VS Code", { timeout: 45_000 });
     await window.getByRole("button", { name: "Toggle VS Code panel" }).click();
     await expect(window.getByTestId("thread-vscode-panel")).toHaveCount(0);
+    await window.getByRole("button", { name: "Open VS Code for thread" }).click();
+    await expect(window.getByTestId("thread-vscode-panel")).toBeVisible();
+    await window.getByRole("button", { name: "Toggle VS Code panel" }).click();
+    await expect(window.getByTestId("thread-vscode-panel")).toHaveCount(0);
 
     const nav = window.locator(".sidebar__nav");
     await expect(nav.getByRole("button", { name: "Threads" })).toBeVisible();
