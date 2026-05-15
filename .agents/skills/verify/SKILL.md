@@ -1,6 +1,13 @@
 ---
 name: verify
-description: Verify code changes in this repo on the right real surface. Use when the user asks to verify, test, self-test, prove something works, or when implementation is complete and verification is still needed. For `apps/desktop`, choose the correct Electron Playwright lane (`core`, `live`, or `native`), use the shared desktop helpers, rerun the owning lane for `core` and `live`, and use the targeted native spec by default for `native`.
+description: Verify repo changes on the correct real surface.
+metadata:
+  summary: Run the right package checks and Electron Playwright lane before completion.
+  category: verification
+  tags:
+    - electron
+    - playwright
+    - testing
 ---
 
 # Verify

@@ -2,9 +2,10 @@ import { useMemo, useState } from "react";
 import type { RuntimeSkillRecord, RuntimeSnapshot } from "@pi-gui/session-driver/runtime-types";
 import type { WorkspaceRecord } from "./desktop-state";
 import { CloseIcon, RefreshIcon, SkillIcon } from "./icons";
-import { titleCase } from "./string-utils";
+import type { SkillUsageByPath, SkillUsageRecord } from "./skill-usage";
+import { formatRelativeTime, titleCase } from "./string-utils";
 
-type SkillCategory = "all" | "project" | "pi" | "cloudflare" | "frontend" | "code" | "docs" | "debug" | "git" | "workflow";
+type SkillCategory = "all" | "project" | "pi" | "cloudflare" | "frontend" | "code" | "docs" | "debug" | "verification" | "planning" | "review" | "git" | "workflow";
 
 interface SkillViewModel {
   readonly skill: RuntimeSkillRecord;
@@ -23,6 +24,9 @@ const CATEGORY_FILTERS: readonly { readonly id: SkillCategory; readonly label: s
   { id: "code", label: "Code" },
   { id: "docs", label: "Docs" },
   { id: "debug", label: "Debug" },
+  { id: "verification", label: "Verify" },
+  { id: "planning", label: "Plan" },
+  { id: "review", label: "Review" },
   { id: "git", label: "Git" },
   { id: "workflow", label: "Workflow" },
 ];
@@ -30,6 +34,7 @@ const CATEGORY_FILTERS: readonly { readonly id: SkillCategory; readonly label: s
 interface SkillsViewProps {
   readonly workspace?: WorkspaceRecord;
   readonly runtime?: RuntimeSnapshot;
+  readonly usageByPath?: SkillUsageByPath;
   readonly onRefresh: () => void;
   readonly onOpenSkillFolder: (filePath: string) => void;
   readonly onToggleSkill: (filePath: string, enabled: boolean) => void;
@@ -39,6 +44,7 @@ interface SkillsViewProps {
 export function SkillsView({
   workspace,
   runtime,
+  usageByPath = {},
   onRefresh,
   onOpenSkillFolder,
   onToggleSkill,
@@ -170,11 +176,19 @@ export function SkillsView({
               <SkillsEmptyState message="Refresh discovery or create a new skill for this workspace." />
             ) : (
               filteredSkills.map((model) => (
-                <button
+                <div
                   className={`skill-card ${selectedSkill?.filePath === model.skill.filePath ? "skill-card--active" : ""}`}
                   key={model.skill.filePath}
-                  type="button"
+                  role="button"
+                  tabIndex={0}
                   onClick={() => {
+                    setSelectedSkillPath(
+                      selectedSkillPath === model.skill.filePath ? undefined : model.skill.filePath
+                    );
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key !== "Enter" && event.key !== " ") return;
+                    event.preventDefault();
                     setSelectedSkillPath(
                       selectedSkillPath === model.skill.filePath ? undefined : model.skill.filePath
                     );
@@ -182,9 +196,16 @@ export function SkillsView({
                 >
                   <span className="skill-card__title-row">
                     <span className="skill-card__title">{titleCase(model.skill.name)}</span>
-                    <span className={`skill-card__badge ${model.skill.enabled ? "skill-card__badge--enabled" : ""}`}>
+                    <button
+                      className={`skill-card__badge skill-card__badge--toggle ${model.skill.enabled ? "skill-card__badge--enabled" : ""}`}
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        onToggleSkill(model.skill.filePath, !model.skill.enabled);
+                      }}
+                    >
                       {model.skill.enabled ? "Enabled" : "Disabled"}
-                    </span>
+                    </button>
                   </span>
                   <span className="skill-card__description">{model.summary}</span>
                   <span className="skill-card__tags">
@@ -192,12 +213,15 @@ export function SkillsView({
                       <span className="skill-tag" key={tag}>{tag}</span>
                     ))}
                   </span>
+                  <span className="skill-card__stats">
+                    <SkillUsageStats usage={usageByPath[model.skill.filePath]} compact />
+                  </span>
                   <span className="skill-card__meta">
                     <span>{model.skill.source}</span>
                     <span>{model.skill.slashCommand}</span>
                     {model.skill.disableModelInvocation ? <span>slash only</span> : null}
                   </span>
-                </button>
+                </div>
               ))
             )}
           </div>
@@ -226,6 +250,7 @@ export function SkillsView({
                     </div>
                   </div>
                   <p className="skill-detail__description">{selectedSkill.description}</p>
+                  <SkillUsageStats usage={usageByPath[selectedSkill.filePath]} />
                   {selectedSkillModel ? (
                     <div className="skill-detail__tags">
                       {selectedSkillModel.tags.map((tag) => (
@@ -269,7 +294,9 @@ export function SkillsView({
                     </button>
                   </div>
                 </>
-              ) : null}
+              ) : (
+                <SkillDetailPlaceholder title="Select a skill" body="Pick a card to inspect usage, tags, command details, and enablement." />
+              )}
             </div>
           </div>
         </div>
@@ -285,16 +312,21 @@ function toSkillViewModel(skill: RuntimeSkillRecord): SkillViewModel {
     category,
     categoryLabel: categoryLabel(category),
     tags: inferSkillTags(skill, category),
-    summary: summarizeSkill(skill.description),
+    summary: summarizeSkill(skill.summary ?? skill.description),
   };
 }
 
 function inferSkillCategory(skill: RuntimeSkillRecord): SkillCategory {
+  const explicitCategory = normalizeSkillCategory(skill.category);
+  if (explicitCategory) return explicitCategory;
   const text = skillSearchText(skill);
   if (isCloudflareSkill(skill, text)) return "cloudflare";
   if (isPiDevelopmentSkill(skill, text)) return "pi";
   if (/\b(design|interface|frontend|ui|css|html|react|vue)\b/.test(text)) return "frontend";
-  if (/\b(debug|diagnos|bug|fix|regression|performance|verify|test)\b/.test(text)) return "debug";
+  if (/\b(verify|verification|test|playwright|e2e|proof)\b/.test(text)) return "verification";
+  if (/\b(plan|planning|spec|brainstorm|prd|task contract)\b/.test(text)) return "planning";
+  if (/\b(review|critique|standards|pull request|pr)\b/.test(text)) return "review";
+  if (/\b(debug|diagnos|bug|fix|regression|performance)\b/.test(text)) return "debug";
   if (/\b(doc|docs|readme|article|content|adr|writing|write)\b/.test(text)) return "docs";
   if (/\b(git|commit|branch|pr|pull request|merge)\b/.test(text)) return "git";
   if (/\b(code|codebase|architecture|refactor|api|sdk|implementation)\b/.test(text)) return "code";
@@ -304,14 +336,17 @@ function inferSkillCategory(skill: RuntimeSkillRecord): SkillCategory {
 
 function inferSkillTags(skill: RuntimeSkillRecord, category: SkillCategory): readonly string[] {
   const text = skillSearchText(skill);
-  const tags = new Set<string>([categoryLabel(category), sourceTag(skill.source)]);
+  const tags = new Set<string>([categoryLabel(category), sourceTag(skill.source), ...(skill.tags ?? [])]);
   if (skill.disableModelInvocation) tags.add("Slash only");
   if (isCloudflareSkill(skill, text)) tags.add("Cloudflare");
   if (isPiDevelopmentSkill(skill, text)) tags.add("Pi dev");
   if (/\b(workers?|pages|r2|d1|kv|durable objects?|wrangler|vectorize|queues?|agents sdk)\b/.test(text)) tags.add("Edge");
   if (/\b(plan|workflow|handoff|process|session)\b/.test(text)) tags.add("Workflow");
   if (/\b(design|interface|frontend|ui|visual|react|css)\b/.test(text)) tags.add("Frontend");
-  if (/\b(debug|diagnos|bug|regression|verify|test)\b/.test(text)) tags.add("Debug");
+  if (/\b(verify|verification|test|playwright|e2e|proof)\b/.test(text)) tags.add("Verify");
+  if (/\b(plan|planning|spec|brainstorm|prd|task contract)\b/.test(text)) tags.add("Plan");
+  if (/\b(review|critique|standards|pull request|pr)\b/.test(text)) tags.add("Review");
+  if (/\b(debug|diagnos|bug|regression)\b/.test(text)) tags.add("Debug");
   if (/\b(doc|docs|readme|article|content|writing)\b/.test(text)) tags.add("Docs");
   if (/\b(git|commit|branch|pr|merge)\b/.test(text)) tags.add("Git");
   if (/\b(code|codebase|architecture|refactor|api|sdk)\b/.test(text)) tags.add("Code");
@@ -319,7 +354,7 @@ function inferSkillTags(skill: RuntimeSkillRecord, category: SkillCategory): rea
 }
 
 function skillSearchText(skill: RuntimeSkillRecord): string {
-  return `${skill.name} ${skill.description} ${skill.slashCommand} ${skill.filePath} ${skill.baseDir}`.toLowerCase();
+  return `${skill.name} ${skill.description} ${skill.summary ?? ""} ${skill.category ?? ""} ${(skill.tags ?? []).join(" ")} ${skill.slashCommand} ${skill.filePath} ${skill.baseDir}`.toLowerCase();
 }
 
 function isCloudflareSkill(skill: RuntimeSkillRecord, text: string): boolean {
@@ -334,6 +369,14 @@ function sourceTag(source: string): string {
   return source === "project" ? "Project" : source;
 }
 
+function normalizeSkillCategory(value: string | undefined): SkillCategory | undefined {
+  if (!value) {
+    return undefined;
+  }
+  const normalized = value.trim().toLowerCase().replace(/\s+/g, "-");
+  return CATEGORY_FILTERS.some((filter) => filter.id === normalized) ? normalized as SkillCategory : undefined;
+}
+
 function categoryLabel(category: SkillCategory): string {
   return CATEGORY_FILTERS.find((filter) => filter.id === category)?.label ?? "Workflow";
 }
@@ -342,6 +385,28 @@ function summarizeSkill(description: string): string {
   const normalized = description.trim().replace(/\s+/g, " ");
   const firstSentence = normalized.match(/^[^.!?]+[.!?]?/)?.[0]?.trim() ?? normalized;
   return firstSentence.length > 190 ? `${firstSentence.slice(0, 187).trimEnd()}...` : firstSentence;
+}
+
+function SkillUsageStats({ usage, compact = false }: { readonly usage?: SkillUsageRecord; readonly compact?: boolean }) {
+  const count = usage?.count ?? 0;
+  const countLabel = count === 1 ? "Used 1 time" : `Used ${count} times`;
+  const lastUsedLabel = usage?.lastUsedAt ? `Last used ${formatRelativeTime(usage.lastUsedAt)}` : "Never used";
+  return (
+    <span className={compact ? "skill-usage skill-usage--compact" : "skill-usage"}>
+      <span>{countLabel}</span>
+      <span>{lastUsedLabel}</span>
+    </span>
+  );
+}
+
+function SkillDetailPlaceholder({ title, body }: { readonly title: string; readonly body: string }) {
+  return (
+    <div className="skill-detail__placeholder">
+      <div className="skill-detail__placeholder-icon"><SkillIcon /></div>
+      <h2>{title}</h2>
+      <p>{body}</p>
+    </div>
+  );
 }
 
 function SkillsEmptyState({ message }: { readonly message: string }) {

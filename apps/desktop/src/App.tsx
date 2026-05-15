@@ -19,6 +19,7 @@ import { ComposerPanel } from "./composer-panel";
 import { DiffPanel, type DiffPanelFileRequest } from "./diff-panel";
 import { buildModelOptions } from "./composer-commands";
 import { parseTreeComposerCommand } from "./composer-commands";
+import { findSubmittedSkillPath, loadSkillUsage, recordSkillUse, saveSkillUsage, type SkillUsageByPath } from "./skill-usage";
 import {
   desktopCommands,
   getDesktopCommandFromShortcut,
@@ -157,6 +158,7 @@ function formatRunningLabel(startedAt: string | undefined): string {
 export default function App() {
   const [snapshot, setSnapshot, selectedTranscript] = useDesktopAppState();
   const [composerDraft, setComposerDraft] = useState("");
+  const [skillUsageByPath, setSkillUsageByPath] = useState<SkillUsageByPath>(() => loadSkillUsage());
   const [settingsSection, setSettingsSection] = useState<SettingsSection>("general");
   const [settingsWorkspaceId, setSettingsWorkspaceId] = useState("");
   const [skillsWorkspaceId, setSkillsWorkspaceId] = useState("");
@@ -504,6 +506,17 @@ export default function App() {
   const focusComposer = () => {
     window.requestAnimationFrame(() => {
       composerRef.current?.focus();
+    });
+  };
+  const recordSubmittedSkillUsage = (text: string, runtime: RuntimeSnapshot | undefined) => {
+    const skillPath = findSubmittedSkillPath(text, runtime);
+    if (!skillPath) {
+      return;
+    }
+    setSkillUsageByPath((current) => {
+      const next = recordSkillUse(current, skillPath);
+      saveSkillUsage(next);
+      return next;
     });
   };
   const toggleTerminal = useCallback(() => {
@@ -1521,6 +1534,7 @@ export default function App() {
     }
 
     const previousDraft = composerDraft;
+    recordSubmittedSkillUsage(previousDraft, selectedRuntime);
     setComposerDraft("");
     setAttachmentsClearedOnSubmit(true);
     void (async () => {
@@ -1881,6 +1895,7 @@ export default function App() {
       setNewThreadComposerError("/tree is only available inside an existing session.");
       return;
     }
+    recordSubmittedSkillUsage(newThreadPrompt, newThreadRuntime);
     const modelConfig = {
       prompt: newThreadPrompt,
       attachments: newThreadAttachments,
@@ -2105,6 +2120,7 @@ export default function App() {
         <SkillsView
           workspace={skillsWorkspace}
           runtime={skillsRuntime}
+          usageByPath={skillUsageByPath}
           onOpenSkillFolder={handleOpenSkillFolder}
           onRefresh={() => {
             if (!skillsWorkspace) {

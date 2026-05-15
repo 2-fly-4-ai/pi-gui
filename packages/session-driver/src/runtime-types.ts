@@ -44,6 +44,9 @@ export interface RuntimeSkillRecord {
   readonly enabled: boolean;
   readonly disableModelInvocation: boolean;
   readonly slashCommand: string;
+  readonly summary?: string;
+  readonly category?: string;
+  readonly tags?: readonly string[];
 }
 
 export interface RuntimeExtensionDiagnostic {

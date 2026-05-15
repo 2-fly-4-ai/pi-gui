@@ -77,9 +77,14 @@ Use this skill when building Pi extensions, commands, tools, packages, or SDK in
     await expect(window.getByTestId("skills-list")).toContainText("Demo Skill");
     await expect(window.getByTestId("skills-list")).not.toContainText("Frontend Design");
     await window.getByRole("button", { name: "Clear skill search" }).click();
+    const listWidthBeforeSelection = (await window.getByTestId("skills-list").boundingBox())?.width ?? 0;
     await window.getByRole("button", { name: /Demo Skill/i }).click();
+    const listWidthAfterSelection = (await window.getByTestId("skills-list").boundingBox())?.width ?? 0;
+    expect(Math.abs(listWidthAfterSelection - listWidthBeforeSelection)).toBeLessThan(1);
     await expect(window.locator(".skill-detail")).toContainText("/skill:demo-skill");
     await expect(window.locator(".skill-detail")).toContainText("Workflow");
+    await expect(window.locator(".skill-detail")).toContainText("Used 0 times");
+    await expect(window.locator(".skill-detail")).toContainText("Never used");
     await expect(window.locator(".skill-detail")).toContainText("Use");
 
     await window.getByRole("button", { name: "Try skill", exact: true }).click();

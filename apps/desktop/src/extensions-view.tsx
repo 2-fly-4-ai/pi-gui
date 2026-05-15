@@ -120,11 +120,17 @@ export function ExtensionsView({
               <ExtensionsEmptyState message="Refresh runtime discovery to load workspace and user-level extensions." />
             ) : (
               filteredGroups.map((group) => (
-                <button
+                <div
                   className={`skill-card ${selectedGroup?.id === group.id ? "skill-card--active" : ""}`}
                   key={group.id}
-                  type="button"
+                  role="button"
+                  tabIndex={0}
                   onClick={() => {
+                    setSelectedGroupId(selectedGroupId === group.id ? undefined : group.id);
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key !== "Enter" && event.key !== " ") return;
+                    event.preventDefault();
                     setSelectedGroupId(selectedGroupId === group.id ? undefined : group.id);
                   }}
                 >
@@ -144,7 +150,7 @@ export function ExtensionsView({
                     {group.tools.length > 0 ? <span>{group.tools.length} tools</span> : null}
                     {group.diagnostics.length > 0 ? <span>{group.diagnostics.length} issues</span> : null}
                   </span>
-                </button>
+                </div>
               ))
             )}
           </div>
@@ -196,7 +202,9 @@ export function ExtensionsView({
                   <ExtensionContributionSection title="Shortcuts" items={selectedGroup.shortcuts} emptyLabel="No shortcuts contributed." />
                   <ExtensionDiagnostics diagnostics={selectedGroup.diagnostics} />
                 </>
-              ) : null}
+              ) : (
+                <ExtensionDetailPlaceholder />
+              )}
             </div>
           </div>
         </div>
@@ -405,6 +413,15 @@ function ExtensionCompatibilitySection({
           ))}
         </div>
       </div>
+    </div>
+  );
+}
+
+function ExtensionDetailPlaceholder() {
+  return (
+    <div className="skill-detail__placeholder">
+      <h2>Select an extension</h2>
+      <p>Pick a card to inspect entrypoints, commands, tools, diagnostics, and enablement.</p>
     </div>
   );
 }

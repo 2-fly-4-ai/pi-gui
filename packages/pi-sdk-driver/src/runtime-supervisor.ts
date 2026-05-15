@@ -514,10 +514,10 @@ export class RuntimeSupervisor implements RuntimeResourceDriver {
       resolvedSkills.map(async (resource) => {
         const filePath = resolve(resource.path);
         const loaded = loadedSkills.get(filePath);
-        const fallback = loaded ? undefined : await readSkillMetadata(filePath);
-        const name = loaded?.name ?? fallback?.name ?? inferSkillName(filePath);
-        const description = loaded?.description ?? fallback?.description ?? "No description provided.";
-        const disableModelInvocation = loaded?.disableModelInvocation ?? fallback?.disableModelInvocation ?? false;
+        const metadata = await readSkillMetadata(filePath);
+        const name = loaded?.name ?? metadata?.name ?? inferSkillName(filePath);
+        const description = loaded?.description ?? metadata?.description ?? "No description provided.";
+        const disableModelInvocation = loaded?.disableModelInvocation ?? metadata?.disableModelInvocation ?? false;
 
         return {
           name,
@@ -528,6 +528,9 @@ export class RuntimeSupervisor implements RuntimeResourceDriver {
           enabled: resource.enabled,
           disableModelInvocation,
           slashCommand: skillSlashCommand(name),
+          ...(metadata?.summary ? { summary: metadata.summary } : {}),
+          ...(metadata?.category ? { category: metadata.category } : {}),
+          ...(metadata?.tags ? { tags: metadata.tags } : {}),
         } satisfies RuntimeSkillRecord;
       }),
     );
@@ -704,32 +707,81 @@ function stripPrefix(pattern: string): string {
 
 async function readSkillMetadata(
   filePath: string,
-): Promise<{ name?: string; description?: string; disableModelInvocation?: boolean } | undefined> {
+): Promise<{
+  name?: string;
+  description?: string;
+  disableModelInvocation?: boolean;
+  summary?: string;
+  category?: string;
+  tags?: readonly string[];
+} | undefined> {
   try {
     const raw = await readFile(filePath, "utf8");
     const frontmatter = parseFrontmatter(raw) as
       | {
-          name?: string;
-          description?: string;
-          "disable-model-invocation"?: boolean;
+          name?: unknown;
+          description?: unknown;
+          "disable-model-invocation"?: unknown;
+          metadata?: unknown;
         }
       | undefined;
     const body = stripFrontmatter(raw);
-    const metadata: { name?: string; description?: string; disableModelInvocation?: boolean } = {};
-    if (frontmatter?.name) {
-      metadata.name = frontmatter.name;
+    const metadata: {
+      name?: string;
+      description?: string;
+      disableModelInvocation?: boolean;
+      summary?: string;
+      category?: string;
+      tags?: readonly string[];
+    } = {};
+    if (typeof frontmatter?.name === "string" && frontmatter.name.trim()) {
+      metadata.name = frontmatter.name.trim();
     }
-    const description = frontmatter?.description ?? firstNonEmptyLine(body);
+    const description = typeof frontmatter?.description === "string" && frontmatter.description.trim()
+      ? frontmatter.description.trim()
+      : firstNonEmptyLine(body);
     if (description) {
       metadata.description = description;
     }
-    if (frontmatter?.["disable-model-invocation"] !== undefined) {
+    if (typeof frontmatter?.["disable-model-invocation"] === "boolean") {
       metadata.disableModelInvocation = frontmatter["disable-model-invocation"];
+    }
+
+    const custom = normalizeSkillMetadata(frontmatter?.metadata);
+    if (custom.summary) {
+      metadata.summary = custom.summary;
+    }
+    if (custom.category) {
+      metadata.category = custom.category;
+    }
+    if (custom.tags.length > 0) {
+      metadata.tags = custom.tags;
     }
     return metadata;
   } catch {
     return undefined;
   }
+}
+
+function normalizeSkillMetadata(value: unknown): { summary?: string; category?: string; tags: readonly string[] } {
+  if (!value || typeof value !== "object") {
+    return { tags: [] };
+  }
+
+  const record = value as { readonly summary?: unknown; readonly category?: unknown; readonly tags?: unknown };
+  const summary = typeof record.summary === "string" && record.summary.trim() ? record.summary.trim() : undefined;
+  const category = typeof record.category === "string" && record.category.trim() ? record.category.trim() : undefined;
+  const rawTags = Array.isArray(record.tags) ? record.tags : typeof record.tags === "string" ? record.tags.split(",") : [];
+  const tags = [...new Set(rawTags
+    .filter((tag): tag is string => typeof tag === "string")
+    .map((tag) => tag.trim())
+    .filter(Boolean))];
+
+  return {
+    ...(summary ? { summary } : {}),
+    ...(category ? { category } : {}),
+    tags,
+  };
 }
 
 function inferSkillName(filePath: string): string {
