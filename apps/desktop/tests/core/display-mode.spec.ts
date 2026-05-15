@@ -1,6 +1,8 @@
 import { basename } from "node:path";
 import { expect, test } from "@playwright/test";
+import type { SessionDriverEvent } from "@pi-gui/session-driver";
 import {
+  emitTestSessionEvent,
   launchDesktop,
   makeUserDataDir,
   makeWorkspace,
@@ -38,10 +40,27 @@ test("opens Display Mode from the sidebar and renders thread command-center tile
         return workspace?.sessions.some((session) => session.title === title) ?? false;
       }) ?? false, { targetPath: workspacePath, title: "Display mode seed thread" });
     }).toBe(true);
-    await seedTranscriptMessages(harness, window, {
+    const seeded = await seedTranscriptMessages(harness, window, {
       count: 1,
       textFactory: () => "Display mode assistant tile transcript",
     });
+    const toolTimestamp = new Date().toISOString();
+    await emitTestSessionEvent(harness, {
+      type: "toolStarted",
+      sessionRef: seeded.sessionRef,
+      timestamp: toolTimestamp,
+      toolName: "Read",
+      callId: "display-mode-read-1",
+      input: { path: "README.md" },
+    } satisfies Extract<SessionDriverEvent, { type: "toolStarted" }>);
+    await emitTestSessionEvent(harness, {
+      type: "toolFinished",
+      sessionRef: seeded.sessionRef,
+      timestamp: toolTimestamp,
+      callId: "display-mode-read-1",
+      success: true,
+      output: "README contents visible in display tile",
+    } satisfies Extract<SessionDriverEvent, { type: "toolFinished" }>);
 
     const nav = window.locator(".sidebar__nav");
     await expect(nav.getByRole("button", { name: "Threads" })).toBeVisible();
@@ -53,7 +72,15 @@ test("opens Display Mode from the sidebar and renders thread command-center tile
     await expect(window.locator(".display-mode-drawer")).toContainText("Preview");
     await expect(window.getByTestId("display-mode-thread-tile").first()).toContainText(basename(workspacePath));
     await expect(window.getByTestId("display-mode-thread-tile").first()).toContainText("Display mode seed thread");
-    await expect(window.getByTestId("display-mode-thread-tile").first()).toContainText("Display mode assistant tile transcript");
+    const firstTile = window.getByTestId("display-mode-thread-tile").first();
+    await expect(firstTile).toContainText("Display mode assistant tile transcript");
+    const displayToolHeader = firstTile.locator(".timeline-tool__header").first();
+    await expect(displayToolHeader).toHaveAttribute("aria-expanded", "false");
+    await displayToolHeader.click();
+    await expect(displayToolHeader).toHaveAttribute("aria-expanded", "true");
+    await expect(firstTile.locator(".timeline-tool__pre")).toContainText("README contents visible in display tile");
+    await displayToolHeader.click();
+    await expect(displayToolHeader).toHaveAttribute("aria-expanded", "false");
     await expect(window.getByPlaceholder("Reply to Display mode seed thread…")).toBeVisible();
 
     const sidebarToggle = window.getByTestId("sidebar-toggle");
@@ -65,7 +92,6 @@ test("opens Display Mode from the sidebar and renders thread command-center tile
     await expect.poll(async () => window.evaluate(() => window.piApp?.getState().then((state) => state.sidebarCollapsed) ?? true)).toBe(false);
     await expect(window.locator(".sidebar")).toBeVisible();
 
-    const firstTile = window.getByTestId("display-mode-thread-tile").first();
     await firstTile.locator("textarea").fill("/");
     await expect(firstTile.getByTestId("slash-menu")).toContainText("Host Actions");
     await expect.poll(async () => firstTile.evaluate((tile) => {

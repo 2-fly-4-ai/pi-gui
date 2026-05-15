@@ -709,6 +709,7 @@ function DisplayModeTile({
   const transcriptRef = useRef<HTMLDivElement | null>(null);
   const terminalWrapperRef = useRef<HTMLDivElement | null>(null);
   const [terminalHeight, setTerminalHeight] = useState(200);
+  const [expandedToolCallIds, setExpandedToolCallIds] = useState<Set<string>>(() => new Set());
   const tone = statusTone(record.session);
   const recentMessages = record.transcript.slice(-8);
   const focusComposer = () => {
@@ -733,6 +734,34 @@ function DisplayModeTile({
     allowTreeCommand: false,
     immediateCommandMode: "prefill",
   });
+
+  useEffect(() => {
+    const availableToolCallIds = new Set(
+      record.transcript.filter((item) => item.kind === "tool").map((item) => item.callId),
+    );
+    setExpandedToolCallIds((current) => {
+      if (current.size === 0) return current;
+      const next = new Set<string>();
+      for (const callId of current) {
+        if (availableToolCallIds.has(callId)) {
+          next.add(callId);
+        }
+      }
+      return next.size === current.size ? current : next;
+    });
+  }, [record.transcript]);
+
+  const toggleToolCall = useCallback((callId: string) => {
+    setExpandedToolCallIds((current) => {
+      const next = new Set(current);
+      if (next.has(callId)) {
+        next.delete(callId);
+      } else {
+        next.add(callId);
+      }
+      return next;
+    });
+  }, []);
 
   // Measure terminal wrapper height so TerminalPanel fills it exactly
   useEffect(() => {
@@ -895,7 +924,14 @@ function DisplayModeTile({
       {!compact && (
         <div className="display-mode-tile__transcript" ref={transcriptRef}>
           {recentMessages.length > 0 ? (
-            recentMessages.map((item) => <TimelineItem item={item} key={item.id} />)
+            recentMessages.map((item) => (
+              <TimelineItem
+                item={item}
+                key={item.id}
+                expandedToolCallIds={expandedToolCallIds}
+                onToggleToolCall={toggleToolCall}
+              />
+            ))
           ) : (
             <div className="display-mode-tile__empty-state">No messages yet</div>
           )}
