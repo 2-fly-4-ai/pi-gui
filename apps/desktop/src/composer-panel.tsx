@@ -27,7 +27,6 @@ interface ComposerPanelProps {
   readonly composerDraft: string;
   readonly setComposerDraft: Dispatch<SetStateAction<string>>;
   readonly composerRef: RefObject<HTMLTextAreaElement | null>;
-  readonly runningLabel: string;
   readonly attachments: readonly ComposerAttachment[];
   readonly queuedMessages: readonly QueuedComposerMessage[];
   readonly editingQueuedMessageId?: string;
@@ -79,7 +78,6 @@ export function ComposerPanel({
   composerDraft,
   setComposerDraft,
   composerRef,
-  runningLabel,
   attachments,
   queuedMessages,
   editingQueuedMessageId,
@@ -212,11 +210,6 @@ export function ComposerPanel({
                 onAttach={onPickAttachments}
                 onSubmit={onSubmit}
               />
-              <div className="composer__footer-meta">
-                {selectedSession.status === "running"
-                  ? `${runningLabel} · Enter to queue · Cmd+Enter to steer`
-                  : "Enter to send · Shift+Enter for newline"}
-              </div>
             </div>
           )}
         />
