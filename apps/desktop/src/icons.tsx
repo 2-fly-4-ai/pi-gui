@@ -352,3 +352,33 @@ export function VSCodeIcon() {
     </Icon>
   );
 }
+
+export function GitHubIcon() {
+  return (
+    <Icon>
+      <path
+        d="M10 3.2a6.8 6.8 0 0 0-2.15 13.25c.34.07.46-.15.46-.33v-1.3c-1.87.4-2.27-.8-2.27-.8-.3-.78-.75-.98-.75-.98-.61-.42.05-.41.05-.41.68.05 1.03.7 1.03.7.6 1.02 1.58.73 1.97.56.06-.44.24-.73.43-.9-1.5-.17-3.08-.75-3.08-3.35 0-.74.26-1.35.7-1.83-.08-.17-.3-.87.06-1.8 0 0 .57-.18 1.87.7a6.48 6.48 0 0 1 3.4 0c1.3-.88 1.87-.7 1.87-.7.36.93.14 1.63.07 1.8.43.48.69 1.1.69 1.83 0 2.6-1.58 3.17-3.08 3.34.24.21.46.62.46 1.25v1.86c0 .18.12.4.47.33A6.8 6.8 0 0 0 10 3.2Z"
+        fill="currentColor"
+      />
+    </Icon>
+  );
+}
+
+export function GitCommitIcon() {
+  return (
+    <Icon>
+      <circle cx="10" cy="10" r="2.6" stroke="currentColor" strokeWidth="1.35" />
+      <path d="M3.9 10h3.2M12.9 10h3.2" stroke="currentColor" strokeLinecap="round" strokeWidth="1.35" />
+    </Icon>
+  );
+}
+
+export function GitPushIcon() {
+  return (
+    <Icon>
+      <path d="M10 15V5.2" stroke="currentColor" strokeLinecap="round" strokeWidth="1.45" />
+      <path d="M6.5 8.7 10 5.2l3.5 3.5" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.45" />
+      <path d="M5 15.2h10" stroke="currentColor" strokeLinecap="round" strokeWidth="1.35" />
+    </Icon>
+  );
+}

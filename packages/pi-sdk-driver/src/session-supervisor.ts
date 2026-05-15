@@ -55,6 +55,7 @@ import {
   createWorkspaceRef,
   deriveSessionConfig,
   deriveWorkspaceTitle,
+  mergeSessionConfigWithToolAccess,
   determineRunOutcome,
   extractPreview,
   forcePersistSession,
@@ -308,6 +309,9 @@ export class SessionSupervisor {
     if (options?.initialThinkingLevel) {
       createOptions.thinkingLevel = options.initialThinkingLevel as NonNullable<CreateAgentSessionOptions["thinkingLevel"]>;
     }
+    if (options?.initialToolAccess && options.initialToolAccess.mode !== "full") {
+      createOptions.tools = [...options.initialToolAccess.tools];
+    }
 
     const runtime = await this.createAgentSessionRuntimeImpl(createOptions);
     const session = runtime.session;
@@ -315,7 +319,10 @@ export class SessionSupervisor {
     const record = this.createRecord(workspace, runtime, options?.title ?? deriveWorkspaceTitle(workspace));
     session.sessionManager.appendSessionInfo(record.title);
     forcePersistSession(session.sessionManager);
-    record.config = deriveSessionConfig(session.sessionManager);
+    record.config = mergeSessionConfigWithToolAccess(
+      options?.initialToolAccess ? { toolAccess: options.initialToolAccess } : undefined,
+      session.sessionManager.buildSessionContext(),
+    );
     const sessionFile = record.sessionFile ?? session.sessionManager.getSessionFile();
     if (sessionFile) {
       record.sessionFile = sessionFile;
@@ -369,7 +376,7 @@ export class SessionSupervisor {
     record.runningRunId = runId ?? record.runningRunId;
     record.status = isQueuedMessage || isExtensionCommand ? record.status : "running";
     record.updatedAt = nowIso();
-    record.config = deriveSessionConfig(session.sessionManager);
+    record.config = mergeSessionConfigWithToolAccess(record.config, session.sessionManager.buildSessionContext());
     record.preview = truncate(input.text);
     if (isQueuedMessage) {
       record.queuedMessages = [
@@ -487,7 +494,7 @@ export class SessionSupervisor {
     this.applySessionThinkingLevel(session, previousThinkingLevel);
     await this.emitModelSelection(session, model, previousModel);
     forcePersistSession(session.sessionManager);
-    record.config = deriveSessionConfig(session.sessionManager);
+    record.config = mergeSessionConfigWithToolAccess(record.config, session.sessionManager.buildSessionContext());
     await this.persistSnapshot(record);
     await this.emit(record, sessionUpdatedEvent(record));
   }
@@ -497,7 +504,7 @@ export class SessionSupervisor {
     const session = this.requireSession(record);
     this.applySessionThinkingLevel(session, thinkingLevel);
     forcePersistSession(session.sessionManager);
-    record.config = deriveSessionConfig(session.sessionManager);
+    record.config = mergeSessionConfigWithToolAccess(record.config, session.sessionManager.buildSessionContext());
     await this.persistSnapshot(record);
     await this.emit(record, sessionUpdatedEvent(record));
   }
@@ -526,7 +533,7 @@ export class SessionSupervisor {
     await record.session.compact(customInstructions);
     record.runningRunId = undefined;
     record.status = "idle";
-    record.config = deriveSessionConfig(record.session.sessionManager);
+    record.config = mergeSessionConfigWithToolAccess(record.config, record.session.sessionManager.buildSessionContext());
     record.preview = extractPreview(record.session.messages) ?? record.preview;
     await this.persistSnapshot(record);
     await this.emit(record, sessionUpdatedEvent(record));
@@ -1247,7 +1254,7 @@ export class SessionSupervisor {
     record.title = session.sessionName?.trim() || record.title || deriveWorkspaceTitle(record.workspace);
     record.status = session.isStreaming ? "running" : "idle";
     record.runningRunId = session.isStreaming ? record.runningRunId ?? crypto.randomUUID() : undefined;
-    record.config = deriveSessionConfig(session.sessionManager);
+    record.config = mergeSessionConfigWithToolAccess(record.config, session.sessionManager.buildSessionContext());
     record.preview =
       session.messages.length > 0 ? extractPreview(session.messages[session.messages.length - 1]) : undefined;
     record.sessionCommands = this.collectSessionCommands(session);

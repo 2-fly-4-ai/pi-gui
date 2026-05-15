@@ -16,6 +16,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { DesktopAppStore } from "./app-store";
 import { getChangedFiles, getFileDiff, stageFile } from "./app-store-diff";
+import { commitChanges, createPullRequest, pushBranch, stageAllFiles } from "./git-actions";
 import { buildAgentPreReviewPrompt, parseAgentPreReviewComments } from "./review/agent-pre-review";
 import { createReviewSnapshot } from "./review/review-snapshot";
 import type { CreateReviewSnapshotOptions, ReviewSnapshot } from "../src/review/review-types";
@@ -737,6 +738,34 @@ app.whenReady().then(async () => {
       throw new Error(`Unknown workspace: ${workspaceId}`);
     }
     await stageFile(workspacePath, filePath);
+  });
+  ipcMain.handle(desktopIpc.stageAllFiles, async (_event, workspaceId: string) => {
+    const workspacePath = store.getWorkspacePath(workspaceId);
+    if (!workspacePath) {
+      throw new Error(`Unknown workspace: ${workspaceId}`);
+    }
+    await stageAllFiles(workspacePath);
+  });
+  ipcMain.handle(desktopIpc.commitChanges, async (_event, workspaceId: string, message: string) => {
+    const workspacePath = store.getWorkspacePath(workspaceId);
+    if (!workspacePath) {
+      throw new Error(`Unknown workspace: ${workspaceId}`);
+    }
+    await commitChanges(workspacePath, message);
+  });
+  ipcMain.handle(desktopIpc.pushBranch, async (_event, workspaceId: string, options?: { readonly setUpstream?: boolean }) => {
+    const workspacePath = store.getWorkspacePath(workspaceId);
+    if (!workspacePath) {
+      throw new Error(`Unknown workspace: ${workspaceId}`);
+    }
+    await pushBranch(workspacePath, options);
+  });
+  ipcMain.handle(desktopIpc.createPullRequest, async (_event, workspaceId: string, input: { readonly title: string; readonly body: string; readonly base: string }) => {
+    const workspacePath = store.getWorkspacePath(workspaceId);
+    if (!workspacePath) {
+      throw new Error(`Unknown workspace: ${workspaceId}`);
+    }
+    return createPullRequest(workspacePath, input);
   });
   ipcMain.handle(desktopIpc.createReviewSnapshot, async (_event, workspaceId: string, options?: CreateReviewSnapshotOptions) => {
     const workspacePath = store.getWorkspacePath(workspaceId);

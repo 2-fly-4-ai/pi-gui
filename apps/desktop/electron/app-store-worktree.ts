@@ -97,11 +97,13 @@ export async function startThread(store: AppStoreInternals, input: StartThreadIn
         ? { provider: input.provider, modelId: input.modelId }
         : createOptions.initialModel;
     const initialThinkingLevel = input.thinkingLevel ?? createOptions.initialThinkingLevel;
+    const initialToolAccess = input.toolAccess ?? createOptions.initialToolAccess;
     const session = await store.driver.createSession(targetWorkspace, {
       ...createOptions,
       title: NEW_THREAD_PLACEHOLDER_TITLE,
       ...(initialModel ? { initialModel } : {}),
       ...(initialThinkingLevel ? { initialThinkingLevel } : {}),
+      ...(initialToolAccess ? { initialToolAccess } : {}),
     });
     const key = sessionKey(session.ref);
     store.sessionState.transcriptCache.set(key, []);

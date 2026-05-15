@@ -1,4 +1,4 @@
-import type { HostUiRequest, SessionConfig } from "@pi-gui/session-driver";
+import type { HostUiRequest, SessionConfig, ToolAccessSelection } from "@pi-gui/session-driver";
 import type { ModelSettingsSnapshot, RuntimeCommandRecord, RuntimeSnapshot } from "@pi-gui/session-driver/runtime-types";
 export type SessionStatus = "idle" | "running" | "failed";
 export type { SessionRole, TranscriptMessage } from "./timeline-types";
@@ -151,6 +151,7 @@ export type StartThreadInput = {
   readonly provider?: string;
   readonly modelId?: string;
   readonly thinkingLevel?: string;
+  readonly toolAccess?: ToolAccessSelection;
 };
 
 export interface RemoveWorktreeInput {

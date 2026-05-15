@@ -152,8 +152,14 @@ export function ComposerSurface({
       onDragOver={handleDragOver}
     >
       {isDragActive ? (
-        <div className="composer__drop-indicator" data-testid="composer-drop-indicator">
-          Drop images or files to attach
+        <div className="composer__drop-overlay" data-testid="composer-drop-indicator">
+          <div className="composer__drop-card">
+            <span aria-hidden="true" className="composer__drop-icon">
+              <FileIcon />
+            </span>
+            <strong>Drop files to attach</strong>
+            <span>Images, screenshots, and project files are added to this message.</span>
+          </div>
         </div>
       ) : null}
       {activeSlashCommand ? (

@@ -60,10 +60,20 @@ export function deriveSessionConfig(sessionManager: {
     model: { provider: string; modelId: string } | null;
   };
 }): SessionConfig | undefined {
-  const context = sessionManager.buildSessionContext();
+  return mergeSessionConfigWithToolAccess(undefined, sessionManager.buildSessionContext());
+}
+
+export function mergeSessionConfigWithToolAccess(
+  existing: SessionConfig | undefined,
+  context: {
+    thinkingLevel: string;
+    model: { provider: string; modelId: string } | null;
+  },
+): SessionConfig | undefined {
   const config: SessionConfig = {
     ...(context.model ? { provider: context.model.provider, modelId: context.model.modelId } : {}),
     ...(context.thinkingLevel && context.thinkingLevel !== "off" ? { thinkingLevel: context.thinkingLevel } : {}),
+    ...(existing?.toolAccess ? { toolAccess: existing.toolAccess } : {}),
   };
   return Object.keys(config).length > 0 ? config : undefined;
 }

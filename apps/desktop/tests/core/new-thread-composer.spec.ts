@@ -41,7 +41,7 @@ test("new thread reuses composer behaviors for slash commands, image previews, a
     await expect(composer).toBeFocused();
     await expect(composer).toHaveAttribute("placeholder", "Ask pi anything, use / for commands and skills");
 
-    const modelBadge = window.locator(".new-thread__hint .model-selector__badge").first();
+    const modelBadge = window.locator(".new-thread .model-selector__badge").first();
     await expect(modelBadge).toBeVisible();
     await expect(window.locator('.new-thread input[type="file"]')).toBeHidden();
 
@@ -104,7 +104,7 @@ test("new thread hides the onboarding notice after picking a thread model", asyn
 
     const notice = window.getByTestId("model-onboarding-notice");
     const startButton = window.getByRole("button", { name: "Start thread" });
-    const modelBadge = window.locator(".new-thread__hint .model-selector__badge").first();
+    const modelBadge = window.locator(".new-thread .model-selector__badge").first();
 
     await window.getByTestId("new-thread-composer").fill("start a thread without a default");
     await expect(notice).toContainText("No default model set");
@@ -112,12 +112,12 @@ test("new thread hides the onboarding notice after picking a thread model", asyn
     await expect(startButton).toBeDisabled();
 
     await modelBadge.click();
-    const dropdown = window.locator(".new-thread__hint .model-selector__dropdown").first();
+    const dropdown = window.locator(".new-thread .model-selector__dropdown").first();
     await expect(dropdown).toContainText("GPT-5");
     await expect(dropdown).toContainText("GPT-4o");
     await dropdown.getByRole("button", { name: /GPT-5/ }).click();
 
-    await expect(modelBadge).toHaveText("openai:gpt-5");
+    await expect(modelBadge).toHaveText("GPT-5");
     await expect(startButton).toBeEnabled();
     await expect(notice).toHaveCount(0);
 
@@ -162,14 +162,14 @@ test("new thread routes disabled-model recovery to settings models", async () =>
     }, { workspaceId: selectedWorkspaceId });
 
     await window.getByTestId("new-thread-composer").fill("try to start with all models disabled");
-    const modelBadge = window.locator(".new-thread__hint .model-selector__badge").first();
+    const modelBadge = window.locator(".new-thread .model-selector__badge").first();
     await expect(modelBadge).toBeVisible();
     await expect(modelBadge).toHaveText("No models available");
     await expect(window.getByTestId("model-onboarding-notice")).toContainText("Settings > Models");
     await expect(window.getByRole("button", { name: "Start thread" })).toBeDisabled();
 
     await modelBadge.click();
-    const dropdown = window.locator(".new-thread__hint .model-selector__dropdown").first();
+    const dropdown = window.locator(".new-thread .model-selector__dropdown").first();
     await expect(dropdown).toBeVisible();
     await expect(dropdown).toContainText("No models available");
     await expect(dropdown).not.toContainText("Open Settings > Models");
@@ -205,7 +205,7 @@ test("refreshing after a provider becomes available auto-enables that provider's
 
     const composer = window.getByTestId("new-thread-composer");
     const notice = window.getByTestId("model-onboarding-notice");
-    const modelBadge = window.locator(".new-thread__hint .model-selector__badge").first();
+    const modelBadge = window.locator(".new-thread .model-selector__badge").first();
     await composer.fill("connect provider");
     await expect(modelBadge).toHaveText("No models available");
     await expect(notice).toContainText("Open Settings > Providers");
@@ -230,7 +230,7 @@ test("refreshing after a provider becomes available auto-enables that provider's
     await expect(notice).toContainText("No default model set");
 
     await modelBadge.click();
-    const dropdown = window.locator(".new-thread__hint .model-selector__dropdown").first();
+    const dropdown = window.locator(".new-thread .model-selector__dropdown").first();
     await expect(dropdown).toContainText("GPT-5");
     await expect(dropdown).toContainText("GPT-4o");
   } finally {
@@ -274,6 +274,42 @@ test("settings do not show stale enabled-model pills when no providers are conne
     await expect(enabledModelsSection).not.toContainText("openai/gpt-5");
     await expect(enabledModelsSection).not.toContainText("openai/gpt-4o");
     await expect(enabledModelsSection.locator(".settings-disclosure__summary")).toContainText("0");
+  } finally {
+    await harness.close();
+  }
+});
+
+test("new thread persists selected tool access", async () => {
+  test.setTimeout(60_000);
+  const userDataDir = await makeUserDataDir();
+  const agentDir = join(userDataDir, "agent");
+  const workspacePath = await makeWorkspace("new-thread-tool-access-workspace");
+  await seedAgentDir(agentDir);
+  const harness = await launchDesktop(userDataDir, {
+    agentDir,
+    initialWorkspaces: [workspacePath],
+    testMode: "background",
+  });
+
+  try {
+    const window = await harness.firstWindow();
+    await openNewThread(window);
+
+    await window.getByTestId("tool-access-trigger").click();
+    const popover = window.getByTestId("tool-access-popover");
+    await expect(popover).toBeVisible();
+    await popover.getByRole("button", { name: /No tools/ }).click();
+    await expect(window.getByTestId("tool-access-trigger")).toContainText("No tools");
+
+    await window.getByTestId("new-thread-composer").fill("start without tools");
+    await window.getByRole("button", { name: "Start thread" }).click();
+    await expect(window.getByTestId("composer")).toBeVisible({ timeout: 15_000 });
+
+    const state = await getDesktopState(window);
+    const selectedWorkspace = state.workspaces.find((workspace) => workspace.id === state.selectedWorkspaceId);
+    const selectedSession = selectedWorkspace?.sessions.find((session) => session.id === state.selectedSessionId);
+    expect(selectedSession?.config?.toolAccess?.mode).toBe("no-tools");
+    expect(selectedSession?.config?.toolAccess?.tools).toEqual([]);
   } finally {
     await harness.close();
   }

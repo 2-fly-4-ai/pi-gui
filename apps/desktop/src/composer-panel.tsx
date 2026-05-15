@@ -1,7 +1,7 @@
 import { type ClipboardEvent, type Dispatch, type DragEvent, type KeyboardEvent, type ReactNode, type RefObject, type SetStateAction } from "react";
 import type { RuntimeSnapshot } from "@pi-gui/session-driver/runtime-types";
+import type { ToolAccessSelection } from "@pi-gui/session-driver";
 import type { ComposerAttachment, QueuedComposerMessage, SessionRecord } from "./desktop-state";
-import { ArrowUpIcon, PlusIcon, StopSquareIcon } from "./icons";
 import type {
   ComposerSlashCommand,
   ComposerSlashCommandSection,
@@ -13,6 +13,10 @@ import { ModelOnboardingNoticeBanner } from "./model-onboarding-notice";
 import type { ModelOnboardingState, ModelOnboardingSettingsSection } from "./model-onboarding";
 import { ModelSelector } from "./model-selector";
 import type { ExtensionDockModel } from "./extension-session-ui";
+import { ComposerControlBar } from "./composer-control-bar";
+import { ReasoningSelector } from "./reasoning-selector";
+import { ToolAccessSelector } from "./tool-access-selector";
+import { ContextWindowIndicator } from "./context-window-indicator";
 
 interface ComposerPanelProps {
   readonly selectedSession: SessionRecord;
@@ -52,6 +56,8 @@ interface ComposerPanelProps {
   readonly onSetModel: (provider: string, modelId: string) => void;
   readonly onSetThinking: (level: string) => void;
   readonly modelOnboarding: ModelOnboardingState;
+  readonly toolAccess: ToolAccessSelection;
+  readonly onSetToolAccess: (selection: ToolAccessSelection) => void;
   readonly onOpenModelSettings: (section: ModelOnboardingSettingsSection) => void;
   readonly onSubmit: () => void;
   readonly showMentionMenu: boolean;
@@ -102,6 +108,8 @@ export function ComposerPanel({
   onSetModel,
   onSetThinking,
   modelOnboarding,
+  toolAccess,
+  onSetToolAccess,
   onOpenModelSettings,
   onSubmit,
   showMentionMenu,
@@ -162,17 +170,14 @@ export function ComposerPanel({
           onToggleExtensionDock={onToggleExtensionDock}
           footer={(
             <div className="composer__footer">
-              <div className="composer__footer-row">
-                <div className="composer__hint">
-                  {selectedSession.status === "running"
-                    ? `${runningLabel} · Enter to queue · Cmd+Enter to steer`
-                    : "Enter to send · Shift+Enter for newline"}
-                  {" · "}
+              <ComposerControlBar
+                modelControl={(
                   <ModelSelector
                     runtime={runtime}
                     provider={provider}
                     modelId={modelId}
-                    thinkingLevel={thinkingLevel}
+                    thinkingLevel={undefined}
+                    variant="composer"
                     disabled={selectedSession.status === "running"}
                     unselectedModelLabel={modelOnboarding.unselectedModelLabel}
                     emptyModelTitle={modelOnboarding.emptyModelTitle}
@@ -180,30 +185,37 @@ export function ComposerPanel({
                     onSetModel={onSetModel}
                     onSetThinking={onSetThinking}
                   />
-                </div>
-                <div className="composer__actions">
-                  <button
-                    aria-label="Attach files"
-                    className="icon-button composer__attach"
-                    type="button"
-                    onClick={onPickAttachments}
-                  >
-                    <PlusIcon />
-                  </button>
-                  <button
-                    aria-label={primaryActionIsStop ? "Stop run" : "Send message"}
-                    className="button button--primary button--cta-icon"
-                    data-testid="send"
-                    type="button"
-                    disabled={
-                      !primaryActionIsStop &&
-                      ((!composerDraft.trim() && attachments.length === 0) || modelOnboarding.requiresModelSelection)
-                    }
-                    onClick={onSubmit}
-                  >
-                    {primaryActionIsStop ? <StopSquareIcon /> : <ArrowUpIcon />}
-                  </button>
-                </div>
+                )}
+                reasoningControl={(
+                  <ReasoningSelector
+                    thinkingLevel={thinkingLevel}
+                    disabled={selectedSession.status === "running"}
+                    onSetThinking={onSetThinking}
+                  />
+                )}
+                modeControl={<button className="composer-control" type="button">Build</button>}
+                supervisionControl={(
+                  <ToolAccessSelector
+                    disabled
+                    disabledReason="Tool access is fixed when a thread starts. Choose it on a new thread."
+                    value={toolAccess}
+                    onChange={onSetToolAccess}
+                  />
+                )}
+                contextControl={<ContextWindowIndicator compactionEnabled />}
+                sendLabel={primaryActionIsStop ? "Stop run" : "Send message"}
+                sendDisabled={
+                  !primaryActionIsStop &&
+                  ((!composerDraft.trim() && attachments.length === 0) || modelOnboarding.requiresModelSelection)
+                }
+                stopMode={primaryActionIsStop}
+                onAttach={onPickAttachments}
+                onSubmit={onSubmit}
+              />
+              <div className="composer__footer-meta">
+                {selectedSession.status === "running"
+                  ? `${runningLabel} · Enter to queue · Cmd+Enter to steer`
+                  : "Enter to send · Shift+Enter for newline"}
               </div>
             </div>
           )}

@@ -7,6 +7,7 @@ import {
   THINKING_OPTIONS,
   type ComposerModelOption,
 } from "./composer-commands";
+import { ChevronDownIcon, ModelIcon } from "./icons";
 
 interface ModelSelectorProps {
   readonly runtime: RuntimeSnapshot | undefined;
@@ -20,6 +21,7 @@ interface ModelSelectorProps {
   readonly emptyModelLabel?: string;
   readonly emptyModelTitle?: string;
   readonly emptyModelDescription?: string;
+  readonly variant?: "inline" | "composer";
   readonly onSetModel: (provider: string, modelId: string) => void;
   readonly onSetThinking: (level: string) => void;
 }
@@ -38,6 +40,7 @@ export function ModelSelector({
   emptyModelLabel = "Choose model",
   emptyModelTitle = MODEL_OPTIONS_EMPTY_TITLE,
   emptyModelDescription = MODEL_OPTIONS_EMPTY_DESCRIPTION,
+  variant = "inline",
   onSetModel,
   onSetThinking,
 }: ModelSelectorProps) {
@@ -47,7 +50,13 @@ export function ModelSelector({
   const groupedModels = useMemo(() => groupByProvider(buildModelOptions(runtime)), [runtime]);
   const hasModelControl = Boolean(provider && modelId) || groupedModels.length > 0;
   const shouldRenderModelControl = hasModelControl || showEmptyModelControl;
-  const modelBadgeLabel = provider && modelId ? `${provider}:${modelId}` : groupedModels.length > 0 ? unselectedModelLabel : emptyModelLabel;
+  const modelBadgeLabel = provider && modelId
+    ? variant === "composer"
+      ? formatComposerModelLabel(provider, modelId, `${provider}:${modelId}`)
+      : `${provider}:${modelId}`
+    : groupedModels.length > 0
+      ? unselectedModelLabel
+      : emptyModelLabel;
 
   useEffect(() => {
     if (open === "none") return undefined;
@@ -81,12 +90,14 @@ export function ModelSelector({
       {shouldRenderModelControl ? (
         <span className="model-selector__anchor">
           <button
-            className="model-selector__badge"
+            className={`model-selector__badge${variant === "composer" ? " model-selector__badge--composer" : ""}`}
             type="button"
             disabled={disabled}
             onClick={() => setOpen(open === "model" ? "none" : "model")}
           >
-            {modelBadgeLabel}
+            {variant === "composer" ? <span className="model-selector__badge-icon"><ModelIcon /></span> : null}
+            <span>{modelBadgeLabel}</span>
+            {variant === "composer" ? <ChevronDownIcon /> : null}
           </button>
           {open === "model" ? (
             <div
@@ -127,12 +138,13 @@ export function ModelSelector({
       {thinkingLevel ? (
         <span className="model-selector__anchor">
           <button
-            className="model-selector__badge"
+            className={`model-selector__badge${variant === "composer" ? " model-selector__badge--composer" : ""}`}
             type="button"
             disabled={disabled}
             onClick={() => setOpen(open === "thinking" ? "none" : "thinking")}
           >
-            {thinkingLevel}
+            <span>{thinkingLevel}</span>
+            {variant === "composer" ? <ChevronDownIcon /> : null}
           </button>
           {open === "thinking" ? (
             <div
@@ -183,4 +195,18 @@ function groupByProvider(options: readonly ComposerModelOption[]): readonly Mode
     }
   }
   return Array.from(groups.entries()).map(([provider, items]) => ({ provider, items }));
+}
+
+function formatComposerModelLabel(provider: string | undefined, modelId: string | undefined, fallback: string): string {
+  if (!provider || !modelId) {
+    return fallback;
+  }
+
+  if (/^gpt-/i.test(modelId)) {
+    return modelId.replace(/^gpt-/i, "GPT-");
+  }
+  if (/^claude-/i.test(modelId)) {
+    return modelId.replace(/^claude-/i, "Claude ");
+  }
+  return fallback;
 }

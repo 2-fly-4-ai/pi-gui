@@ -1,3 +1,5 @@
+import type { ToolAccessSelection } from "./tool-access.js";
+
 export type WorkspaceId = string;
 export type SessionId = string;
 export type RunId = string;
@@ -61,6 +63,7 @@ export interface SessionConfig {
   readonly provider?: string;
   readonly modelId?: string;
   readonly thinkingLevel?: string;
+  readonly toolAccess?: ToolAccessSelection;
 }
 
 export type SessionTreeNodeKind =
@@ -119,6 +122,7 @@ export interface CreateSessionOptions {
   readonly title?: string;
   readonly initialModel?: SessionModelSelection;
   readonly initialThinkingLevel?: string;
+  readonly initialToolAccess?: ToolAccessSelection;
 }
 
 export interface SessionEventBase {

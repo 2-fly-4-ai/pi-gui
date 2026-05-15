@@ -1,4 +1,5 @@
 import { useEffect, useRef, type ClipboardEvent, type DragEvent, type KeyboardEvent, type ReactNode, type RefObject } from "react";
+import type { ToolAccessSelection } from "@pi-gui/session-driver";
 import type { RuntimeSnapshot } from "@pi-gui/session-driver/runtime-types";
 import type { ComposerAttachment, NewThreadEnvironment, WorkspaceRecord } from "./desktop-state";
 import { ArrowUpIcon, PiLogoMark, PlusIcon } from "./icons";
@@ -13,6 +14,10 @@ import { ComposerSurface } from "./composer-surface";
 import { ModelOnboardingNoticeBanner } from "./model-onboarding-notice";
 import type { ModelOnboardingState, ModelOnboardingSettingsSection } from "./model-onboarding";
 import { ModelSelector } from "./model-selector";
+import { ComposerControlBar } from "./composer-control-bar";
+import { ReasoningSelector } from "./reasoning-selector";
+import { ToolAccessSelector } from "./tool-access-selector";
+import { ContextWindowIndicator } from "./context-window-indicator";
 
 interface NewThreadViewProps {
   readonly workspaces: readonly WorkspaceRecord[];
@@ -26,6 +31,7 @@ interface NewThreadViewProps {
   readonly modelId: string | undefined;
   readonly thinkingLevel: string | undefined;
   readonly modelOnboarding: ModelOnboardingState;
+  readonly toolAccess: ToolAccessSelection;
   readonly composerRef: RefObject<HTMLTextAreaElement | null>;
   readonly activeSlashCommand?: ComposerSlashCommand;
   readonly activeSlashCommandMeta?: string;
@@ -44,6 +50,7 @@ interface NewThreadViewProps {
   readonly onSelectWorkspace: (workspaceId: string) => void;
   readonly onSetModel: (provider: string, modelId: string) => void;
   readonly onSetThinking: (level: string) => void;
+  readonly onSetToolAccess: (selection: ToolAccessSelection) => void;
   readonly onOpenModelSettings: (section: ModelOnboardingSettingsSection) => void;
   readonly onComposerKeyDown: (event: KeyboardEvent<HTMLTextAreaElement>) => void;
   readonly onComposerPaste: (event: ClipboardEvent<HTMLDivElement>) => void;
@@ -70,6 +77,7 @@ export function NewThreadView({
   modelId,
   thinkingLevel,
   modelOnboarding,
+  toolAccess,
   composerRef,
   activeSlashCommand,
   activeSlashCommandMeta,
@@ -88,6 +96,7 @@ export function NewThreadView({
   onSelectWorkspace,
   onSetModel,
   onSetThinking,
+  onSetToolAccess,
   onOpenModelSettings,
   onComposerKeyDown,
   onComposerPaste,
@@ -203,11 +212,13 @@ export function NewThreadView({
                   modelId={modelId}
                   thinkingLevel={thinkingLevel}
                   modelOnboarding={modelOnboarding}
+                  toolAccess={toolAccess}
                   hasContent={Boolean(prompt.trim() || attachments.length > 0)}
                   fileInputRef={fileInputRef}
                   onSelectEnvironment={onSelectEnvironment}
                   onSetModel={onSetModel}
                   onSetThinking={onSetThinking}
+                  onSetToolAccess={onSetToolAccess}
                   onAddAttachments={onAddAttachments}
                   onSubmit={onSubmit}
                 />
@@ -228,11 +239,13 @@ interface NewThreadComposerFooterProps {
   readonly modelId: string | undefined;
   readonly thinkingLevel: string | undefined;
   readonly modelOnboarding: ModelOnboardingState;
+  readonly toolAccess: ToolAccessSelection;
   readonly hasContent: boolean;
   readonly fileInputRef: RefObject<HTMLInputElement | null>;
   readonly onSelectEnvironment: (environment: NewThreadEnvironment) => void;
   readonly onSetModel: (provider: string, modelId: string) => void;
   readonly onSetThinking: (level: string) => void;
+  readonly onSetToolAccess: (selection: ToolAccessSelection) => void;
   readonly onAddAttachments: (files: File[]) => void;
   readonly onSubmit: () => void;
 }
@@ -244,19 +257,39 @@ function NewThreadComposerFooter({
   modelId,
   thinkingLevel,
   modelOnboarding,
+  toolAccess,
   hasContent,
   fileInputRef,
   onSelectEnvironment,
   onSetModel,
   onSetThinking,
+  onSetToolAccess,
   onAddAttachments,
   onSubmit,
 }: NewThreadComposerFooterProps) {
   return (
     <>
       <div className="composer__footer">
-        <div className="composer__footer-row">
-          <div className="composer__hint new-thread__hint">
+        <ComposerControlBar
+          modelControl={(
+            <ModelSelector
+              runtime={runtime}
+              provider={provider}
+              modelId={modelId}
+              thinkingLevel={undefined}
+              dropdownPlacement="below"
+              showEmptyModelControl
+              variant="composer"
+              unselectedModelLabel={modelOnboarding.unselectedModelLabel}
+              emptyModelLabel={MODEL_OPTIONS_EMPTY_TITLE}
+              emptyModelTitle={modelOnboarding.emptyModelTitle}
+              emptyModelDescription={modelOnboarding.emptyModelDescription}
+              onSetModel={onSetModel}
+              onSetThinking={onSetThinking}
+            />
+          )}
+          reasoningControl={<ReasoningSelector thinkingLevel={thinkingLevel} onSetThinking={onSetThinking} />}
+          modeControl={(
             <div className="new-thread__environment-group">
               <button
                 className={`new-thread__environment ${environment === "local" ? "new-thread__environment--active" : ""}`}
@@ -273,56 +306,28 @@ function NewThreadComposerFooter({
                 <span>Worktree</span>
               </button>
             </div>
-            <span className="new-thread__hint-separator">·</span>
-            <ModelSelector
-              runtime={runtime}
-              provider={provider}
-              modelId={modelId}
-              thinkingLevel={thinkingLevel}
-              dropdownPlacement="below"
-              showEmptyModelControl
-              unselectedModelLabel={modelOnboarding.unselectedModelLabel}
-              emptyModelLabel={MODEL_OPTIONS_EMPTY_TITLE}
-              emptyModelTitle={modelOnboarding.emptyModelTitle}
-              emptyModelDescription={modelOnboarding.emptyModelDescription}
-              onSetModel={onSetModel}
-              onSetThinking={onSetThinking}
-            />
-          </div>
-
-          <div className="composer__actions">
-            <input
-              ref={fileInputRef}
-              hidden
-              type="file"
-              multiple
-              onChange={(event) => {
-                const files = Array.from(event.target.files ?? []);
-                if (files.length > 0) {
-                  onAddAttachments(files);
-                }
-                event.currentTarget.value = "";
-              }}
-            />
-            <button
-              aria-label="Attach files"
-              className="icon-button composer__attach"
-              type="button"
-              onClick={() => fileInputRef.current?.click()}
-            >
-              <PlusIcon />
-            </button>
-            <button
-              aria-label="Start thread"
-              className="button button--primary button--cta-icon"
-              type="button"
-              disabled={!hasContent || modelOnboarding.requiresModelSelection}
-              onClick={onSubmit}
-            >
-              <ArrowUpIcon />
-            </button>
-          </div>
-        </div>
+          )}
+          supervisionControl={<ToolAccessSelector value={toolAccess} onChange={onSetToolAccess} />}
+          contextControl={<ContextWindowIndicator compactionEnabled />}
+          sendLabel="Start thread"
+          sendDisabled={!hasContent || modelOnboarding.requiresModelSelection}
+          stopMode={false}
+          onAttach={() => fileInputRef.current?.click()}
+          onSubmit={onSubmit}
+        />
+        <input
+          ref={fileInputRef}
+          hidden
+          type="file"
+          multiple
+          onChange={(event) => {
+            const files = Array.from(event.target.files ?? []);
+            if (files.length > 0) {
+              onAddAttachments(files);
+            }
+            event.currentTarget.value = "";
+          }}
+        />
       </div>
     </>
   );

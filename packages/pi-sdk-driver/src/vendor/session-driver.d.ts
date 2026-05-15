@@ -68,10 +68,19 @@ declare module "@pi-gui/session-driver" {
 
   export type SessionAttachment = SessionImageAttachment | SessionFileAttachment;
 
+  export type BuiltInToolId = "read" | "bash" | "edit" | "write" | "grep" | "find" | "ls";
+  export type ToolAccessMode = "full" | "read-only" | "no-tools" | "custom";
+
+  export interface ToolAccessSelection {
+    readonly mode: ToolAccessMode;
+    readonly tools: readonly BuiltInToolId[];
+  }
+
   export interface SessionConfig {
     readonly provider?: string;
     readonly modelId?: string;
     readonly thinkingLevel?: string;
+    readonly toolAccess?: ToolAccessSelection;
   }
 
   export interface SessionModelSelection {
@@ -89,6 +98,7 @@ declare module "@pi-gui/session-driver" {
     readonly title?: string;
     readonly initialModel?: SessionModelSelection;
     readonly initialThinkingLevel?: string;
+    readonly initialToolAccess?: ToolAccessSelection;
   }
 
   export interface SessionErrorInfo {

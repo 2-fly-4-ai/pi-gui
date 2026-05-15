@@ -112,6 +112,10 @@ export const desktopIpc = {
   getChangedFiles: "pi-gui:get-changed-files",
   getFileDiff: "pi-gui:get-file-diff",
   stageFile: "pi-gui:stage-file",
+  stageAllFiles: "pi-gui:stage-all-files",
+  commitChanges: "pi-gui:commit-changes",
+  pushBranch: "pi-gui:push-branch",
+  createPullRequest: "pi-gui:create-pull-request",
   createReviewSnapshot: "pi-gui:create-review-snapshot",
   runReviewAgentPreReview: "pi-gui:run-review-agent-pre-review",
   getThemeMode: "pi-gui:get-theme-mode",
@@ -345,6 +349,13 @@ export interface PiDesktopApi {
   getChangedFiles(workspaceId: string): Promise<{ path: string; status: "added" | "modified" | "deleted" | "untracked"; staged: boolean }[]>;
   getFileDiff(workspaceId: string, filePath: string): Promise<string>;
   stageFile(workspaceId: string, filePath: string): Promise<void>;
+  stageAllFiles(workspaceId: string): Promise<void>;
+  commitChanges(workspaceId: string, message: string): Promise<void>;
+  pushBranch(workspaceId: string, options?: { readonly setUpstream?: boolean }): Promise<void>;
+  createPullRequest(
+    workspaceId: string,
+    input: { readonly title: string; readonly body: string; readonly base: string },
+  ): Promise<{ readonly url?: string }>;
   createReviewSnapshot(workspaceId: string, options?: CreateReviewSnapshotOptions): Promise<ReviewSnapshot>;
   runReviewAgentPreReview(workspaceId: string, sessionId: string, snapshot: ReviewSnapshot): Promise<readonly import("./review/review-types").ReviewDraftComment[]>;
   toggleWindowMaximize(): Promise<void>;

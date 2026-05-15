@@ -270,6 +270,14 @@ contextBridge.exposeInMainWorld("piApp", {
     ipcRenderer.invoke(desktopIpc.getFileDiff, workspaceId, filePath) as Promise<string>,
   stageFile: (workspaceId: string, filePath: string) =>
     ipcRenderer.invoke(desktopIpc.stageFile, workspaceId, filePath) as Promise<void>,
+  stageAllFiles: (workspaceId: string) =>
+    ipcRenderer.invoke(desktopIpc.stageAllFiles, workspaceId) as Promise<void>,
+  commitChanges: (workspaceId: string, message: string) =>
+    ipcRenderer.invoke(desktopIpc.commitChanges, workspaceId, message) as Promise<void>,
+  pushBranch: (workspaceId: string, options?: { readonly setUpstream?: boolean }) =>
+    ipcRenderer.invoke(desktopIpc.pushBranch, workspaceId, options) as Promise<void>,
+  createPullRequest: (workspaceId: string, input: { readonly title: string; readonly body: string; readonly base: string }) =>
+    ipcRenderer.invoke(desktopIpc.createPullRequest, workspaceId, input) as Promise<{ readonly url?: string }>,
   createReviewSnapshot: (workspaceId: string, options?: CreateReviewSnapshotOptions) =>
     ipcRenderer.invoke(desktopIpc.createReviewSnapshot, workspaceId, options) as Promise<ReviewSnapshot>,
   runReviewAgentPreReview: (workspaceId: string, sessionId: string, snapshot: ReviewSnapshot) =>

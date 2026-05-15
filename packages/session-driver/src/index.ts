@@ -40,6 +40,16 @@ export type {
   WorkspaceRef,
 } from "./types.js";
 export type {
+  BuiltInToolId,
+  ToolAccessMode,
+  ToolAccessSelection,
+} from "./tool-access.js";
+export {
+  BUILT_IN_TOOLS,
+  DEFAULT_TOOL_ACCESS,
+  READ_ONLY_TOOLS,
+} from "./tool-access.js";
+export type {
   RuntimeAuthType,
   RuntimeCommandRecord,
   RuntimeCommandSource,

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type Dispatch, type DragEvent, type KeyboardEvent, type SetStateAction } from "react";
+import { DEFAULT_TOOL_ACCESS, type ToolAccessSelection } from "@pi-gui/session-driver";
 import type { SessionTreeSnapshot } from "@pi-gui/session-driver/types";
 import type { RuntimeSnapshot } from "@pi-gui/session-driver/runtime-types";
 import {
@@ -40,6 +41,8 @@ import { ReviewSurface } from "./review/ReviewSurface";
 import type { ReviewSnapshot } from "./review/review-types";
 import { VSCodePanel } from "./vscode-panel";
 import { VSCodeIcon } from "./icons";
+import { GitQuickActions } from "./git-quick-actions";
+import { CommitDialog, CreatePrDialog, PushDialog, isSetUpstreamError, type ChangedFileSummaryItem } from "./git-action-dialogs";
 import { createProjectAction, loadProjectActions, saveProjectActions, type ProjectActionRecord, type ProjectActionsByWorkspace } from "./project-actions";
 import { buildThreadGroups } from "./thread-groups";
 import { Sidebar } from "./sidebar";
@@ -60,6 +63,7 @@ import {
   extractFilesFromDataTransfer,
   readComposerAttachmentsFromFiles,
 } from "./composer-attachments";
+import { normalizeToolAccess } from "./tool-access";
 
 function useDesktopAppState() {
   const [snapshot, setSnapshot] = useState<DesktopAppState | null>(null);
@@ -176,6 +180,7 @@ export default function App() {
   const [newThreadProvider, setNewThreadProvider] = useState<string | undefined>();
   const [newThreadModelId, setNewThreadModelId] = useState<string | undefined>();
   const [newThreadThinkingLevel, setNewThreadThinkingLevel] = useState<string | undefined>();
+  const [newThreadToolAccess, setNewThreadToolAccess] = useState<ToolAccessSelection>(DEFAULT_TOOL_ACCESS);
   const [newThreadComposerError, setNewThreadComposerError] = useState<string | undefined>();
   const [themeMode, setThemeMode] = useState<"system" | "light" | "dark">("system");
   const [notificationPermissionStatus, setNotificationPermissionStatus] =
@@ -227,6 +232,10 @@ export default function App() {
   const [takeoverTerminalSessionKeys, setTakeoverTerminalSessionKeys] = useState<ReadonlySet<string>>(() => new Set());
   const [activeTerminalSessionKey, setActiveTerminalSessionKey] = useState("");
   const [terminalHeight, setTerminalHeight] = useState(340);
+  const [gitDialog, setGitDialog] = useState<"commit" | "push" | "pr" | null>(null);
+  const [gitChangedFiles, setGitChangedFiles] = useState<readonly ChangedFileSummaryItem[]>([]);
+  const [gitActionPending, setGitActionPending] = useState(false);
+  const [gitActionError, setGitActionError] = useState<string | undefined>();
   const [diffFileRequest, setDiffFileRequest] = useState<DiffPanelFileRequest | null>(null);
   const [timelinePaneMountVersion, setTimelinePaneMountVersion] = useState(0);
   const [disableTimelineVirtualization, setDisableTimelineVirtualization] = useState(true);
@@ -397,6 +406,7 @@ export default function App() {
   const resolvedNewThreadProvider = newThreadProvider ?? (newThreadDefaultEnabled ? newThreadRuntime?.settings.defaultProvider : undefined);
   const resolvedNewThreadModelId = newThreadModelId ?? (newThreadDefaultEnabled ? newThreadRuntime?.settings.defaultModelId : undefined);
   const resolvedNewThreadThinkingLevel = newThreadThinkingLevel ?? newThreadRuntime?.settings.defaultThinkingLevel;
+  const resolvedNewThreadToolAccess = normalizeToolAccess(newThreadToolAccess);
   const selectedSessionModelOnboarding = deriveModelOnboardingState(selectedModelRuntime, {
     provider: resolvedSessionProvider,
     modelId: resolvedSessionModelId,
@@ -411,6 +421,7 @@ export default function App() {
   const editingQueuedMessageId = snapshot?.editingQueuedMessageId;
   const runningLabel = useRunningLabel(selectedSession?.status === "running" ? selectedSession.runningSince : undefined);
   const selectedSessionKey = selectedWorkspace && selectedSession ? `${selectedWorkspace.id}:${selectedSession.id}` : "";
+  const resolvedSessionToolAccess = normalizeToolAccess(selectedSession?.config?.toolAccess);
   const isTerminalVisibleForSelectedThread = Boolean(selectedSessionKey) && openTerminalSessionKeys.has(selectedSessionKey);
   const openTerminalTargets = useMemo(() => {
     if (!snapshot) return [];
@@ -571,6 +582,91 @@ export default function App() {
       }
     });
   };
+
+  const loadGitChangedFiles = useCallback(async () => {
+    if (!api || !selectedWorkspace) {
+      return [] as const;
+    }
+    const files = await api.getChangedFiles(selectedWorkspace.id);
+    setGitChangedFiles(files);
+    return files;
+  }, [api, selectedWorkspace]);
+
+  const openGitDialog = useCallback((dialog: "commit" | "push" | "pr") => {
+    setGitActionError(undefined);
+    setGitActionPending(false);
+    setGitDialog(dialog);
+    if (dialog === "commit") {
+      void loadGitChangedFiles().catch((error) => {
+        setGitActionError(error instanceof Error ? error.message : String(error));
+      });
+    }
+  }, [loadGitChangedFiles]);
+
+  const closeGitDialog = useCallback(() => {
+    setGitDialog(null);
+    setGitActionError(undefined);
+    setGitActionPending(false);
+  }, []);
+
+  const handleCommitChanges = useCallback(async (input: { readonly message: string; readonly stageAll: boolean }) => {
+    if (!api || !selectedWorkspace) {
+      return;
+    }
+    setGitActionPending(true);
+    setGitActionError(undefined);
+    try {
+      if (input.stageAll) {
+        await api.stageAllFiles(selectedWorkspace.id);
+      }
+      await api.commitChanges(selectedWorkspace.id, input.message.trim());
+      await updateSnapshot(api, setSnapshot, () => api.syncCurrentWorkspace());
+      closeGitDialog();
+    } catch (error) {
+      setGitActionError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setGitActionPending(false);
+    }
+  }, [api, closeGitDialog, selectedWorkspace]);
+
+  const handlePushBranch = useCallback(async (options?: { readonly setUpstream?: boolean }) => {
+    if (!api || !selectedWorkspace) {
+      return;
+    }
+    setGitActionPending(true);
+    setGitActionError(undefined);
+    try {
+      await api.pushBranch(selectedWorkspace.id, options);
+      closeGitDialog();
+    } catch (error) {
+      setGitActionError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setGitActionPending(false);
+    }
+  }, [api, closeGitDialog, selectedWorkspace]);
+
+  const handleCreatePullRequest = useCallback(async (input: { readonly title: string; readonly body: string; readonly base: string; readonly openInBrowser: boolean }) => {
+    if (!api || !selectedWorkspace) {
+      return;
+    }
+    setGitActionPending(true);
+    setGitActionError(undefined);
+    try {
+      const result = await api.createPullRequest(selectedWorkspace.id, {
+        title: input.title,
+        body: input.body,
+        base: input.base,
+      });
+      if (input.openInBrowser && result.url) {
+        await api.openExternal(result.url);
+      }
+      closeGitDialog();
+    } catch (error) {
+      setGitActionError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setGitActionPending(false);
+    }
+  }, [api, closeGitDialog, selectedWorkspace]);
 
   const toggleTerminal = useCallback(() => {
     if (!selectedSessionKey) {
@@ -1103,6 +1199,7 @@ export default function App() {
     setNewThreadProvider(undefined);
     setNewThreadModelId(undefined);
     setNewThreadThinkingLevel(undefined);
+    setNewThreadToolAccess(DEFAULT_TOOL_ACCESS);
     setNewThreadComposerError(undefined);
   };
 
@@ -2023,6 +2120,7 @@ export default function App() {
       provider: resolvedNewThreadProvider,
       modelId: resolvedNewThreadModelId,
       thinkingLevel: resolvedNewThreadThinkingLevel,
+      toolAccess: resolvedNewThreadToolAccess,
     };
     const input: StartThreadInput = {
       rootWorkspaceId: newThreadRootWorkspaceId,
@@ -2038,6 +2136,7 @@ export default function App() {
       setNewThreadProvider(undefined);
       setNewThreadModelId(undefined);
       setNewThreadThinkingLevel(undefined);
+      setNewThreadToolAccess(DEFAULT_TOOL_ACCESS);
       setNewThreadEnvironment("local");
     });
   };
@@ -2394,6 +2493,7 @@ export default function App() {
               modelId={resolvedNewThreadModelId}
               thinkingLevel={resolvedNewThreadThinkingLevel}
               modelOnboarding={newThreadModelOnboarding}
+              toolAccess={resolvedNewThreadToolAccess}
               composerRef={newThreadComposerRef}
               activeSlashCommand={newThreadSlashMenu.activeSlashFlow?.command}
               activeSlashCommandMeta={newThreadSlashMenu.activeSlashFlow?.command?.description}
@@ -2412,6 +2512,7 @@ export default function App() {
               onSelectWorkspace={handleSelectNewThreadWorkspace}
               onSetModel={(provider, modelId) => { setNewThreadProvider(provider); setNewThreadModelId(modelId); }}
               onSetThinking={setNewThreadThinkingLevel}
+              onSetToolAccess={setNewThreadToolAccess}
               onOpenModelSettings={(section) => openSettings(newThreadWorkspace?.id, section)}
               onComposerKeyDown={handleNewThreadComposerKeyDown}
               onComposerPaste={handleNewThreadComposerPaste}
@@ -2451,6 +2552,11 @@ export default function App() {
                   <div className="chat-header__row">
                     <h1 className="chat-header__title">{displayedSessionTitle}</h1>
                     <div className="chat-header__actions">
+                      <GitQuickActions
+                        onCommit={() => openGitDialog("commit")}
+                        onPush={() => openGitDialog("push")}
+                        onCreatePr={() => openGitDialog("pr")}
+                      />
                       <button
                         aria-label="Open VS Code for thread"
                         className={`icon-button chat-header__vscode${vsCodeOpen && vsCodeWorkspaceId === selectedWorkspace.id ? " icon-button--active" : ""}`}
@@ -2496,6 +2602,8 @@ export default function App() {
               provider={resolvedSessionProvider}
               modelId={resolvedSessionModelId}
               thinkingLevel={resolvedSessionThinkingLevel}
+              toolAccess={resolvedSessionToolAccess}
+              onSetToolAccess={() => undefined}
               onClearSlashCommand={slashMenu.resetSlashUi}
               onComposerKeyDown={handleComposerKeyDown}
               onComposerPaste={handleComposerPaste}
@@ -2541,6 +2649,34 @@ export default function App() {
             />
             {activeExtensionDialog ? (
               <ExtensionDialog dialog={activeExtensionDialog} onRespond={handleRespondToExtensionDialog} />
+            ) : null}
+            {gitDialog === "commit" ? (
+              <CommitDialog
+                error={gitActionError}
+                files={gitChangedFiles}
+                pending={gitActionPending}
+                onClose={closeGitDialog}
+                onSubmit={handleCommitChanges}
+              />
+            ) : null}
+            {gitDialog === "push" ? (
+              <PushDialog
+                allowSetUpstream={isSetUpstreamError(gitActionError)}
+                branchName={selectedWorkspace.branchName}
+                error={gitActionError}
+                pending={gitActionPending}
+                onClose={closeGitDialog}
+                onSubmit={handlePushBranch}
+              />
+            ) : null}
+            {gitDialog === "pr" ? (
+              <CreatePrDialog
+                branchName={selectedWorkspace.branchName}
+                error={gitActionError}
+                pending={gitActionPending}
+                onClose={closeGitDialog}
+                onSubmit={handleCreatePullRequest}
+              />
             ) : null}
             {treeModalState.open ? (
               <TreeModal
