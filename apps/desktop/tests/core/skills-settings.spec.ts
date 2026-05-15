@@ -21,6 +21,33 @@ Use this skill when the user wants a short demo workflow.
 `,
     "utf8",
   );
+  await mkdir(join(workspacePath, ".agents", "skills", "frontend-design"), { recursive: true });
+  await writeFile(
+    join(workspacePath, ".agents", "skills", "frontend-design", "SKILL.md"),
+    `# Frontend Design
+
+Use this skill when the user wants to design a frontend interface.
+`,
+    "utf8",
+  );
+  await mkdir(join(workspacePath, ".agents", "skills", "cloudflare-workers"), { recursive: true });
+  await writeFile(
+    join(workspacePath, ".agents", "skills", "cloudflare-workers", "SKILL.md"),
+    `# Cloudflare Workers
+
+Use this skill when building Cloudflare Workers, KV, R2, or Wrangler projects.
+`,
+    "utf8",
+  );
+  await mkdir(join(workspacePath, ".agents", "skills", "pi-extension-authoring"), { recursive: true });
+  await writeFile(
+    join(workspacePath, ".agents", "skills", "pi-extension-authoring", "SKILL.md"),
+    `# Pi Extension Authoring
+
+Use this skill when building Pi extensions, commands, tools, packages, or SDK integrations.
+`,
+    "utf8",
+  );
 
   const harness = await launchDesktop(userDataDir, {
     initialWorkspaces: [workspacePath],
@@ -34,10 +61,28 @@ Use this skill when the user wants a short demo workflow.
     await window.getByRole("button", { name: "Skills", exact: true }).click();
     await expect(window.locator(".skills-view")).toBeVisible();
     await expect(window.getByTestId("skills-list")).toContainText("Demo Skill");
+    await expect(window.getByLabel("Search skills")).toHaveAttribute("placeholder", "Search by name, tag, source, or slash command");
+    await expect(window.locator(".skills-toolbar__meta")).toContainText("4 of 4 skills");
+    await window.getByRole("button", { name: "Frontend", exact: true }).click();
+    await expect(window.getByTestId("skills-list")).toContainText("Frontend Design");
+    await expect(window.getByTestId("skills-list")).not.toContainText("Demo Skill");
+    await window.getByRole("button", { name: "Cloudflare", exact: true }).click();
+    await expect(window.getByTestId("skills-list")).toContainText("Cloudflare Workers");
+    await expect(window.getByTestId("skills-list")).not.toContainText("Pi Extension Authoring");
+    await window.getByRole("button", { name: "Pi dev", exact: true }).click();
+    await expect(window.getByTestId("skills-list")).toContainText("Pi Extension Authoring");
+    await expect(window.getByTestId("skills-list")).not.toContainText("Cloudflare Workers");
+    await window.getByRole("button", { name: "All", exact: true }).click();
+    await window.getByLabel("Search skills").fill("demo");
+    await expect(window.getByTestId("skills-list")).toContainText("Demo Skill");
+    await expect(window.getByTestId("skills-list")).not.toContainText("Frontend Design");
+    await window.getByRole("button", { name: "Clear skill search" }).click();
     await window.getByRole("button", { name: /Demo Skill/i }).click();
     await expect(window.locator(".skill-detail")).toContainText("/skill:demo-skill");
+    await expect(window.locator(".skill-detail")).toContainText("Workflow");
+    await expect(window.locator(".skill-detail")).toContainText("Use");
 
-    await window.getByRole("button", { name: "Try", exact: true }).click();
+    await window.getByRole("button", { name: "Try skill", exact: true }).click();
     await expect(window.getByRole("button", { name: "Threads", exact: true })).toBeVisible();
     await expect(window.getByTestId("composer")).toHaveValue("/skill:demo-skill ");
 
