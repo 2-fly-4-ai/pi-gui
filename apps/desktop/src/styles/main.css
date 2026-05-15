@@ -24,12 +24,36 @@
   grid-template-columns: 1fr 400px;
 }
 
-.main--with-diff > .topbar {
+.main--with-vscode {
+  grid-template-columns: minmax(0, 1fr) minmax(420px, 42vw);
+}
+
+.main--with-diff.main--with-vscode {
+  grid-template-columns: minmax(0, 1fr) 400px minmax(420px, 36vw);
+}
+
+.main--with-diff > .topbar,
+.main--with-vscode > .topbar {
   grid-column: 1 / -1;
 }
 
-.main--with-diff > .composer {
+.main--with-diff > .composer,
+.main--with-vscode > .composer {
   grid-column: 1;
+}
+
+.main--with-diff > .diff-panel {
+  grid-column: 2;
+  grid-row: 2 / -1;
+}
+
+.main--with-vscode > .thread-vscode-panel {
+  grid-column: 2;
+  grid-row: 2 / -1;
+}
+
+.main--with-diff.main--with-vscode > .thread-vscode-panel {
+  grid-column: 3;
 }
 
 .main--with-terminal {
@@ -4290,6 +4314,15 @@ mark.thread-find-active {
 }
 
 /* VS Code panel */
+
+.thread-vscode-panel {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: #111318;
+  border-left: 1px solid #333;
+}
 
 .display-mode-vscode__resize {
   grid-column: 2;

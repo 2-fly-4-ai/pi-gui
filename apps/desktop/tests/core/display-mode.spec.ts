@@ -62,6 +62,12 @@ test("opens Display Mode from the sidebar and renders thread command-center tile
       output: "README contents visible in display tile",
     } satisfies Extract<SessionDriverEvent, { type: "toolFinished" }>);
 
+    await window.getByRole("button", { name: "Toggle VS Code panel" }).click();
+    await expect(window.getByTestId("thread-vscode-panel")).toBeVisible();
+    await expect(window.locator(".thread-vscode-panel .display-mode-vscode__webview")).toHaveAttribute("title", "VS Code", { timeout: 45_000 });
+    await window.getByRole("button", { name: "Toggle VS Code panel" }).click();
+    await expect(window.getByTestId("thread-vscode-panel")).toHaveCount(0);
+
     const nav = window.locator(".sidebar__nav");
     await expect(nav.getByRole("button", { name: "Threads" })).toBeVisible();
     await nav.getByRole("button", { name: "Display Mode" }).click();

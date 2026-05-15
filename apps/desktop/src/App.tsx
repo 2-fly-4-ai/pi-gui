@@ -35,6 +35,7 @@ import { DisplayModeView } from "./display-mode-view";
 import { NewThreadView } from "./new-thread-view";
 import { ReviewSurface } from "./review/ReviewSurface";
 import type { ReviewSnapshot } from "./review/review-types";
+import { VSCodePanel } from "./vscode-panel";
 import { buildThreadGroups } from "./thread-groups";
 import { Sidebar } from "./sidebar";
 import { SidebarToggleButton } from "./sidebar-toggle-button";
@@ -290,6 +291,15 @@ export default function App() {
 
   const selectedWorkspace = snapshot ? (getSelectedWorkspace(snapshot) ?? snapshot.workspaces[0]) : undefined;
   const selectedSession = snapshot ? (getSelectedSession(snapshot) ?? selectedWorkspace?.sessions[0]) : undefined;
+  const toggleSelectedWorkspaceVsCode = useCallback(() => {
+    if (!selectedWorkspace) return;
+    setVsCodeWorkspaceId(selectedWorkspace.id);
+    setVsCodeFolderPath(selectedWorkspace.path);
+    setVsCodeOpen((open) => {
+      const alreadyTargetingSelected = vsCodeWorkspaceId === selectedWorkspace.id && vsCodeFolderPath === selectedWorkspace.path;
+      return alreadyTargetingSelected ? !open : true;
+    });
+  }, [selectedWorkspace, vsCodeFolderPath, vsCodeWorkspaceId]);
   const {
     activeWorktrees,
     linkedWorktreeByWorkspaceId,
@@ -1348,9 +1358,11 @@ export default function App() {
   }
 
   const showTerminalTakeover = isTerminalVisible && isVisibleTerminalTakeover && Boolean(visibleTerminalTarget);
+  const showThreadVsCodePanel = snapshot.activeView === "threads" && vsCodeOpen && Boolean(vsCodeWorkspaceId && vsCodeFolderPath);
   const mainClassName = [
     "main",
     showDiffPanel ? "main--with-diff" : "",
+    showThreadVsCodePanel ? "main--with-vscode" : "",
     isTerminalVisible ? "main--with-terminal" : "",
     showTerminalTakeover ? "main--terminal-takeover" : "",
   ].filter(Boolean).join(" ");
@@ -2198,8 +2210,8 @@ export default function App() {
           onToggleDiffPanel={toggleDiffPanel}
           drawerOpen={snapshot.activeView === "display-mode" ? dmDrawerOpen : undefined}
           onToggleDrawer={snapshot.activeView === "display-mode" ? toggleDmDrawer : undefined}
-          vsCodeOpen={snapshot.activeView === "display-mode" ? vsCodeOpen : undefined}
-          onToggleVsCode={snapshot.activeView === "display-mode" ? toggleVsCode : undefined}
+          vsCodeOpen={snapshot.activeView === "threads" || snapshot.activeView === "display-mode" ? vsCodeOpen : undefined}
+          onToggleVsCode={snapshot.activeView === "threads" ? toggleSelectedWorkspaceVsCode : snapshot.activeView === "display-mode" ? toggleVsCode : undefined}
         />
 
         {showTerminalTakeover ? (
@@ -2413,6 +2425,13 @@ export default function App() {
         {terminalPanel}
           </>
         )}
+        {showThreadVsCodePanel && vsCodeWorkspaceId && vsCodeFolderPath ? (
+          <VSCodePanel
+            api={api}
+            workspaceId={vsCodeWorkspaceId}
+            folderPath={vsCodeFolderPath}
+          />
+        ) : null}
         {showDiffPanel && selectedWorkspace && selectedSession ? (
           <DiffPanel
             workspaceId={selectedWorkspace.id}
