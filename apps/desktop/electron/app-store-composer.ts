@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { sessionKey } from "@pi-gui/pi-sdk-driver";
 import type { SessionConfig, SessionQueuedMessage, SessionRef } from "@pi-gui/session-driver";
-import type { ComposerAttachment, DesktopAppState, QueuedComposerMessage, WorkspaceSessionTarget } from "../src/desktop-state";
+import type { ComposerAttachment, DesktopAppState, QueuedComposerMessage, TranscriptMessage, WorkspaceSessionTarget } from "../src/desktop-state";
 import { toSessionRef } from "./app-store-utils";
 import {
   formatSessionConfigStatus,
@@ -20,6 +20,7 @@ import {
   toTranscriptAttachments,
 } from "./app-store-utils";
 import type { AppStoreInternals } from "./app-store-internals";
+import { updateSessionRecord } from "./app-store-session-state";
 
 /* ── Public methods ─────────────────────────────────────── */
 
@@ -542,8 +543,11 @@ export async function sendMessageToSession(
     text,
     toTranscriptAttachments(attachments),
   );
+  markSessionOptimisticallyRunning(store, sessionRef);
   store.publishSelectedTranscriptFor(sessionRef);
   store.persistTranscriptCacheForSession(sessionRef);
+  store.schedulePersistUiState();
+  store.emit();
   clearActiveAssistantMessage(store.sessionState.activeAssistantMessageBySession, sessionRef);
   store.sessionState.sessionErrorsBySession.delete(key);
   store.sessionState.composerDraftsBySession.delete(key);
@@ -558,11 +562,66 @@ export async function sendMessageToSession(
     if (rollbackOptimisticMessageOnError) {
       const transcript = store.sessionState.transcriptCache.get(key) ?? [];
       store.sessionState.transcriptCache.set(key, transcript.slice(0, -1));
+      clearOptimisticRunningState(store, sessionRef);
       store.publishSelectedTranscriptFor(sessionRef);
       store.persistTranscriptCacheForSession(sessionRef);
+      store.schedulePersistUiState();
+      store.emit();
     }
     throw error;
   }
+}
+
+function markSessionOptimisticallyRunning(store: AppStoreInternals, sessionRef: SessionRef): void {
+  const key = sessionKey(sessionRef);
+  const timestamp = new Date().toISOString();
+  const transcript = (store.sessionState.transcriptCache.get(key) ?? []) as readonly TranscriptMessage[];
+  const preview = previewFromTranscript(transcript);
+  store.sessionState.runningSinceBySession.set(key, timestamp);
+  store.state = {
+    ...store.state,
+    workspaces: store.state.workspaces.map((workspace) => workspace.id === sessionRef.workspaceId
+      ? {
+          ...workspace,
+          sessions: workspace.sessions.map((session) => session.id === sessionRef.sessionId
+            ? updateSessionRecord(session, {
+                status: "running",
+                snapshot: { updatedAt: timestamp },
+                transcript,
+                preview,
+                runningSince: timestamp,
+                lastViewedAt: store.sessionState.lastViewedAtBySession.get(key),
+              })
+            : session),
+        }
+      : workspace),
+    revision: store.state.revision + 1,
+  };
+}
+
+function clearOptimisticRunningState(store: AppStoreInternals, sessionRef: SessionRef): void {
+  const key = sessionKey(sessionRef);
+  store.sessionState.runningSinceBySession.delete(key);
+  const transcript = (store.sessionState.transcriptCache.get(key) ?? []) as readonly TranscriptMessage[];
+  const preview = previewFromTranscript(transcript);
+  store.state = {
+    ...store.state,
+    workspaces: store.state.workspaces.map((workspace) => workspace.id === sessionRef.workspaceId
+      ? {
+          ...workspace,
+          sessions: workspace.sessions.map((session) => session.id === sessionRef.sessionId
+            ? updateSessionRecord(session, {
+                status: "idle",
+                transcript,
+                preview,
+                runningSince: undefined,
+                lastViewedAt: store.sessionState.lastViewedAtBySession.get(key),
+              })
+            : session),
+        }
+      : workspace),
+    revision: store.state.revision + 1,
+  };
 }
 
 function buildQueuedComposerMessage(options: {
