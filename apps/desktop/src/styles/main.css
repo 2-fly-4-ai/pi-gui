@@ -3969,6 +3969,7 @@ mark.thread-find-active {
   flex-shrink: 0;
   background: #e0e4ef;
   border-radius: 13px 13px 0 0;
+  overflow: hidden;
 }
 
 .display-mode-tile--running .display-mode-tile__accent { background: #2ea043; }
@@ -3984,8 +3985,16 @@ mark.thread-find-active {
 
 /* Tile header */
 
+.display-mode-tile__accent + .display-mode-tile__head {
+  border-radius: 0;
+}
+
 .display-mode-tile--compact .display-mode-tile__head {
   border-bottom: 0;
+  border-radius: 0 0 13px 13px;
+}
+
+.display-mode-tile--compact .display-mode-tile__accent + .display-mode-tile__head {
   border-radius: 0 0 13px 13px;
 }
 
