@@ -1,4 +1,5 @@
-import { basename } from "node:path";
+import { readFile } from "node:fs/promises";
+import { basename, join } from "node:path";
 import { expect, test } from "@playwright/test";
 import type { SessionDriverEvent } from "@pi-gui/session-driver";
 import {
@@ -139,8 +140,13 @@ test("opens Display Mode from the sidebar and renders thread command-center tile
         ? webviewHeight
         : 0;
     })).toBeGreaterThan(500);
-    await expect(window.frameLocator(".display-mode-vscode__webview").getByText("workbench failed to connect")).toHaveCount(0);
-    await expect(window.frameLocator(".display-mode-vscode__webview").getByText("README.md")).toBeVisible({ timeout: 45_000 });
+    const settings = JSON.parse(await readFile(join(userDataDir, "vscode-serve-web", "user-data", "User", "settings.json"), "utf8")) as Record<string, unknown>;
+    expect(settings["security.workspace.trust.enabled"]).toBe(false);
+    expect(settings["workbench.colorTheme"]).toBe("Default Dark Modern");
+    const displayVsCodeFrame = window.frameLocator(".display-mode-vscode__webview");
+    await expect(displayVsCodeFrame.getByText("workbench failed to connect")).toHaveCount(0);
+    await expect(displayVsCodeFrame.getByText("Do you trust the authors")).toHaveCount(0);
+    await expect(displayVsCodeFrame.getByText("README.md")).toBeVisible({ timeout: 45_000 });
   } finally {
     await harness.close();
   }

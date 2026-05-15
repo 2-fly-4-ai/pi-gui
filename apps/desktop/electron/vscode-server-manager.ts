@@ -15,6 +15,11 @@ interface VSCodeServerInstall {
   serverBin: string;
 }
 
+interface VSCodeDataDirs {
+  serverDataDir: string;
+  userDataDir: string;
+}
+
 const servers = new Map<string, ServerEntry>();
 const preferredPort = 19538;
 
@@ -85,6 +90,16 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+async function waitForPortRelease(port: number, timeoutMs: number): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (await canListenOnPort(port)) {
+      return;
+    }
+    await sleep(100);
+  }
+}
+
 function findMostRecentLegacySettings(rootDir: string): string | null {
   if (!fs.existsSync(rootDir)) {
     return null;
@@ -147,11 +162,12 @@ function ensureVSCodeDefaultSettings(settingsPath: string): void {
   }
 }
 
-function prepareVSCodeServerDataDir(): string {
+function prepareVSCodeDataDirs(): VSCodeDataDirs {
   const baseDir = process.env["PI_APP_USER_DATA_DIR"] ?? path.join(os.homedir(), "Library", "Application Support", "pi");
   const rootDir = path.join(baseDir, "vscode-serve-web");
-  const serverDataDir = path.join(rootDir, "shared");
-  const userDir = path.join(serverDataDir, "User");
+  const serverDataDir = path.join(rootDir, "server");
+  const userDataDir = path.join(rootDir, "user-data");
+  const userDir = path.join(userDataDir, "User");
   const settingsPath = path.join(userDir, "settings.json");
   fs.mkdirSync(userDir, { recursive: true });
 
@@ -163,7 +179,7 @@ function prepareVSCodeServerDataDir(): string {
   }
 
   ensureVSCodeDefaultSettings(settingsPath);
-  return serverDataDir;
+  return { serverDataDir, userDataDir };
 }
 
 export async function ensureVSCodeServer(workspaceId: string, folderPath: string): Promise<number> {
@@ -173,6 +189,7 @@ export async function ensureVSCodeServer(workspaceId: string, folderPath: string
     stopServer(entry);
   }
   servers.clear();
+  await waitForPortRelease(preferredPort, 2_000);
 
   const install = findVSCodeServerInstall();
   if (!install) {
@@ -180,7 +197,7 @@ export async function ensureVSCodeServer(workspaceId: string, folderPath: string
   }
 
   const port = await getVSCodePort();
-  const serverDataDir = prepareVSCodeServerDataDir();
+  const { serverDataDir, userDataDir } = prepareVSCodeDataDirs();
 
   // Launch the downloaded code-server directly. The code-tunnel serve-web
   // wrapper serves the workbench HTML but drops the remote-agent websocket
@@ -191,6 +208,7 @@ export async function ensureVSCodeServer(workspaceId: string, folderPath: string
     "--without-connection-token",
     "--accept-server-license-terms",
     "--server-data-dir", serverDataDir,
+    "--user-data-dir", userDataDir,
     "--default-folder", folderPath,
   ], {
     stdio: ["ignore", "pipe", "pipe"],
