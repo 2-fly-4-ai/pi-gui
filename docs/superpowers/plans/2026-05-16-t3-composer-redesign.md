@@ -528,3 +528,186 @@ git commit -m "Redesign composer controls"
 - Placeholder scan: no fake token usage; context window explicitly handles unavailable telemetry.
 - Scope check: large but coherent composer-focused feature. Runtime tool access can be split into a second commit if it becomes too invasive.
 - Type consistency: tool-access types are serializable and can be shared or duplicated in runtime-safe modules.
+
+---
+
+## Task 7: Restore GitHub Quick Actions Menu with Commit/Push/PR Dialogs
+
+**Files:**
+- Create/restore: `apps/desktop/src/git-quick-actions.tsx`
+- Create: `apps/desktop/src/git-action-dialogs.tsx`
+- Modify: `apps/desktop/src/App.tsx`
+- Modify: `apps/desktop/src/icons.tsx`
+- Modify: `apps/desktop/src/ipc.ts`
+- Modify: `apps/desktop/electron/preload.ts`
+- Modify: `apps/desktop/electron/main.ts`
+- Modify: `apps/desktop/electron/app-store-files.ts` or adjacent git helper module
+- Modify: `apps/desktop/src/styles/main.css`
+- Test: add/modify `apps/desktop/tests/core/git-quick-actions.spec.ts` or extend composer controls if no separate seam exists.
+
+**Goal:** Add the T3-style GitHub actions button in the top/right thread header area with dropdown actions: `Commit`, `Push`, and `Create PR`, each opening polished dialogs rather than directly firing blind commands.
+
+- [ ] **Step 1: Restore/recreate `GitQuickActions` trigger and menu**
+
+Use the previous quick-actions component as a starting point, but update menu items to match the screenshot:
+
+```tsx
+export function GitQuickActions({ api, workspaceId, onCommit, onPush, onCreatePr }: GitQuickActionsProps) {
+  return (
+    <div className="git-quick-actions" data-testid="git-quick-actions">
+      <button aria-label="GitHub actions" className="git-quick-actions__trigger" type="button">
+        <GitHubIcon />
+        <ChevronDownIcon />
+      </button>
+      <div className="git-quick-actions__menu">
+        <button type="button" onClick={onCommit}><GitCommitIcon />Commit</button>
+        <button type="button" onClick={onPush}><GitPushIcon />Push</button>
+        <button type="button" onClick={onCreatePr}><GitHubIcon />Create PR</button>
+      </div>
+    </div>
+  );
+}
+```
+
+Keep the trigger compact beside VS Code / terminal-style top controls. Use click-outside and Escape behavior.
+
+- [ ] **Step 2: Add icons**
+
+Add if missing:
+
+```tsx
+export function GitHubIcon() { ... }
+export function GitCommitIcon() { ... }
+export function GitPushIcon() { ... }
+export function ChevronDownIcon() { ... }
+```
+
+- [ ] **Step 3: Add Commit dialog**
+
+`Commit` opens a modal/dialog:
+
+Fields:
+- title: `Commit changes`
+- changed file summary
+- commit message textarea
+- optional checkbox: `Stage all changed files before committing`
+- buttons: `Cancel`, `Commit`
+
+Behavior:
+- If checkbox enabled, call `stageAllFiles(workspaceId)` first.
+- Then call new IPC `commitChanges(workspaceId, message)`.
+- Disable commit when message is empty.
+- Show success/failure inline or toast.
+
+- [ ] **Step 4: Add Push dialog**
+
+`Push` opens a confirmation dialog:
+
+- title: `Push branch`
+- body: current branch/remotes if available, otherwise generic copy
+- buttons: `Cancel`, `Push`
+
+Behavior:
+- call new IPC `pushBranch(workspaceId)`.
+- If git reports upstream missing, show the exact error and a follow-up button `Push with upstream` that calls `pushBranch(workspaceId, { setUpstream: true })` if implemented.
+
+- [ ] **Step 5: Add Create PR dialog**
+
+`Create PR` opens a dialog:
+
+Fields:
+- title input
+- body textarea
+- base branch input default `main`
+- checkbox `Open in browser after creating`
+- buttons: `Cancel`, `Create PR`
+
+Behavior:
+- Prefer GitHub CLI if available: `gh pr create --title ... --body ... --base ...`.
+- If `gh` is unavailable, show a helpful error: `GitHub CLI is required to create PRs from Pi. Install gh or create the PR in GitHub.`
+- If successful and a URL is returned, call `openExternal(url)` when checkbox enabled.
+
+- [ ] **Step 6: Add narrow IPC methods**
+
+In `ipc.ts` add:
+
+```ts
+commitChanges(workspaceId: string, message: string): Promise<void>;
+pushBranch(workspaceId: string, options?: { readonly setUpstream?: boolean }): Promise<void>;
+createPullRequest(workspaceId: string, input: { readonly title: string; readonly body: string; readonly base: string }): Promise<{ readonly url?: string }>;
+```
+
+Expose them in preload and handle them in main. Use narrow workspace-id-based handlers only; do not expose arbitrary shell execution.
+
+- [ ] **Step 7: Implement Electron git helpers**
+
+Use `execFile` with `cwd` set to the workspace path:
+
+```ts
+git add -A
+git commit -m <message>
+git push
+gh pr create --title <title> --body <body> --base <base>
+```
+
+Return clean errors from stderr. Never delete files or run destructive git commands.
+
+- [ ] **Step 8: Mount in the UI**
+
+Place `GitQuickActions` in the thread chat header action row where the previous quick-action button lived, near VS Code / changes controls. It should only render for a selected workspace/thread. If the current workspace is not a git repo, keep the button but disable actions with explanatory text, or hide it; prefer disabled actions with explanation.
+
+- [ ] **Step 9: Style like the screenshot**
+
+Use compact dark/light menu styling:
+
+```css
+.git-quick-actions__trigger {
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.git-quick-actions__menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 8px);
+  min-width: 126px;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: 0 18px 50px rgba(0,0,0,.24);
+}
+```
+
+- [ ] **Step 10: Tests**
+
+Add Playwright coverage:
+
+- button is visible on thread view
+- opening menu shows `Commit`, `Push`, `Create PR`
+- `Commit` opens commit dialog and disables submit until message exists
+- `Create PR` opens PR dialog
+
+Avoid actually pushing/creating PRs in core tests; mock or assert dialog only unless test helpers have safe git remotes.
+
+- [ ] **Step 11: Verify**
+
+Run:
+
+```bash
+pnpm --filter @pi-gui/desktop typecheck
+pnpm --filter @pi-gui/desktop run test:e2e:runner -- apps/desktop/tests/core/git-quick-actions.spec.ts apps/desktop/tests/core/composer-controls.spec.ts
+```
+
+Expected: PASS.
+
+- [ ] **Step 12: Commit**
+
+```bash
+git add apps/desktop/src apps/desktop/electron apps/desktop/tests/core
+git commit -m "Restore GitHub quick actions"
+```
