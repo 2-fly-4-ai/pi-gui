@@ -1,3 +1,4 @@
+import { memo } from "react";
 import type { SessionTranscriptMessage } from "@pi-gui/pi-sdk-driver";
 import type { TimelineActivity, TimelineToolCall, TimelineSummary, TranscriptMessage } from "./timeline-types";
 import { MessageMarkdown } from "./message-markdown";
@@ -5,7 +6,7 @@ import { InlineDiff, extractDiffFromOutput } from "./diff-inline";
 import { ChevronRightIcon, CopyIcon, DiffIcon, FileIcon } from "./icons";
 import { extensionToLanguage } from "./syntax-highlight";
 
-export function TimelineItem({
+export const TimelineItem = memo(function TimelineItem({
   item,
   expandedToolCallIds,
   onToggleToolCall,
@@ -35,6 +36,38 @@ export function TimelineItem({
     default:
       return null;
   }
+}, areTimelineItemPropsEqual);
+
+function areTimelineItemPropsEqual(
+  previous: Readonly<{
+    item: TranscriptMessage;
+    expandedToolCallIds?: ReadonlySet<string>;
+    onToggleToolCall?: (callId: string) => void;
+    onViewFileInDiff?: (path: string) => void;
+  }>,
+  next: Readonly<{
+    item: TranscriptMessage;
+    expandedToolCallIds?: ReadonlySet<string>;
+    onToggleToolCall?: (callId: string) => void;
+    onViewFileInDiff?: (path: string) => void;
+  }>,
+): boolean {
+  if (
+    previous.item !== next.item ||
+    previous.onToggleToolCall !== next.onToggleToolCall ||
+    previous.onViewFileInDiff !== next.onViewFileInDiff
+  ) {
+    return false;
+  }
+
+  if (previous.item.kind !== "tool") {
+    return true;
+  }
+
+  return (
+    (previous.expandedToolCallIds?.has(previous.item.callId) ?? false) ===
+    (next.expandedToolCallIds?.has(previous.item.callId) ?? false)
+  );
 }
 
 function TimelineMessage({ item }: { readonly item: SessionTranscriptMessage }) {
