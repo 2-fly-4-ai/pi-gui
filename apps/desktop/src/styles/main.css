@@ -25,7 +25,7 @@
 }
 
 .main--with-vscode {
-  grid-template-columns: minmax(0, 1fr) minmax(420px, 42vw);
+  grid-template-columns: minmax(0, 1fr) 5px var(--thread-vscode-width, 520px);
 }
 
 .main--with-plan {
@@ -33,7 +33,7 @@
 }
 
 .main--with-diff.main--with-vscode {
-  grid-template-columns: minmax(0, 1fr) 400px minmax(420px, 36vw);
+  grid-template-columns: minmax(0, 1fr) 400px 5px var(--thread-vscode-width, 520px);
 }
 
 .main--with-diff.main--with-plan {
@@ -41,11 +41,11 @@
 }
 
 .main--with-vscode.main--with-plan {
-  grid-template-columns: minmax(0, 1fr) minmax(320px, 30vw) minmax(420px, 34vw);
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 30vw) 5px var(--thread-vscode-width, 520px);
 }
 
 .main--with-diff.main--with-vscode.main--with-plan {
-  grid-template-columns: minmax(0, 1fr) minmax(320px, 24vw) 360px minmax(360px, 28vw);
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 24vw) 360px 5px var(--thread-vscode-width, 520px);
 }
 
 .main--with-diff > .topbar,
@@ -71,22 +71,36 @@
   width: auto;
 }
 
-.main--with-vscode > .thread-vscode-panel {
+.main--with-vscode > .thread-vscode-resize-handle {
   grid-column: 2;
   grid-row: 2 / -1;
 }
 
-.main--with-diff.main--with-vscode > .thread-vscode-panel {
+.main--with-vscode > .thread-vscode-panel {
+  grid-column: 3;
+  grid-row: 2 / -1;
+}
+
+.main--with-diff.main--with-vscode > .thread-vscode-resize-handle,
+.main--with-vscode.main--with-plan > .thread-vscode-resize-handle {
   grid-column: 3;
 }
 
-.main--with-diff.main--with-plan > .diff-panel,
+.main--with-diff.main--with-vscode > .thread-vscode-panel,
 .main--with-vscode.main--with-plan > .thread-vscode-panel {
+  grid-column: 4;
+}
+
+.main--with-diff.main--with-plan > .diff-panel {
   grid-column: 3;
+}
+
+.main--with-diff.main--with-vscode.main--with-plan > .thread-vscode-resize-handle {
+  grid-column: 4;
 }
 
 .main--with-diff.main--with-vscode.main--with-plan > .thread-vscode-panel {
-  grid-column: 4;
+  grid-column: 5;
 }
 
 .main--with-terminal {
@@ -5693,6 +5707,16 @@ mark.thread-find-active {
 
 /* VS Code panel */
 
+.thread-vscode-resize-handle {
+  grid-column: 2;
+  cursor: col-resize;
+  background: transparent;
+}
+
+.thread-vscode-resize-handle:hover {
+  background: color-mix(in srgb, var(--accent, #7c3aed) 25%, transparent);
+}
+
 .thread-vscode-panel {
   position: relative;
   display: flex;
@@ -5737,6 +5761,10 @@ mark.thread-find-active {
   font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.vscode-panel__hard-close {
+  font-size: 12px;
 }
 
 .vscode-panel__body {

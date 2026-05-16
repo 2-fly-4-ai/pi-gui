@@ -1,3 +1,4 @@
+import type * as React from "react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type Dispatch, type DragEvent, type KeyboardEvent, type SetStateAction } from "react";
 import { DEFAULT_TOOL_ACCESS, type ToolAccessSelection } from "@pi-gui/session-driver";
 import type { SessionTreeSnapshot } from "@pi-gui/session-driver/types";
@@ -235,11 +236,38 @@ export default function App() {
   const [vsCodeOpen, setVsCodeOpen] = useState(false);
   const [vsCodeWorkspaceId, setVsCodeWorkspaceId] = useState<string | null>(null);
   const [vsCodeFolderPath, setVsCodeFolderPath] = useState<string | null>(null);
+  const [threadVsCodeWidth, setThreadVsCodeWidth] = useState(() => {
+    const saved = Number(localStorage.getItem("threads:vsCodeWidth"));
+    return Number.isFinite(saved) && saved > 0 ? saved : 520;
+  });
+  const threadVsCodeWidthRef = useRef(threadVsCodeWidth);
   const toggleVsCode = useCallback(() => setVsCodeOpen((o) => !o), []);
   const openVsCodeForWorkspace = useCallback((workspaceId: string, folderPath: string) => {
     setVsCodeWorkspaceId(workspaceId);
     setVsCodeFolderPath(folderPath);
     setVsCodeOpen(true);
+  }, []);
+  const startThreadVsCodeResize = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    const startX = event.clientX;
+    const startWidth = threadVsCodeWidthRef.current;
+
+    const onMove = (moveEvent: PointerEvent) => {
+      const delta = startX - moveEvent.clientX;
+      const nextWidth = Math.max(360, Math.min(900, startWidth + delta));
+      threadVsCodeWidthRef.current = nextWidth;
+      setThreadVsCodeWidth(nextWidth);
+    };
+
+    const onUp = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      setThreadVsCodeWidth(threadVsCodeWidthRef.current);
+    };
+
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
   }, []);
   const [openTerminalSessionKeys, setOpenTerminalSessionKeys] = useState<ReadonlySet<string>>(() => new Set());
   const [takeoverTerminalSessionKeys, setTakeoverTerminalSessionKeys] = useState<ReadonlySet<string>>(() => new Set());
@@ -269,6 +297,11 @@ export default function App() {
     activeView: snapshot?.activeView,
     sidebarCollapsed: snapshot?.sidebarCollapsed ?? false,
   };
+
+  useEffect(() => {
+    threadVsCodeWidthRef.current = threadVsCodeWidth;
+    try { localStorage.setItem("threads:vsCodeWidth", String(threadVsCodeWidth)); } catch {}
+  }, [threadVsCodeWidth]);
 
   useEffect(() => {
     const piApi = window.piApp;
@@ -322,6 +355,24 @@ export default function App() {
 
   const selectedWorkspace = snapshot ? (getSelectedWorkspace(snapshot) ?? snapshot.workspaces[0]) : undefined;
   const selectedSession = snapshot ? (getSelectedSession(snapshot) ?? selectedWorkspace?.sessions[0]) : undefined;
+
+  useEffect(() => {
+    if (!vsCodeOpen || !selectedWorkspace || snapshot?.activeView !== "threads") {
+      return;
+    }
+    setVsCodeWorkspaceId(selectedWorkspace.id);
+    setVsCodeFolderPath(selectedWorkspace.path);
+  }, [selectedWorkspace?.id, selectedWorkspace?.path, snapshot?.activeView, vsCodeOpen]);
+
+  const hardCloseCurrentVsCode = useCallback(() => {
+    if (!api || !vsCodeWorkspaceId || !vsCodeFolderPath) return;
+    void api.killVSCodeServer(vsCodeWorkspaceId, vsCodeFolderPath).finally(() => {
+      setVsCodeOpen(false);
+      setVsCodeWorkspaceId(null);
+      setVsCodeFolderPath(null);
+    });
+  }, [api, vsCodeFolderPath, vsCodeWorkspaceId]);
+
   const openSelectedWorkspaceVsCode = useCallback(() => {
     if (!selectedWorkspace) return;
     openVsCodeForWorkspace(selectedWorkspace.id, selectedWorkspace.path);
@@ -2680,7 +2731,10 @@ export default function App() {
         />
       ) : null}
 
-      <main className={mainClassName}>
+      <main
+        className={mainClassName}
+        style={{ "--thread-vscode-width": `${threadVsCodeWidth}px` } as React.CSSProperties}
+      >
         <Topbar
           activeView={snapshot.activeView}
           rootWorkspace={rootWorkspace}
@@ -3006,11 +3060,21 @@ export default function App() {
           </>
         )}
         {showThreadVsCodePanel && vsCodeWorkspaceId && vsCodeFolderPath ? (
-          <VSCodePanel
-            api={api}
-            workspaceId={vsCodeWorkspaceId}
-            folderPath={vsCodeFolderPath}
-          />
+          <>
+            <div
+              className="thread-vscode-resize-handle"
+              role="separator"
+              aria-label="Resize VS Code panel"
+              onPointerDown={startThreadVsCodeResize}
+            />
+            <VSCodePanel
+              api={api}
+              workspaceId={vsCodeWorkspaceId}
+              folderPath={vsCodeFolderPath}
+              onHardClose={hardCloseCurrentVsCode}
+              title="VS Code"
+            />
+          </>
         ) : null}
         {showDiffPanel && selectedWorkspace && selectedSession ? (
           <DiffPanel
