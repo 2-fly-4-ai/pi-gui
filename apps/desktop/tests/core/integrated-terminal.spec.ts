@@ -123,3 +123,52 @@ test("persists the integrated terminal shell setting", async () => {
     await harness.close();
   }
 });
+
+test("adds selected terminal output to the current composer", async () => {
+  test.setTimeout(90_000);
+
+  const userDataDir = await makeUserDataDir();
+  const workspacePath = await makeWorkspace("terminal-selection-context");
+  const harness = await launchDesktop(userDataDir, {
+    initialWorkspaces: [workspacePath],
+    testMode: "background",
+  });
+
+  try {
+    const window = await harness.firstWindow();
+    await waitForWorkspaceByPath(window, workspacePath);
+    await createNamedThread(window, "Terminal selection host");
+
+    const composer = window.getByTestId("composer");
+    await composer.fill("draft before terminal context");
+
+    await window.getByLabel("Toggle terminal").click();
+    const terminal = window.getByTestId("integrated-terminal");
+    await expect(terminal).toBeVisible();
+    await terminal.locator(".xterm").click();
+    await window.keyboard.type(
+      "printf 'TERMINAL_BEFORE_CONTEXT\\n'; printf 'SELECT_ME_FROM_TERMINAL\\n'; printf 'TERMINAL_AFTER_CONTEXT\\n'",
+    );
+    await window.keyboard.press("Enter");
+    await expect(terminal.locator(".xterm-rows")).toContainText("TERMINAL_BEFORE_CONTEXT", { timeout: 15_000 });
+    await expect(terminal.locator(".xterm-rows")).toContainText("SELECT_ME_FROM_TERMINAL", { timeout: 15_000 });
+    await expect(terminal.locator(".xterm-rows")).toContainText("TERMINAL_AFTER_CONTEXT", { timeout: 15_000 });
+
+    const selectedOutputRow = terminal
+      .locator(".xterm-rows div")
+      .filter({ hasText: /^SELECT_ME_FROM_TERMINAL\s*$/ })
+      .last();
+    await selectedOutputRow.selectText();
+    await expect(window.getByRole("button", { name: "Add terminal selection to chat" })).toBeVisible();
+    await window.getByRole("button", { name: "Add terminal selection to chat" }).click();
+
+    await expect(composer).toHaveValue(/draft before terminal context/);
+    await expect(composer).toHaveValue(/Terminal context from/);
+    await expect(composer).toHaveValue(/SELECT_ME_FROM_TERMINAL/);
+    await expect(composer).toHaveValue(/```terminal/);
+    await expect(composer).not.toHaveValue(/TERMINAL_BEFORE_CONTEXT/);
+    await expect(composer).not.toHaveValue(/TERMINAL_AFTER_CONTEXT/);
+  } finally {
+    await harness.close();
+  }
+});

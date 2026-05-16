@@ -49,6 +49,7 @@ import { Sidebar } from "./sidebar";
 import { SidebarToggleButton } from "./sidebar-toggle-button";
 import { Topbar } from "./topbar";
 import { TerminalPanel } from "./terminal-panel";
+import { appendComposerContext } from "./terminal-selection-context";
 import { ConversationTimeline, VIRTUALIZATION_THRESHOLD } from "./conversation-timeline";
 import { useSlashMenu } from "./hooks/use-slash-menu";
 import { useMentionMenu } from "./hooks/use-mention-menu";
@@ -698,6 +699,12 @@ export default function App() {
       return next;
     });
   }, [selectedSessionKey]);
+  const addTerminalSelectionToComposer = useCallback((context: string) => {
+    setComposerDraft((current) => appendComposerContext(current, context));
+    window.requestAnimationFrame(() => {
+      composerRef.current?.focus();
+    });
+  }, []);
   const focusNewThreadComposer = () => {
     window.requestAnimationFrame(() => {
       newThreadComposerRef.current?.focus();
@@ -1569,6 +1576,7 @@ export default function App() {
         sessionId={visibleTerminalTarget.session.id}
         height={terminalHeight}
         isTakeover={isVisibleTerminalTakeover}
+        onAddSelectionToComposer={addTerminalSelectionToComposer}
         onHeightChange={(nextHeight) => {
           setTerminalHeight(nextHeight);
           setTakeoverTerminalSessionKeys((current) => {

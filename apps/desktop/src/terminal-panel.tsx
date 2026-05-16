@@ -8,6 +8,7 @@ import type { WorkspaceRecord } from "./desktop-state";
 import { CloseIcon, MaximizeIcon, MinimizeIcon, PlusIcon, RefreshIcon } from "./icons";
 import type { TerminalPanelSnapshot, TerminalSessionSnapshot, TerminalSize } from "./ipc";
 import { appendTerminalReplay } from "./terminal-model";
+import { buildTerminalSelectionComposerText } from "./terminal-selection-context";
 
 const MIN_TERMINAL_HEIGHT = 220;
 const DEFAULT_TERMINAL_HEIGHT = 340;
@@ -20,6 +21,7 @@ interface TerminalPanelProps {
   readonly onHeightChange: (height: number) => void;
   readonly onToggleTakeover: () => void;
   readonly onHide: () => void;
+  readonly onAddSelectionToComposer?: (text: string) => void;
 }
 
 export function TerminalPanel({
@@ -30,6 +32,7 @@ export function TerminalPanel({
   onHeightChange,
   onToggleTakeover,
   onHide,
+  onAddSelectionToComposer,
 }: TerminalPanelProps) {
   const api = window.piApp;
   const panelRef = useRef<HTMLElement | null>(null);
@@ -41,6 +44,7 @@ export function TerminalPanel({
   const resizeCleanupRef = useRef<(() => void) | null>(null);
   const [panel, setPanel] = useState<TerminalPanelSnapshot | null>(null);
   const [error, setError] = useState<string>("");
+  const [selectionAction, setSelectionAction] = useState<{ readonly text: string } | null>(null);
 
   const activeSession = useMemo(
     () => panel?.sessions.find((session) => session.id === panel.activeSessionId),
@@ -119,6 +123,14 @@ export function TerminalPanel({
     lastSizeRef.current = nextSize;
     void api.resizeTerminal(terminalId, nextSize);
   }, [api]);
+
+  const refreshSelectionAction = useCallback(() => {
+    const terminal = terminalRef.current;
+    const terminalSelection = terminal?.hasSelection() ? terminal.getSelection() : "";
+    const nativeSelection = terminalSelection ? "" : getNativeSelectionInside(containerRef.current);
+    const text = terminalSelection || nativeSelection;
+    setSelectionAction(text.trim() ? { text } : null);
+  }, []);
 
   useEffect(() => {
     const panelElement = panelRef.current;
@@ -250,6 +262,12 @@ export function TerminalPanel({
       })));
     });
     terminal.open(container);
+    const selectionDisposable = terminal.onSelectionChange(refreshSelectionAction);
+    const handleDocumentSelectionChange = () => {
+      refreshSelectionAction();
+      window.requestAnimationFrame(refreshSelectionAction);
+    };
+    document.addEventListener("selectionchange", handleDocumentSelectionChange);
     if (activeSession.replay) {
       terminal.write(activeSession.replay);
     }
@@ -263,12 +281,15 @@ export function TerminalPanel({
 
     return () => {
       resizeObserver.disconnect();
+      selectionDisposable.dispose();
+      document.removeEventListener("selectionchange", handleDocumentSelectionChange);
+      setSelectionAction(null);
       fitAddonRef.current = null;
       terminalRef.current = null;
       activeTerminalIdRef.current = "";
       terminal.dispose();
     };
-  }, [activeSession?.id, api, createTerminal, fitAndResize]);
+  }, [activeSession?.id, api, createTerminal, fitAndResize, refreshSelectionAction]);
 
   const startResize = (event: ReactMouseEvent<HTMLDivElement>) => {
     event.preventDefault();
@@ -297,6 +318,23 @@ export function TerminalPanel({
     };
   }, []);
 
+  const addSelectionToComposer = () => {
+    if (!selectionAction || !activeSession || !onAddSelectionToComposer) {
+      return;
+    }
+    const context = buildTerminalSelectionComposerText({
+      selection: selectionAction.text,
+      title: activeSession.title,
+      cwd: activeSession.cwd,
+    });
+    if (!context) {
+      return;
+    }
+    onAddSelectionToComposer(context);
+    terminalRef.current?.clearSelection();
+    setSelectionAction(null);
+  };
+
   return (
     <section
       ref={panelRef}
@@ -306,6 +344,19 @@ export function TerminalPanel({
       style={isTakeover ? undefined : { height: `${height || DEFAULT_TERMINAL_HEIGHT}px` }}
     >
       <div className="terminal-panel__resize-handle" onMouseDown={startResize} />
+      {selectionAction && onAddSelectionToComposer ? (
+        <div className="terminal-selection-action">
+          <button
+            type="button"
+            className="button button--secondary terminal-selection-action__button"
+            aria-label="Add terminal selection to chat"
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={addSelectionToComposer}
+          >
+            Add to chat
+          </button>
+        </div>
+      ) : null}
       <div className="terminal-panel__toolbar">
         <div className="terminal-panel__tabs" role="tablist" aria-label="Terminal sessions">
           {(panel?.sessions ?? []).map((session) => (
@@ -380,6 +431,23 @@ function updateSession(
     ...panel,
     sessions: panel.sessions.map((session) => session.id === terminalId ? update(session) : session),
   };
+}
+
+function getNativeSelectionInside(container: HTMLElement | null): string {
+  const selection = window.getSelection();
+  const text = selection?.toString() ?? "";
+  if (!container || !selection || !text.trim() || !isSelectionInsideElement(selection, container)) {
+    return "";
+  }
+  return text;
+}
+
+function isSelectionInsideElement(selection: Selection, element: HTMLElement): boolean {
+  if (selection.rangeCount === 0 || selection.isCollapsed) {
+    return false;
+  }
+  const range = selection.getRangeAt(0);
+  return element.contains(range.startContainer) && element.contains(range.endContainer);
 }
 
 function macTerminalSequenceForEvent(event: KeyboardEvent): string | undefined {
