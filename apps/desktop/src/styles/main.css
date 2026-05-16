@@ -6124,4 +6124,22 @@ mark.thread-find-active {
   flex: 1;
   overflow: auto;
   padding: 18px;
+  background-color: var(--surface);
+  background-image:
+    linear-gradient(rgba(85, 96, 119, 0.08) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(85, 96, 119, 0.08) 1px, transparent 1px),
+    linear-gradient(rgba(85, 96, 119, 0.12) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(85, 96, 119, 0.12) 1px, transparent 1px);
+  background-position: -1px -1px, -1px -1px, -1px -1px, -1px -1px;
+  background-size: 12px 12px, 12px 12px, 60px 60px, 60px 60px;
 }
+
+:root.dark .plan-panel__body {
+  background-color: var(--main);
+  background-image:
+    linear-gradient(rgba(154, 160, 168, 0.055) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(154, 160, 168, 0.055) 1px, transparent 1px),
+    linear-gradient(rgba(154, 160, 168, 0.095) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(154, 160, 168, 0.095) 1px, transparent 1px);
+}
+

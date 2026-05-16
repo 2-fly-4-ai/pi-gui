@@ -460,6 +460,7 @@ export default function App() {
       : [];
   const activeTranscriptMarker = buildTranscriptChangeMarker(selectedSessionKey, activeTranscript);
   const latestPlan = useMemo(() => detectLatestPlan(activeTranscript), [activeTranscript, activeTranscriptMarker]);
+  const planSurfaceAvailable = snapshot?.activeView === "threads" && Boolean(selectedWorkspace && selectedSession && latestPlan);
   const isTranscriptLoading = Boolean(selectedSession) && activeTranscript.length === 0 && (
     !selectedTranscript ||
     selectedTranscript.workspaceId !== selectedWorkspace?.id ||
@@ -472,10 +473,10 @@ export default function App() {
     : [];
 
   useEffect(() => {
-    if (!latestPlan) {
+    if (!planSurfaceAvailable) {
       setPlanPanelOpen(false);
     }
-  }, [latestPlan?.messageId]);
+  }, [planSurfaceAvailable]);
 
   useEffect(() => {
     if (!api || snapshot?.activeView !== "review" || !selectedWorkspace) {
@@ -1620,7 +1621,7 @@ export default function App() {
 
   const showTerminalTakeover = isTerminalVisible && isVisibleTerminalTakeover && Boolean(visibleTerminalTarget);
   const showThreadVsCodePanel = snapshot.activeView === "threads" && vsCodeOpen && Boolean(vsCodeWorkspaceId && vsCodeFolderPath);
-  const showPlanPanel = planPanelOpen && Boolean(latestPlan);
+  const showPlanPanel = planPanelOpen && planSurfaceAvailable;
   const mainClassName = [
     "main",
     showDiffPanel ? "main--with-diff" : "",
@@ -2587,7 +2588,7 @@ export default function App() {
           onAddAction={openAddActionDialog}
           onRunProjectAction={runProjectAction}
           onToggleTerminal={toggleTerminal}
-          planAvailable={Boolean(latestPlan)}
+          planAvailable={planSurfaceAvailable}
           planPanelOpen={planPanelOpen}
           onTogglePlanPanel={() => setPlanPanelOpen((open) => !open)}
           showDiffPanel={showDiffPanel}
@@ -2838,7 +2839,7 @@ export default function App() {
                 onNavigate={navigateTreeSelection}
               />
             ) : null}
-            {planPanelOpen && latestPlan ? (
+            {showPlanPanel && latestPlan ? (
               <PlanPanel
                 plan={latestPlan}
                 onClose={() => setPlanPanelOpen(false)}
