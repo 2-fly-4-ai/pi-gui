@@ -6413,3 +6413,29 @@ mark.thread-find-active {
   color: var(--accent);
   font-weight: 700;
 }
+
+.skills-header-discovery {
+  display: flex;
+  align-items: center;
+}
+
+.skills-discovery-select {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.skills-discovery-select select {
+  min-width: 150px;
+  max-width: 220px;
+  padding: 8px 30px 8px 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  color: var(--text-strong);
+  background: var(--surface-muted);
+  font: inherit;
+}

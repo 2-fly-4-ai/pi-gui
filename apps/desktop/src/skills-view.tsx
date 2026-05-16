@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import type { RuntimeSkillMode, RuntimeSkillProfileRecord, RuntimeSkillRecord, RuntimeSnapshot } from "@pi-gui/session-driver/runtime-types";
 import type { WorkspaceRecord } from "./desktop-state";
 import { CloseIcon, RefreshIcon, SkillIcon } from "./icons";
@@ -42,6 +42,7 @@ interface SkillsViewProps {
   readonly onSaveProfile: (profile: RuntimeSkillProfileRecord) => void;
   readonly onDeleteProfile: (profileId: string) => void;
   readonly onTrySkill: (skill: RuntimeSkillRecord) => void;
+  readonly discoveryWorkspaceControl?: ReactNode;
 }
 
 export function SkillsView({
@@ -55,6 +56,7 @@ export function SkillsView({
   onSaveProfile,
   onDeleteProfile,
   onTrySkill,
+  discoveryWorkspaceControl,
 }: SkillsViewProps) {
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState<SkillCategory>("all");
@@ -117,6 +119,9 @@ export function SkillsView({
             </p>
           </div>
           <div className="view-header__actions">
+            {discoveryWorkspaceControl ? (
+              <div className="skills-header-discovery">{discoveryWorkspaceControl}</div>
+            ) : null}
             <button className="button button--secondary" type="button" onClick={onRefresh}>
               <RefreshIcon />
               <span>Refresh</span>

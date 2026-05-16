@@ -2563,26 +2563,25 @@ export default function App() {
       <>
         {commandPalette}
         <SecondarySurface onBack={() => setActiveView("threads")} testId="skills-surface" title="Skills">
-        <div className="surface-toolbar">
-          <label className="surface-toolbar__field">
-            <span>Discovery workspace</span>
-            <select
-              value={skillsWorkspace?.id ?? ""}
-              onChange={(event) => setSkillsWorkspaceId(event.target.value)}
-            >
-              {rootWorkspaceOptions.map((workspace) => (
-                <option key={workspace.id} value={workspace.id}>
-                  {workspace.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <span className="surface-toolbar__hint">Profiles are global. This only changes project-local skill discovery.</span>
-        </div>
         <SkillsView
           workspace={skillsWorkspace}
           runtime={skillsRuntime}
           usageByPath={skillUsageByPath}
+          discoveryWorkspaceControl={rootWorkspaceOptions.length > 1 ? (
+            <label className="skills-discovery-select">
+              <span>Show skills from</span>
+              <select
+                value={skillsWorkspace?.id ?? ""}
+                onChange={(event) => setSkillsWorkspaceId(event.target.value)}
+              >
+                {rootWorkspaceOptions.map((workspace) => (
+                  <option key={workspace.id} value={workspace.id}>
+                    {workspace.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : undefined}
           onOpenSkillFolder={handleOpenSkillFolder}
           onRefresh={() => {
             if (!skillsWorkspace) {
