@@ -1,4 +1,4 @@
-import { memo, useCallback, useLayoutEffect, useRef, useState, type MutableRefObject, type RefCallback, type RefObject } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState, type MutableRefObject, type RefCallback, type RefObject } from "react";
 import type { TranscriptMessage } from "./desktop-state";
 import { ThreadSearchBar } from "./thread-search";
 import { TimelineItem } from "./timeline-item";
@@ -101,12 +101,28 @@ export function ConversationTimeline({
     }
   }, [stableTranscript]);
 
+  useEffect(() => {
+    if (!disableVirtualization || isTranscriptLoading || stableTranscript.length <= VIRTUALIZATION_THRESHOLD) {
+      return undefined;
+    }
+    const timeout = window.setTimeout(() => {
+      onDisableVirtualizationReady?.();
+    }, 250);
+    return () => window.clearTimeout(timeout);
+  }, [disableVirtualization, isTranscriptLoading, onDisableVirtualizationReady, stableTranscript.length]);
+
   useLayoutEffect(() => {
     if (!disableVirtualization || isTranscriptLoading || stableTranscript.length === 0) {
       return;
     }
-    const allRowsMeasured = stableTranscript.every((item) => measuredHeightsRef.current.has(item.id));
-    if (!allRowsMeasured) {
+    const measuredCount = stableTranscript.reduce(
+      (count, item) => count + (measuredHeightsRef.current.has(item.id) ? 1 : 0),
+      0,
+    );
+    const allRowsMeasured = measuredCount === stableTranscript.length;
+    const enoughRowsMeasuredForVirtualRestore =
+      stableTranscript.length > VIRTUALIZATION_THRESHOLD && measuredCount >= VIRTUALIZATION_THRESHOLD;
+    if (!allRowsMeasured && !enoughRowsMeasuredForVirtualRestore) {
       return;
     }
     onDisableVirtualizationReady?.();
