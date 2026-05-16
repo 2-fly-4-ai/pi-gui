@@ -52,7 +52,7 @@ export function ConversationTimeline({
   // Giant prose blocks and attachment-heavy rows routinely blow past the estimator,
   // so keep those transcripts on the exact DOM path instead of restoring to a fake bottom.
   const hasUnreliableVirtualizedHeights = stableTranscript.some(
-    (item) => item.kind === "message" && (item.text.length > 2000 || Boolean(item.attachments?.length)),
+    (item) => item.kind === "message" && Boolean(item.attachments?.length),
   );
   const shouldVirtualize =
     !threadSearch.isOpen &&
