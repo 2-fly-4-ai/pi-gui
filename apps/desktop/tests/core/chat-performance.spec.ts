@@ -112,6 +112,16 @@ test("coalesces streaming transcript updates without rerendering the idle compos
     await composer.press("End");
     await composer.type(" plus typing", { delay: 1 });
     await expect(composer).toHaveValue("local draft before stream plus typing");
+
+    const markerCost = await window.evaluate(() => {
+      const pane = document.querySelector<HTMLElement>("[data-testid='timeline-pane']");
+      const before = performance.now();
+      for (let index = 0; index < 20; index += 1) {
+        pane?.dispatchEvent(new Event("scroll"));
+      }
+      return performance.now() - before;
+    });
+    expect(markerCost).toBeLessThan(50);
   } finally {
     await harness.close();
   }
