@@ -235,6 +235,7 @@ export default function App() {
   const [terminalHeight, setTerminalHeight] = useState(340);
   const [gitDialog, setGitDialog] = useState<"commit" | "push" | "pr" | null>(null);
   const [gitChangedFiles, setGitChangedFiles] = useState<readonly ChangedFileSummaryItem[]>([]);
+  const [gitBranchName, setGitBranchName] = useState<string | undefined>();
   const [gitActionPending, setGitActionPending] = useState(false);
   const [gitActionError, setGitActionError] = useState<string | undefined>();
   const [diffFileRequest, setDiffFileRequest] = useState<DiffPanelFileRequest | null>(null);
@@ -597,12 +598,20 @@ export default function App() {
     setGitActionError(undefined);
     setGitActionPending(false);
     setGitDialog(dialog);
+    setGitBranchName(selectedWorkspace?.branchName);
+    if (api && selectedWorkspace) {
+      void api.getCurrentBranch(selectedWorkspace.id).then((branch) => {
+        setGitBranchName(branch ?? selectedWorkspace.branchName);
+      }).catch(() => {
+        setGitBranchName(selectedWorkspace.branchName);
+      });
+    }
     if (dialog === "commit") {
       void loadGitChangedFiles().catch((error) => {
         setGitActionError(error instanceof Error ? error.message : String(error));
       });
     }
-  }, [loadGitChangedFiles]);
+  }, [api, loadGitChangedFiles, selectedWorkspace]);
 
   const closeGitDialog = useCallback(() => {
     setGitDialog(null);
@@ -2685,8 +2694,10 @@ export default function App() {
             ) : null}
             {gitDialog === "commit" ? (
               <CommitDialog
+                branchName={gitBranchName}
                 error={gitActionError}
                 files={gitChangedFiles}
+                workspaceName={selectedWorkspace.name}
                 pending={gitActionPending}
                 onClose={closeGitDialog}
                 onSubmit={handleCommitChanges}
@@ -2695,7 +2706,7 @@ export default function App() {
             {gitDialog === "push" ? (
               <PushDialog
                 allowSetUpstream={isSetUpstreamError(gitActionError)}
-                branchName={selectedWorkspace.branchName}
+                branchName={gitBranchName ?? selectedWorkspace.branchName}
                 error={gitActionError}
                 pending={gitActionPending}
                 onClose={closeGitDialog}
@@ -2704,7 +2715,7 @@ export default function App() {
             ) : null}
             {gitDialog === "pr" ? (
               <CreatePrDialog
-                branchName={selectedWorkspace.branchName}
+                branchName={gitBranchName ?? selectedWorkspace.branchName}
                 error={gitActionError}
                 pending={gitActionPending}
                 onClose={closeGitDialog}

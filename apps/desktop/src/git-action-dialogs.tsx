@@ -39,13 +39,15 @@ function DialogFrame({ testId, title, subtitle, onClose, children }: DialogFrame
 
 interface CommitDialogProps {
   readonly files: readonly ChangedFileSummaryItem[];
+  readonly branchName?: string;
+  readonly workspaceName?: string;
   readonly pending: boolean;
   readonly error?: string;
   readonly onClose: () => void;
   readonly onSubmit: (input: { readonly message: string; readonly stageAll: boolean }) => void;
 }
 
-export function CommitDialog({ files, pending, error, onClose, onSubmit }: CommitDialogProps) {
+export function CommitDialog({ files, branchName, workspaceName, pending, error, onClose, onSubmit }: CommitDialogProps) {
   const [message, setMessage] = useState("");
   const [stageAll, setStageAll] = useState(true);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
@@ -61,6 +63,10 @@ export function CommitDialog({ files, pending, error, onClose, onSubmit }: Commi
       subtitle="Review the current working tree, stage safely, and write a focused commit message."
       onClose={onClose}
     >
+      <div className="git-dialog__meta-row">
+        <span className="git-dialog__meta-pill">Branch: {branchName ?? "current checkout"}</span>
+        {workspaceName ? <span className="git-dialog__meta-pill">Repo: {workspaceName}</span> : null}
+      </div>
       <div className="git-dialog__file-summary">
         <div className="git-dialog__section-title">Changed files</div>
         <div className="git-dialog__file-list">

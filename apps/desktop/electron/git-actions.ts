@@ -43,7 +43,7 @@ export async function createPullRequest(
   return url ? { url } : {};
 }
 
-async function currentBranch(workspacePath: string): Promise<string> {
+export async function currentBranch(workspacePath: string): Promise<string> {
   const { stdout } = await runCommand("git", ["rev-parse", "--abbrev-ref", "HEAD"], workspacePath);
   return stdout.trim();
 }

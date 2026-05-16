@@ -38,6 +38,9 @@ test("GitHub quick actions open commit, push, and PR dialogs", async () => {
     const commitDialog = window.getByTestId("git-commit-dialog");
     await expect(commitDialog).toBeVisible();
     await expect(commitDialog).toContainText("Commit changes");
+    await expect(commitDialog).toContainText("Branch:");
+    await expect(commitDialog).toContainText("Repo:");
+    await expect(commitDialog.locator(".git-dialog__file-list")).toHaveCSS("background-color", /rgb\((?!248, 249, 252)/);
     await expect(commitDialog.getByRole("button", { name: "Commit", exact: true })).toBeDisabled();
     await commitDialog.getByLabel("Commit message").fill("test commit");
     await expect(commitDialog.getByRole("button", { name: "Commit", exact: true })).toBeEnabled();

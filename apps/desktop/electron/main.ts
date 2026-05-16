@@ -16,7 +16,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { DesktopAppStore } from "./app-store";
 import { getChangedFiles, getFileDiff, stageFile } from "./app-store-diff";
-import { commitChanges, createPullRequest, pushBranch, stageAllFiles } from "./git-actions";
+import { commitChanges, createPullRequest, currentBranch, pushBranch, stageAllFiles } from "./git-actions";
 import { buildAgentPreReviewPrompt, parseAgentPreReviewComments } from "./review/agent-pre-review";
 import { createReviewSnapshot } from "./review/review-snapshot";
 import type { CreateReviewSnapshotOptions, ReviewSnapshot } from "../src/review/review-types";
@@ -729,6 +729,17 @@ app.whenReady().then(async () => {
       return [];
     }
     return getChangedFiles(workspacePath);
+  });
+  ipcMain.handle(desktopIpc.getCurrentBranch, async (_event, workspaceId: string) => {
+    const workspacePath = store.getWorkspacePath(workspaceId);
+    if (!workspacePath) {
+      return undefined;
+    }
+    try {
+      return await currentBranch(workspacePath);
+    } catch {
+      return undefined;
+    }
   });
   ipcMain.handle(desktopIpc.getFileDiff, async (_event, workspaceId: string, filePath: string) => {
     const workspacePath = store.getWorkspacePath(workspaceId);
