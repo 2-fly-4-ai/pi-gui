@@ -17,8 +17,10 @@ import { pathToFileURL } from "node:url";
 import { DesktopAppStore } from "./app-store";
 import { getChangedFiles, getFileDiff, stageFile } from "./app-store-diff";
 import { commitChanges, createPullRequest, currentBranch, pushBranch, stageAllFiles } from "./git-actions";
+import { listAgentDefinitions, resetAgentDefinition, saveAgentDefinition } from "./agent-definitions";
 import { buildAgentPreReviewPrompt, parseAgentPreReviewComments } from "./review/agent-pre-review";
 import { createReviewSnapshot } from "./review/review-snapshot";
+import type { ResetAgentDefinitionInput, SaveAgentDefinitionInput } from "../src/agent-definitions";
 import type { CreateReviewSnapshotOptions, ReviewSnapshot } from "../src/review/review-types";
 import { listWorkspaceFiles } from "./app-store-files";
 import { ensureVSCodeServer, killAllVSCodeServers } from "./vscode-server-manager";
@@ -757,6 +759,15 @@ app.whenReady().then(async () => {
       return "";
     }
     return getFileDiff(workspacePath, filePath);
+  });
+  ipcMain.handle(desktopIpc.listAgentDefinitions, async (_event, workspaceId: string) => {
+    return listAgentDefinitions(store.getWorkspacePath(workspaceId));
+  });
+  ipcMain.handle(desktopIpc.saveAgentDefinition, async (_event, workspaceId: string, input: SaveAgentDefinitionInput) => {
+    return saveAgentDefinition(store.getWorkspacePath(workspaceId), input);
+  });
+  ipcMain.handle(desktopIpc.resetAgentDefinition, async (_event, workspaceId: string, input: ResetAgentDefinitionInput) => {
+    return resetAgentDefinition(store.getWorkspacePath(workspaceId), input);
   });
   ipcMain.handle(desktopIpc.stageFile, async (_event, workspaceId: string, filePath: string) => {
     const workspacePath = store.getWorkspacePath(workspaceId);

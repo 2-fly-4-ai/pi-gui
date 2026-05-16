@@ -1,6 +1,8 @@
 import type { RuntimeSettingsSnapshot, RuntimeSnapshot } from "@pi-gui/session-driver/runtime-types";
+import type { AgentDefinitionsSnapshot, ResetAgentDefinitionInput, SaveAgentDefinitionInput } from "./agent-definitions";
 import type { ModelSettingsScopeMode, NotificationPreferences, WorkspaceRecord } from "./desktop-state";
 import type { DesktopNotificationPermissionStatus } from "./ipc";
+import { SettingsAgentsSection } from "./settings-agents-section";
 import { SettingsAppearanceSection } from "./settings-appearance-section";
 import { SettingsGeneralSection } from "./settings-general-section";
 import { SettingsModelsSection } from "./settings-models-section";
@@ -17,6 +19,7 @@ interface SettingsViewProps {
   readonly notificationPreferences: NotificationPreferences;
   readonly notificationPermissionStatus: DesktopNotificationPermissionStatus;
   readonly notificationPermissionPending: boolean;
+  readonly agentDefinitions?: AgentDefinitionsSnapshot;
   readonly modelSettingsScopeMode: ModelSettingsScopeMode;
   readonly integratedTerminalShell: string;
   readonly themeMode: "system" | "light" | "dark";
@@ -34,6 +37,8 @@ interface SettingsViewProps {
   readonly onRequestNotificationPermission: () => void;
   readonly onOpenSystemNotificationSettings: () => void;
   readonly onSetThemeMode: (mode: "system" | "light" | "dark") => void;
+  readonly onSaveAgentDefinition: (input: SaveAgentDefinitionInput) => void;
+  readonly onResetAgentDefinition: (input: ResetAgentDefinitionInput) => void;
 }
 
 export function SettingsView({
@@ -43,6 +48,7 @@ export function SettingsView({
   notificationPreferences,
   notificationPermissionStatus,
   notificationPermissionPending,
+  agentDefinitions,
   modelSettingsScopeMode,
   integratedTerminalShell,
   themeMode,
@@ -60,6 +66,8 @@ export function SettingsView({
   onRequestNotificationPermission,
   onOpenSystemNotificationSettings,
   onSetThemeMode,
+  onSaveAgentDefinition,
+  onResetAgentDefinition,
 }: SettingsViewProps) {
   if (!workspace && section !== "general" && section !== "notifications" && section !== "appearance") {
     return (
@@ -121,6 +129,15 @@ export function SettingsView({
               onSetDefaultModel={onSetDefaultModel}
               onSetScopedModelPatterns={onSetScopedModelPatterns}
               onSetThinkingLevel={onSetThinkingLevel}
+            />
+          ) : null}
+
+          {section === "agents" ? (
+            <SettingsAgentsSection
+              runtime={runtime}
+              snapshot={agentDefinitions}
+              onSave={onSaveAgentDefinition}
+              onReset={onResetAgentDefinition}
             />
           ) : null}
 

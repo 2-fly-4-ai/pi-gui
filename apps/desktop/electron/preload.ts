@@ -34,6 +34,7 @@ import type {
   StartThreadInput,
   WorkspaceSessionTarget,
 } from "../src/desktop-state";
+import type { AgentDefinitionsSnapshot, ResetAgentDefinitionInput, SaveAgentDefinitionInput } from "../src/agent-definitions";
 import type { CreateReviewSnapshotOptions, ReviewDraftComment, ReviewSnapshot } from "../src/review/review-types";
 
 const devReloadMarkersEnabled = process.env.PI_APP_DEV_RELOAD_MARKERS === "1";
@@ -193,6 +194,12 @@ contextBridge.exposeInMainWorld("piApp", {
     ipcRenderer.invoke(desktopIpc.setSkillMode, workspaceId, filePath, mode) as Promise<DesktopAppState>,
   setExtensionEnabled: (workspaceId: string, filePath: string, enabled: boolean) =>
     ipcRenderer.invoke(desktopIpc.setExtensionEnabled, workspaceId, filePath, enabled) as Promise<DesktopAppState>,
+  listAgentDefinitions: (workspaceId: string) =>
+    ipcRenderer.invoke(desktopIpc.listAgentDefinitions, workspaceId) as Promise<AgentDefinitionsSnapshot>,
+  saveAgentDefinition: (workspaceId: string, input: SaveAgentDefinitionInput) =>
+    ipcRenderer.invoke(desktopIpc.saveAgentDefinition, workspaceId, input) as Promise<AgentDefinitionsSnapshot>,
+  resetAgentDefinition: (workspaceId: string, input: ResetAgentDefinitionInput) =>
+    ipcRenderer.invoke(desktopIpc.resetAgentDefinition, workspaceId, input) as Promise<AgentDefinitionsSnapshot>,
   respondToHostUiRequest: (workspaceId: string, sessionId: string, response: HostUiResponse) =>
     ipcRenderer.invoke(desktopIpc.respondToHostUiRequest, workspaceId, sessionId, response) as Promise<DesktopAppState>,
   setNotificationPreferences: (preferences: Partial<NotificationPreferences>) =>

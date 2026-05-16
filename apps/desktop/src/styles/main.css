@@ -6188,3 +6188,62 @@ mark.thread-find-active {
     linear-gradient(90deg, rgba(154, 160, 168, 0.095) 1px, transparent 1px);
 }
 
+
+.agent-definitions-list {
+  display: grid;
+  gap: 10px;
+}
+
+.agent-definition-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 16px;
+  align-items: start;
+  padding: 14px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 14px;
+  background: var(--surface-muted);
+}
+
+.agent-definition-row__main {
+  min-width: 0;
+}
+
+.agent-definition-row__title {
+  color: var(--text-strong);
+  font-weight: 700;
+}
+
+.agent-definition-row__description {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.agent-definition-row__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 9px;
+  color: var(--muted-soft);
+  font-size: 12px;
+}
+
+.agent-definition-row__meta span {
+  max-width: 320px;
+  overflow: hidden;
+  padding: 4px 7px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-definition-row__actions {
+  display: flex;
+  gap: 8px;
+}
+
+.agent-definition-editor {
+  width: min(620px, 100%);
+}

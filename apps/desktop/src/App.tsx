@@ -15,6 +15,7 @@ import {
   type WorktreeRecord,
   type WorkspaceRecord,
 } from "./desktop-state";
+import type { AgentDefinitionsSnapshot, ResetAgentDefinitionInput, SaveAgentDefinitionInput } from "./agent-definitions";
 import { formatRelativeTime } from "./string-utils";
 import { AddActionDialog } from "./add-action-dialog";
 import { CommandPalette } from "./command-palette";
@@ -172,6 +173,7 @@ export default function App() {
   const [composerDraft, setComposerDraft] = useState("");
   const [skillUsageByPath, setSkillUsageByPath] = useState<SkillUsageByPath>(() => loadSkillUsage());
   const [projectActionsByWorkspace, setProjectActionsByWorkspace] = useState<ProjectActionsByWorkspace>(() => loadProjectActions());
+  const [agentDefinitions, setAgentDefinitions] = useState<AgentDefinitionsSnapshot | undefined>();
   const [addActionDialogOpen, setAddActionDialogOpen] = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [settingsSection, setSettingsSection] = useState<SettingsSection>("general");
@@ -390,6 +392,22 @@ export default function App() {
     : undefined;
   const settingsRuntime = settingsWorkspace ? snapshot?.runtimeByWorkspace[settingsWorkspace.id] : undefined;
   const settingsModelRuntime = snapshot ? getEffectiveModelRuntime(snapshot, settingsWorkspace) : undefined;
+  const loadAgentDefinitions = useCallback((workspaceId?: string) => {
+    if (!api || !workspaceId) {
+      setAgentDefinitions(undefined);
+      return;
+    }
+    void api.listAgentDefinitions(workspaceId).then(setAgentDefinitions).catch((error) => {
+      console.warn("Failed to load agent definitions", error);
+    });
+  }, [api]);
+
+  useEffect(() => {
+    if (snapshot?.activeView === "settings" && settingsSection === "agents") {
+      loadAgentDefinitions(settingsWorkspace?.id);
+    }
+  }, [loadAgentDefinitions, settingsSection, settingsWorkspace?.id, snapshot?.activeView]);
+
   const skillsRuntime = skillsWorkspace ? snapshot?.runtimeByWorkspace[skillsWorkspace.id] : undefined;
   const extensionsRuntime = extensionsWorkspace ? snapshot?.runtimeByWorkspace[extensionsWorkspace.id] : undefined;
   const extensionsCommandCompatibility = extensionsWorkspace
@@ -2059,6 +2077,24 @@ export default function App() {
     void updateSnapshot(api, setSnapshot, () => api.setScopedModelPatterns(settingsWorkspace.id, patterns));
   };
 
+  const handleSaveAgentDefinition = (input: SaveAgentDefinitionInput) => {
+    if (!api || !settingsWorkspace) {
+      return;
+    }
+    void api.saveAgentDefinition(settingsWorkspace.id, input).then(setAgentDefinitions).catch((error) => {
+      console.warn("Failed to save agent definition", error);
+    });
+  };
+
+  const handleResetAgentDefinition = (input: ResetAgentDefinitionInput) => {
+    if (!api || !settingsWorkspace) {
+      return;
+    }
+    void api.resetAgentDefinition(settingsWorkspace.id, input).then(setAgentDefinitions).catch((error) => {
+      console.warn("Failed to reset agent definition", error);
+    });
+  };
+
   const handleSetModelSettingsScopeMode = (mode: "app-global" | "per-repo") => {
     if (!api) {
       return;
@@ -2356,6 +2392,7 @@ export default function App() {
     { id: "general", label: "General" },
     { id: "providers", label: "Providers" },
     { id: "models", label: "Models" },
+    { id: "agents", label: "Agents" },
     { id: "notifications", label: "Notifications" },
   ] as const;
 
@@ -2375,7 +2412,7 @@ export default function App() {
         testId="settings-surface"
         title="Settings"
       >
-        {settingsSection === "providers" || (settingsSection === "models" && snapshot.modelSettingsScopeMode === "per-repo") ? (
+        {settingsSection === "providers" || settingsSection === "agents" || (settingsSection === "models" && snapshot.modelSettingsScopeMode === "per-repo") ? (
           <div className="surface-toolbar">
             <label className="surface-toolbar__field">
               <span>Workspace</span>
@@ -2394,9 +2431,10 @@ export default function App() {
         ) : null}
         <SettingsView
           workspace={settingsWorkspace}
-          runtime={settingsSection === "models" ? settingsModelRuntime : settingsRuntime}
+          runtime={settingsSection === "models" || settingsSection === "agents" ? settingsModelRuntime : settingsRuntime}
           section={settingsSection}
           notificationPreferences={snapshot.notificationPreferences}
+          agentDefinitions={agentDefinitions}
           notificationPermissionStatus={notificationPermissionStatus}
           notificationPermissionPending={notificationPermissionPending}
           modelSettingsScopeMode={snapshot.modelSettingsScopeMode}
@@ -2416,6 +2454,8 @@ export default function App() {
           onSetThemeMode={handleSetThemeMode}
           onSetThinkingLevel={handleSetThinkingLevel}
           onToggleSkillCommands={handleToggleSkillCommands}
+          onSaveAgentDefinition={handleSaveAgentDefinition}
+          onResetAgentDefinition={handleResetAgentDefinition}
         />
         </SecondarySurface>
       </>
