@@ -1441,6 +1441,45 @@
   border: 1px solid #dfe3eb;
 }
 
+.message__content pre {
+  position: relative;
+}
+
+.message__code-copy {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  border: 1px solid rgba(116, 129, 150, 0.28);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.82);
+  color: #526071;
+  font: 600 11px Inter, system-ui, sans-serif;
+  padding: 3px 7px;
+  opacity: 0;
+  transition: opacity 120ms ease, background 120ms ease;
+}
+
+.message__content pre:hover .message__code-copy,
+.message__code-copy:focus-visible {
+  opacity: 1;
+}
+
+.message__code-copy:hover {
+  background: #fff;
+  color: #1f2937;
+}
+
+:root.dark .message__code-copy {
+  border-color: rgba(255, 255, 255, 0.14);
+  background: rgba(17, 24, 39, 0.82);
+  color: rgba(237, 241, 247, 0.72);
+}
+
+:root.dark .message__code-copy:hover {
+  background: rgba(17, 24, 39, 0.96);
+  color: #f7f9fc;
+}
+
 .message__content pre code {
   white-space: inherit;
 }

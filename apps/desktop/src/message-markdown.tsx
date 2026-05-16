@@ -1,3 +1,4 @@
+import { memo } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -12,6 +13,14 @@ const MARKDOWN_COMPONENTS = {
     }
     return (
       <pre data-language={language}>
+        <button
+          aria-label="Copy code block"
+          className="message__code-copy"
+          type="button"
+          onClick={() => void navigator.clipboard.writeText(code)}
+        >
+          Copy
+        </button>
         <code className={className}>{code}</code>
       </pre>
     );
@@ -23,7 +32,7 @@ const MARKDOWN_COMPONENTS = {
   ),
 } as const;
 
-export function MessageMarkdown({ text }: { readonly text: string }) {
+export const MessageMarkdown = memo(function MessageMarkdown({ text }: { readonly text: string }) {
   return (
     <div className="message__content">
       <ReactMarkdown remarkPlugins={REMARK_PLUGINS} components={MARKDOWN_COMPONENTS}>
@@ -31,4 +40,4 @@ export function MessageMarkdown({ text }: { readonly text: string }) {
       </ReactMarkdown>
     </div>
   );
-}
+});
