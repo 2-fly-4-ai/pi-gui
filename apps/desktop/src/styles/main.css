@@ -2189,6 +2189,29 @@
   min-width: 245px;
 }
 
+.fast-mode-selector__dropdown {
+  width: 255px;
+}
+
+.fast-mode-selector__item {
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr);
+  gap: 8px;
+  align-items: baseline;
+}
+
+.fast-mode-selector__item .model-selector__item-label {
+  flex: none;
+  color: var(--text-strong);
+  font-weight: 500;
+}
+
+.fast-mode-selector__item .model-selector__item-meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .reasoning-selector__item {
   gap: 6px;
 }

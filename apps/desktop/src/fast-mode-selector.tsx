@@ -19,11 +19,11 @@ const SESSION_FAST_MODE_ACTIONS: readonly {
   readonly label: string;
   readonly description: string;
 }[] = [
-  { value: "on", label: "On", description: "Use Codex Fast / priority tier for eligible GPT-5.4 and GPT-5.5 requests" },
-  { value: "off", label: "Off", description: "Disable Codex Fast for this session" },
-  { value: "auto", label: "Auto", description: "Follow openai-fast config defaults" },
-  { value: "toggle", label: "Toggle", description: "Flip Fast Mode for this session" },
-  { value: "status", label: "Status", description: "Ask the extension whether Fast Mode is active" },
+  { value: "on", label: "On", description: "Priority tier for eligible GPT-5.4/5.5" },
+  { value: "off", label: "Off", description: "Disable for this session" },
+  { value: "auto", label: "Auto", description: "Use configured default" },
+  { value: "toggle", label: "Toggle", description: "Flip for this session" },
+  { value: "status", label: "Status", description: "Check current state" },
 ];
 
 const NEW_THREAD_FAST_MODE_ACTIONS: readonly {
@@ -31,9 +31,9 @@ const NEW_THREAD_FAST_MODE_ACTIONS: readonly {
   readonly label: string;
   readonly description: string;
 }[] = [
-  { value: "auto", label: "Auto", description: "Use the configured openai-fast default" },
-  { value: "on", label: "On", description: "Enable Codex Fast before the first prompt" },
-  { value: "off", label: "Off", description: "Disable Codex Fast before the first prompt" },
+  { value: "auto", label: "Auto", description: "Use configured default" },
+  { value: "on", label: "On", description: "Enable before first prompt" },
+  { value: "off", label: "Off", description: "Disable before first prompt" },
 ];
 
 export function FastModeSelector({ commands, value, disabled, onRunFastCommand, onSetFastMode }: FastModeSelectorProps) {
@@ -94,7 +94,7 @@ export function FastModeSelector({ commands, value, disabled, onRunFastCommand, 
             ) : null}
             {commandMode ? SESSION_FAST_MODE_ACTIONS.map((action) => (
               <button
-                className="model-selector__item"
+                className="model-selector__item fast-mode-selector__item"
                 disabled={isDisabled}
                 key={action.value}
                 type="button"
@@ -110,7 +110,7 @@ export function FastModeSelector({ commands, value, disabled, onRunFastCommand, 
               const active = action.value === (value ?? "auto");
               return (
                 <button
-                  className={`model-selector__item${active ? " model-selector__item--active" : ""}`}
+                  className={`model-selector__item fast-mode-selector__item${active ? " model-selector__item--active" : ""}`}
                   disabled={disabled}
                   key={action.value}
                   type="button"
