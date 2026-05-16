@@ -47,6 +47,12 @@ export interface DesktopHarness {
   close(): Promise<void>;
 }
 
+export interface AppDiagnosticsSnapshot {
+  readonly selectedTranscriptPublishCount: number;
+  readonly statePublishCount: number;
+  readonly assistantDeltaFlushCount: number;
+}
+
 export interface LaunchDesktopOptions {
   readonly initialWorkspaces?: readonly string[];
   readonly notificationLogPath?: string;
@@ -1010,6 +1016,33 @@ export async function emitTestSessionEvent(
     }
     await hooks.emitSessionEvent(payload);
   }, event);
+}
+
+export async function emitTestSessionEventNoWait(
+  harness: DesktopHarness,
+  event: SessionDriverEvent,
+): Promise<void> {
+  await harness.electronApp.evaluate((_, payload) => {
+    const hooks = (globalThis as {
+      __PI_APP_TEST_HOOKS?: { emitSessionEvent?: (event: SessionDriverEvent) => Promise<void> };
+    }).__PI_APP_TEST_HOOKS;
+    if (!hooks?.emitSessionEvent) {
+      throw new Error("Test session-event hook is unavailable");
+    }
+    void hooks.emitSessionEvent(payload);
+  }, event);
+}
+
+export async function getAppDiagnostics(harness: DesktopHarness): Promise<AppDiagnosticsSnapshot> {
+  return harness.electronApp.evaluate(() => {
+    const hooks = (globalThis as {
+      __PI_APP_TEST_HOOKS?: { getDiagnostics?: () => AppDiagnosticsSnapshot };
+    }).__PI_APP_TEST_HOOKS;
+    if (!hooks?.getDiagnostics) {
+      throw new Error("Test diagnostics hook is unavailable");
+    }
+    return hooks.getDiagnostics();
+  });
 }
 
 export async function setDeferredThreadTitleMode(harness: DesktopHarness): Promise<void> {

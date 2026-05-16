@@ -1,4 +1,4 @@
-import { useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent, type ReactNode, type RefObject } from "react";
+import { memo, useCallback, useRef, useState, type ChangeEvent, type ClipboardEvent, type DragEvent, type KeyboardEvent, type ReactNode, type RefObject } from "react";
 import type { ComposerAttachment } from "./desktop-state";
 import type {
   ComposerSlashCommand,
@@ -55,7 +55,7 @@ interface ComposerSurfaceProps {
   readonly footer: ReactNode;
 }
 
-export function ComposerSurface({
+export const ComposerSurface = memo(function ComposerSurface({
   lastError,
   activeSlashCommand,
   activeSlashCommandMeta,
@@ -98,24 +98,26 @@ export function ComposerSurface({
   onToggleExtensionDock,
   footer,
 }: ComposerSurfaceProps) {
+  const renderCountRef = useRef(0);
+  renderCountRef.current += 1;
   const [isDragActive, setIsDragActive] = useState(false);
   const dragDepthRef = useRef(0);
 
-  const clearDragState = () => {
+  const clearDragState = useCallback(() => {
     dragDepthRef.current = 0;
     setIsDragActive(false);
-  };
+  }, []);
 
-  const handleDragEnter = (event: DragEvent<HTMLDivElement>) => {
+  const handleDragEnter = useCallback((event: DragEvent<HTMLDivElement>) => {
     if (!hasFilesInDataTransfer(event.dataTransfer)) {
       return;
     }
     event.preventDefault();
     dragDepthRef.current += 1;
     setIsDragActive(true);
-  };
+  }, []);
 
-  const handleDragLeave = (event: DragEvent<HTMLDivElement>) => {
+  const handleDragLeave = useCallback((_event: DragEvent<HTMLDivElement>) => {
     if (!isDragActive) {
       return;
     }
@@ -123,28 +125,31 @@ export function ComposerSurface({
     if (dragDepthRef.current === 0) {
       setIsDragActive(false);
     }
-  };
+  }, [isDragActive]);
 
-  const handleDragOver = (event: DragEvent<HTMLDivElement>) => {
+  const handleDragOver = useCallback((event: DragEvent<HTMLDivElement>) => {
     if (!hasFilesInDataTransfer(event.dataTransfer)) {
       return;
     }
     event.preventDefault();
     event.dataTransfer.dropEffect = "copy";
-    if (!isDragActive) {
-      setIsDragActive(true);
-    }
-  };
+    setIsDragActive(true);
+  }, []);
 
-  const handleDrop = (event: DragEvent<HTMLDivElement>) => {
+  const handleDrop = useCallback((event: DragEvent<HTMLDivElement>) => {
     clearDragState();
     onComposerDrop(event);
-  };
+  }, [clearDragState, onComposerDrop]);
+
+  const handleComposerChange = useCallback((event: ChangeEvent<HTMLTextAreaElement>) => {
+    setComposerDraft(event.target.value);
+  }, [setComposerDraft]);
 
   return (
     <div
       className={`composer__surface ${isDragActive ? "composer__surface--drag-active" : ""}`}
       data-testid={`${textareaTestId}-surface`}
+      data-render-count={renderCountRef.current}
       onPaste={onComposerPaste}
       onDragEnter={handleDragEnter}
       onDragLeave={handleDragLeave}
@@ -339,9 +344,7 @@ export function ComposerSurface({
           data-testid={textareaTestId}
           ref={composerRef}
           value={composerDraft}
-          onChange={(event) => {
-            setComposerDraft(event.target.value);
-          }}
+          onChange={handleComposerChange}
           onKeyDown={onComposerKeyDown}
           placeholder={textareaPlaceholder}
         />
@@ -349,7 +352,7 @@ export function ComposerSurface({
       </div>
     </div>
   );
-}
+});
 
 function SlashCommandIcon({ command }: { readonly command: ComposerSlashCommand }) {
   switch (command.kind) {

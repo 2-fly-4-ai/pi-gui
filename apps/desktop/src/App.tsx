@@ -2670,7 +2670,7 @@ export default function App() {
                 openSettings(selectedWorkspace?.rootWorkspaceId ?? selectedWorkspace?.id, section)
               }
               onSubmit={submitComposerDraft}
-              selectedSession={selectedSession}
+              sessionStatus={selectedSession.status}
               lastError={snapshot.lastError}
               selectedSlashCommand={slashMenu.activeSlashOptionCommand ?? slashMenu.selectedSlashCommand}
               selectedSlashOption={slashMenu.selectedSlashOption}

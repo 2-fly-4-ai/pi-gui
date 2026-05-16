@@ -96,6 +96,7 @@ import * as workspace from "./app-store-workspace";
 import * as worktree from "./app-store-worktree";
 import * as composer from "./app-store-composer";
 import { isSessionActivelyViewed } from "./session-visibility";
+import { AssistantDeltaBatcher } from "./assistant-delta-batcher";
 
 type StateListener = (state: DesktopAppState) => void;
 type SelectedTranscriptListener = (payload: SelectedTranscriptRecord | null) => void;
@@ -134,6 +135,15 @@ export class DesktopAppStore implements AppStoreInternals {
   private readonly listeners = new Set<StateListener>();
   private readonly selectedTranscriptListeners = new Set<SelectedTranscriptListener>();
   private readonly sessionEventListeners = new Set<SessionEventListener>();
+  private readonly diagnostics = {
+    selectedTranscriptPublishCount: 0,
+    statePublishCount: 0,
+    assistantDeltaFlushCount: 0,
+  };
+  private sessionEventChain: Promise<void> = Promise.resolve();
+  private readonly assistantDeltaBatcher = new AssistantDeltaBatcher(32, () => {
+    void this.flushQueuedAssistantDeltas();
+  });
   readonly driver: PiSdkDriver;
   readonly catalogStore: JsonCatalogStore;
   readonly worktreeManager: GitWorktreeManager;
@@ -228,6 +238,7 @@ export class DesktopAppStore implements AppStoreInternals {
 
   async flushPersistence(): Promise<void> {
     await this.initialize();
+    await this.flushQueuedAssistantDeltas();
     if (this.persistUiStateTimer) {
       clearTimeout(this.persistUiStateTimer);
       this.persistUiStateTimer = undefined;
@@ -249,6 +260,14 @@ export class DesktopAppStore implements AppStoreInternals {
   async emitTestSessionEvent(event: SessionDriverEvent): Promise<void> {
     await this.initialize();
     await this.handleSessionEvent(event);
+  }
+
+  getDiagnostics(): {
+    readonly selectedTranscriptPublishCount: number;
+    readonly statePublishCount: number;
+    readonly assistantDeltaFlushCount: number;
+  } {
+    return { ...this.diagnostics };
   }
 
   subscribe(listener: StateListener): () => void {
@@ -1372,11 +1391,44 @@ export class DesktopAppStore implements AppStoreInternals {
     }
   }
 
+  private async flushQueuedAssistantDeltas(): Promise<void> {
+    this.sessionEventChain = this.sessionEventChain.then(async () => {
+      await this.applyAssistantDeltaEvents(this.assistantDeltaBatcher.takeAll());
+    });
+    await this.sessionEventChain;
+  }
+
+  private async applyAssistantDeltaEvents(events: readonly Extract<SessionDriverEvent, { type: "assistantDelta" }>[]): Promise<void> {
+    if (events.length === 0) {
+      return;
+    }
+
+    this.diagnostics.assistantDeltaFlushCount += 1;
+    for (const event of events) {
+      await this.applySessionEventImmediately(event);
+    }
+  }
+
   private async handleSessionEvent(event: SessionDriverEvent, subscriptionKey = sessionKey(event.sessionRef)): Promise<void> {
     const key = sessionKey(event.sessionRef);
     if (subscriptionKey !== key) {
       this.migrateSessionSubscriptionKey(subscriptionKey, key);
     }
+
+    this.sessionEventChain = this.sessionEventChain.then(async () => {
+      if (event.type === "assistantDelta") {
+        this.assistantDeltaBatcher.enqueue(event);
+        return;
+      }
+
+      await this.applyAssistantDeltaEvents(this.assistantDeltaBatcher.takeFor(event.sessionRef));
+      await this.applySessionEventImmediately(event, subscriptionKey);
+    });
+    await this.sessionEventChain;
+  }
+
+  private async applySessionEventImmediately(event: SessionDriverEvent, subscriptionKey = sessionKey(event.sessionRef)): Promise<void> {
+    const key = sessionKey(event.sessionRef);
     const knownSession = this.sessionFromState(event.sessionRef);
     const shouldFollowSessionMutation = subscriptionKey !== key && this.currentSelectedSessionKey() === subscriptionKey;
     let refreshedFollowedSession = false;
@@ -1872,6 +1924,7 @@ export class DesktopAppStore implements AppStoreInternals {
 
   emit(): DesktopAppState {
     const snapshot = structuredClone(this.state);
+    this.diagnostics.statePublishCount += 1;
     for (const listener of this.listeners) {
       listener(snapshot);
     }
@@ -1881,6 +1934,7 @@ export class DesktopAppStore implements AppStoreInternals {
   publishSelectedTranscript(): void {
     const sessionRef = this.selectedSessionRef();
     const payload = sessionRef ? this.buildSelectedTranscriptRecord(sessionRef) : null;
+    this.diagnostics.selectedTranscriptPublishCount += 1;
     for (const listener of this.selectedTranscriptListeners) {
       listener(payload);
     }

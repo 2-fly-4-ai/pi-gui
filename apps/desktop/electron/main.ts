@@ -443,6 +443,7 @@ app.whenReady().then(async () => {
     Object.assign(globalThis, {
       __PI_APP_TEST_HOOKS: {
         emitSessionEvent: (event: SessionDriverEvent) => store.emitTestSessionEvent(event),
+        getDiagnostics: () => store.getDiagnostics(),
         setDeferredThreadTitleMode: () => {
           generateThreadTitleOverride = () =>
             new Promise<string | null>((resolve, reject) => {

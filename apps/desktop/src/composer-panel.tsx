@@ -1,4 +1,4 @@
-import { type ClipboardEvent, type Dispatch, type DragEvent, type KeyboardEvent, type ReactNode, type RefObject, type SetStateAction } from "react";
+import { memo, type ClipboardEvent, type Dispatch, type DragEvent, type KeyboardEvent, type ReactNode, type RefObject, type SetStateAction } from "react";
 import type { RuntimeCommandRecord, RuntimeSnapshot } from "@pi-gui/session-driver/runtime-types";
 import type { ToolAccessSelection } from "@pi-gui/session-driver";
 import type { ComposerAttachment, QueuedComposerMessage, SessionRecord } from "./desktop-state";
@@ -20,7 +20,7 @@ import { ContextWindowIndicator } from "./context-window-indicator";
 import { FastModeSelector } from "./fast-mode-selector";
 
 interface ComposerPanelProps {
-  readonly selectedSession: SessionRecord;
+  readonly sessionStatus: SessionRecord["status"];
   readonly lastError?: string;
   readonly runtime?: RuntimeSnapshot;
   readonly activeSlashCommand?: ComposerSlashCommand;
@@ -72,8 +72,8 @@ interface ComposerPanelProps {
   readonly checkoutSelector?: ReactNode;
 }
 
-export function ComposerPanel({
-  selectedSession,
+export const ComposerPanel = memo(function ComposerPanel({
+  sessionStatus,
   lastError,
   runtime,
   activeSlashCommand,
@@ -125,7 +125,7 @@ export function ComposerPanel({
   checkoutSelector,
 }: ComposerPanelProps) {
   const hasComposerInput = composerDraft.trim().length > 0 || attachments.length > 0;
-  const primaryActionIsStop = selectedSession.status === "running" && !hasComposerInput;
+  const primaryActionIsStop = sessionStatus === "running" && !hasComposerInput;
 
   return (
     <footer className="composer">
@@ -224,4 +224,4 @@ export function ComposerPanel({
       </div>
     </footer>
   );
-}
+});
