@@ -57,6 +57,7 @@ interface ComposerPanelProps {
   readonly onSetModel: (provider: string, modelId: string) => void;
   readonly onSetThinking: (level: string) => void;
   readonly onRunFastCommand: (command: string) => void;
+  readonly skillProfileControl?: ReactNode;
   readonly modelOnboarding: ModelOnboardingState;
   readonly toolAccess: ToolAccessSelection;
   readonly onSetToolAccess: (selection: ToolAccessSelection) => void;
@@ -110,6 +111,7 @@ export const ComposerPanel = memo(function ComposerPanel({
   onSetModel,
   onSetThinking,
   onRunFastCommand,
+  skillProfileControl,
   modelOnboarding,
   toolAccess,
   onSetToolAccess,
@@ -200,6 +202,7 @@ export const ComposerPanel = memo(function ComposerPanel({
                     onRunFastCommand={onRunFastCommand}
                   />
                 )}
+                skillProfileControl={skillProfileControl}
                 modeControl={<button className="composer-control" type="button">Build</button>}
                 supervisionControl={(
                   <ToolAccessSelector

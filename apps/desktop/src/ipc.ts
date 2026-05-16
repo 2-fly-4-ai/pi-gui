@@ -1,5 +1,5 @@
 import type { ToolAccessSelection } from "@pi-gui/session-driver";
-import type { RuntimeSettingsSnapshot } from "@pi-gui/session-driver/runtime-types";
+import type { RuntimeSettingsSnapshot, RuntimeSkillProfileRecord } from "@pi-gui/session-driver/runtime-types";
 import type {
   NavigateSessionTreeOptions,
   NavigateSessionTreeResult,
@@ -77,6 +77,9 @@ export const desktopIpc = {
   setScopedModelPatterns: "pi-gui:set-scoped-model-patterns",
   setSkillEnabled: "pi-gui:set-skill-enabled",
   setSkillMode: "pi-gui:set-skill-mode",
+  setActiveSkillProfile: "pi-gui:set-active-skill-profile",
+  saveSkillProfile: "pi-gui:save-skill-profile",
+  deleteSkillProfile: "pi-gui:delete-skill-profile",
   setExtensionEnabled: "pi-gui:set-extension-enabled",
   listAgentDefinitions: "pi-gui:list-agent-definitions",
   saveAgentDefinition: "pi-gui:save-agent-definition",
@@ -302,6 +305,9 @@ export interface PiDesktopApi {
   setScopedModelPatterns(workspaceId: string, patterns: readonly string[]): Promise<DesktopAppState>;
   setSkillEnabled(workspaceId: string, filePath: string, enabled: boolean): Promise<DesktopAppState>;
   setSkillMode(workspaceId: string, filePath: string, mode: "auto" | "manual" | "off"): Promise<DesktopAppState>;
+  setActiveSkillProfile(workspaceId: string, profileId: string): Promise<DesktopAppState>;
+  saveSkillProfile(workspaceId: string, profile: RuntimeSkillProfileRecord): Promise<DesktopAppState>;
+  deleteSkillProfile(workspaceId: string, profileId: string): Promise<DesktopAppState>;
   setExtensionEnabled(workspaceId: string, filePath: string, enabled: boolean): Promise<DesktopAppState>;
   listAgentDefinitions(workspaceId: string): Promise<AgentDefinitionsSnapshot>;
   saveAgentDefinition(workspaceId: string, input: SaveAgentDefinitionInput): Promise<AgentDefinitionsSnapshot>;

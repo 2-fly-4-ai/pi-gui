@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import type { RuntimeSkillMode, RuntimeSkillRecord, RuntimeSnapshot } from "@pi-gui/session-driver/runtime-types";
+import type { RuntimeSkillMode, RuntimeSkillProfileRecord, RuntimeSkillRecord, RuntimeSnapshot } from "@pi-gui/session-driver/runtime-types";
 import type { WorkspaceRecord } from "./desktop-state";
 import { CloseIcon, RefreshIcon, SkillIcon } from "./icons";
 import type { SkillUsageByPath, SkillUsageRecord } from "./skill-usage";
@@ -38,6 +38,9 @@ interface SkillsViewProps {
   readonly onRefresh: () => void;
   readonly onOpenSkillFolder: (filePath: string) => void;
   readonly onSetSkillMode: (filePath: string, mode: RuntimeSkillMode) => void;
+  readonly onSetActiveProfile: (profileId: string) => void;
+  readonly onSaveProfile: (profile: RuntimeSkillProfileRecord) => void;
+  readonly onDeleteProfile: (profileId: string) => void;
   readonly onTrySkill: (skill: RuntimeSkillRecord) => void;
 }
 
@@ -48,12 +51,21 @@ export function SkillsView({
   onRefresh,
   onOpenSkillFolder,
   onSetSkillMode,
+  onSetActiveProfile,
+  onSaveProfile,
+  onDeleteProfile,
   onTrySkill,
 }: SkillsViewProps) {
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState<SkillCategory>("all");
   const [selectedSkillPath, setSelectedSkillPath] = useState<string | undefined>();
+  const [profileDialog, setProfileDialog] = useState<"new" | "rename" | undefined>();
+  const [profileName, setProfileName] = useState("");
+  const [profileDescription, setProfileDescription] = useState("");
   const skills = runtime?.skills ?? [];
+  const profiles = runtime?.skillProfiles ?? [{ id: "default", name: "Default", description: "Use default skill modes from Pi and the local catalog.", skills: {} }];
+  const activeProfileId = runtime?.activeSkillProfileId ?? "default";
+  const activeProfile = profiles.find((profile) => profile.id === activeProfileId) ?? profiles[0];
   const skillModels = useMemo(() => skills.map(toSkillViewModel), [skills]);
   const filteredSkills = useMemo(() => {
     const normalized = query.trim().toLowerCase();
@@ -101,7 +113,7 @@ export function SkillsView({
             <div className="chat-header__eyebrow">Skills</div>
             <h1 className="view-header__title">Skills</h1>
             <p className="view-header__body">
-              Give pi workspace-specific capabilities and reusable workflows.
+              Build global skill profiles from the skills Pi discovers in the selected project context.
             </p>
           </div>
           <div className="view-header__actions">
@@ -130,6 +142,47 @@ export function SkillsView({
             </button>
           </div>
         </header>
+
+        <div className="skill-profile-manager">
+          <div>
+            <div className="skill-profile-manager__eyebrow">Active profile: {activeProfile?.name ?? "Default"}</div>
+            <p>Profiles are global. The discovery workspace only changes which project-local skills are visible here.</p>
+          </div>
+          <div className="skill-profile-manager__actions">
+            <select
+              aria-label="Active skill profile"
+              className="settings-select"
+              value={activeProfileId}
+              onChange={(event) => onSetActiveProfile(event.target.value)}
+            >
+              {profiles.map((profile) => (
+                <option key={profile.id} value={profile.id}>{profile.name}</option>
+              ))}
+            </select>
+            <button className="button button--secondary" type="button" onClick={() => {
+              setProfileName("");
+              setProfileDescription("");
+              setProfileDialog("new");
+            }}>New profile</button>
+            <button className="button button--secondary" type="button" onClick={() => {
+              const name = `${activeProfile?.name ?? "Default"} Copy`;
+              onSaveProfile({
+                id: slugifyProfileName(name),
+                name,
+                description: activeProfile?.description,
+                skills: activeProfile?.skills ?? {},
+              });
+            }}>Duplicate</button>
+            <button className="button button--secondary" type="button" onClick={() => {
+              setProfileName(activeProfile?.name ?? "Default");
+              setProfileDescription(activeProfile?.description ?? "");
+              setProfileDialog("rename");
+            }}>Rename</button>
+            {activeProfileId !== "default" ? (
+              <button className="button button--danger" type="button" onClick={() => onDeleteProfile(activeProfileId)}>Delete</button>
+            ) : null}
+          </div>
+        </div>
 
         <div className="skills-toolbar skills-toolbar--rich">
           <label className="skills-search-control">
@@ -174,7 +227,7 @@ export function SkillsView({
         <div className={`skills-layout ${isPanelOpen ? "skills-layout--panel-open" : ""}`}>
           <div className="skills-grid" data-testid="skills-list">
             {filteredSkills.length === 0 ? (
-              <SkillsEmptyState message="Refresh discovery or create a new skill for this workspace." />
+              <SkillsEmptyState message="No skills discovered in this workspace context. Global profiles still apply wherever those skills are available." />
             ) : (
               filteredSkills.map((model) => (
                 <div
@@ -296,6 +349,36 @@ export function SkillsView({
             </div>
           </div>
         </div>
+        {profileDialog ? (
+          <div className="action-dialog-backdrop" role="presentation">
+            <section aria-label={profileDialog === "new" ? "New skill profile" : "Rename skill profile"} aria-modal="true" className="action-dialog" role="dialog">
+              <h2>{profileDialog === "new" ? "New profile" : "Rename profile"}</h2>
+              <label className="action-dialog__field">
+                <span>Profile name</span>
+                <input aria-label="Profile name" value={profileName} onChange={(event) => setProfileName(event.target.value)} />
+              </label>
+              <label className="action-dialog__field">
+                <span>Description</span>
+                <input aria-label="Profile description" value={profileDescription} onChange={(event) => setProfileDescription(event.target.value)} />
+              </label>
+              <div className="action-dialog__actions">
+                <button className="button button--secondary" type="button" onClick={() => setProfileDialog(undefined)}>Cancel</button>
+                <button className="button button--primary" type="button" onClick={() => {
+                  const name = profileName.trim();
+                  if (!name) return;
+                  const id = profileDialog === "rename" ? activeProfileId : slugifyProfileName(name);
+                  onSaveProfile({
+                    id,
+                    name,
+                    ...(profileDescription.trim() ? { description: profileDescription.trim() } : {}),
+                    skills: profileDialog === "rename" ? activeProfile?.skills ?? {} : {},
+                  });
+                  setProfileDialog(undefined);
+                }}>{profileDialog === "new" ? "Create profile" : "Save profile"}</button>
+              </div>
+            </section>
+          </div>
+        ) : null}
       </div>
     </section>
   );
@@ -425,7 +508,7 @@ function skillModeLabel(mode: RuntimeSkillMode): string {
 
 function SkillUsageStats({ usage, compact = false }: { readonly usage?: SkillUsageRecord; readonly compact?: boolean }) {
   const count = usage?.count ?? 0;
-  const countLabel = count === 1 ? "Used 1 time" : `Used ${count} times`;
+  const countLabel = count === 1 ? "1 slash use" : `${count} slash uses`;
   const lastUsedLabel = usage?.lastUsedAt ? `Last used ${formatRelativeTime(usage.lastUsedAt)}` : "Never used";
   return (
     <span className={compact ? "skill-usage skill-usage--compact" : "skill-usage"}>
@@ -433,6 +516,10 @@ function SkillUsageStats({ usage, compact = false }: { readonly usage?: SkillUsa
       <span>{lastUsedLabel}</span>
     </span>
   );
+}
+
+function slugifyProfileName(value: string): string {
+  return value.trim().toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "profile";
 }
 
 function SkillDetailPlaceholder({ title, body }: { readonly title: string; readonly body: string }) {

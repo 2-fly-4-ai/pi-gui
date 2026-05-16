@@ -11,15 +11,33 @@ export interface SkillCatalogEntry {
   readonly mode?: SkillInvocationMode;
 }
 
+export interface SkillProfileRecord {
+  readonly id: string;
+  readonly name: string;
+  readonly description?: string;
+  readonly skills: Readonly<Record<string, SkillInvocationMode>>;
+  readonly createdAt?: string;
+  readonly updatedAt?: string;
+}
+
 export interface SkillCatalogFile {
   readonly skills?: Readonly<Record<string, SkillCatalogEntry>>;
   readonly bySource?: Readonly<Record<string, SkillCatalogEntry>>;
   readonly byPath?: Readonly<Record<string, SkillCatalogEntry>>;
+  readonly activeProfileId?: string;
+  readonly profiles?: readonly SkillProfileRecord[];
 }
 
 export interface SkillCatalogMatch extends SkillCatalogEntry {
   readonly source: "default" | "user" | "merged";
 }
+
+const DEFAULT_SKILL_PROFILE: SkillProfileRecord = {
+  id: "default",
+  name: "Default",
+  description: "Use default skill modes from Pi and the local catalog.",
+  skills: {},
+};
 
 const DEFAULT_SKILL_CATALOG: SkillCatalogFile = {
   skills: {
@@ -161,11 +179,93 @@ export class SkillCatalogStore {
   }
 
   modeForSkill(skill: Pick<Skill, "name" | "filePath" | "disableModelInvocation"> & { readonly source?: string }): SkillInvocationMode {
+    const profileMode = this.getActiveProfile().skills[skillProfileKey(skill)];
+    if (profileMode) {
+      return profileMode;
+    }
     const overrideMode = this.getEntry(skill)?.mode;
     if (overrideMode) {
       return overrideMode;
     }
     return skill.disableModelInvocation ? "manual" : "auto";
+  }
+
+  getProfiles(): readonly SkillProfileRecord[] {
+    return ensureDefaultProfile(this.cachedUserCatalog?.profiles ?? []);
+  }
+
+  getActiveProfileId(): string {
+    const active = this.cachedUserCatalog?.activeProfileId;
+    return active && this.getProfiles().some((profile) => profile.id === active) ? active : DEFAULT_SKILL_PROFILE.id;
+  }
+
+  getActiveProfile(): SkillProfileRecord {
+    const activeId = this.getActiveProfileId();
+    return this.getProfiles().find((profile) => profile.id === activeId) ?? DEFAULT_SKILL_PROFILE;
+  }
+
+  async setActiveProfile(profileId: string): Promise<void> {
+    if (!this.getProfiles().some((profile) => profile.id === profileId)) {
+      throw new Error(`Unknown skill profile: ${profileId}`);
+    }
+    await this.writeUserCatalog({ ...(await this.readUserCatalog()), activeProfileId: profileId });
+  }
+
+  async saveProfile(profile: SkillProfileRecord): Promise<void> {
+    validateProfile(profile);
+    const current = await this.readUserCatalog();
+    const now = new Date().toISOString();
+    const profiles = ensureDefaultProfile(current.profiles ?? []);
+    const existing = profiles.find((entry) => entry.id === profile.id);
+    const nextProfile: SkillProfileRecord = {
+      ...profile,
+      createdAt: profile.createdAt ?? existing?.createdAt ?? now,
+      updatedAt: now,
+    };
+    await this.writeUserCatalog({
+      ...current,
+      profiles: [nextProfile, ...profiles.filter((entry) => entry.id !== profile.id && entry.id !== DEFAULT_SKILL_PROFILE.id)],
+      activeProfileId: profile.id,
+    });
+  }
+
+  async deleteProfile(profileId: string): Promise<void> {
+    if (profileId === DEFAULT_SKILL_PROFILE.id) {
+      throw new Error("Default skill profile cannot be deleted.");
+    }
+    const current = await this.readUserCatalog();
+    const next: SkillCatalogFile = {
+      ...current,
+      profiles: (current.profiles ?? []).filter((profile) => profile.id !== profileId),
+      ...(current.activeProfileId === profileId
+        ? { activeProfileId: DEFAULT_SKILL_PROFILE.id }
+        : current.activeProfileId
+          ? { activeProfileId: current.activeProfileId }
+          : {}),
+    };
+    await this.writeUserCatalog(next);
+  }
+
+  getModeInActiveProfile(skill: Pick<Skill, "name" | "filePath"> & { readonly source?: string }): SkillInvocationMode | undefined {
+    return this.getActiveProfile().skills[skillProfileKey(skill)];
+  }
+
+  async setSkillModeInActiveProfile(skill: Pick<Skill, "name" | "filePath"> & { readonly source?: string }, mode: SkillInvocationMode): Promise<void> {
+    const current = await this.readUserCatalog();
+    const active = this.getActiveProfile();
+    const profile: SkillProfileRecord = {
+      ...active,
+      skills: {
+        ...active.skills,
+        [skillProfileKey(skill)]: mode,
+      },
+    };
+    const profiles = ensureDefaultProfile(current.profiles ?? []);
+    await this.writeUserCatalog({
+      ...current,
+      profiles: [profile, ...profiles.filter((entry) => entry.id !== profile.id && entry.id !== DEFAULT_SKILL_PROFILE.id)],
+      activeProfileId: profile.id,
+    });
   }
 
   async setSkillMode(skill: Pick<Skill, "name" | "filePath"> & { readonly source?: string }, mode: SkillInvocationMode): Promise<void> {
@@ -184,9 +284,7 @@ export class SkillCatalogStore {
       ...(current.bySource ? { bySource: current.bySource } : {}),
       byPath,
     };
-    await mkdir(dirname(this.filePath), { recursive: true });
-    await writeFile(this.filePath, `${JSON.stringify(next, null, 2)}\n`, "utf8");
-    this.cachedUserCatalog = next;
+    await this.writeUserCatalog(next);
   }
 
   applyToSkills(skills: readonly Skill[]): Skill[] {
@@ -197,6 +295,15 @@ export class SkillCatalogStore {
       }
       return [{ ...skill, disableModelInvocation: mode === "manual" }];
     });
+  }
+
+  private async writeUserCatalog(next: SkillCatalogFile): Promise<void> {
+    if (!this.filePath) {
+      throw new Error("Skill catalog file path is not configured");
+    }
+    await mkdir(dirname(this.filePath), { recursive: true });
+    await writeFile(this.filePath, `${JSON.stringify(next, null, 2)}\n`, "utf8");
+    this.cachedUserCatalog = normalizeCatalogFile(next);
   }
 
   private async readUserCatalog(): Promise<SkillCatalogFile> {
@@ -219,6 +326,13 @@ export function toCatalogSkill(skill: Skill): Pick<Skill, "name" | "filePath" | 
     disableModelInvocation: skill.disableModelInvocation,
     source: skill.sourceInfo.source,
   };
+}
+
+function skillProfileKey(skill: Pick<Skill, "name" | "filePath"> & { readonly source?: string }): string {
+  if (skill.source) {
+    return `${skill.source}:${skill.name}`;
+  }
+  return resolve(skill.filePath);
 }
 
 function findCatalogEntry(
@@ -247,12 +361,56 @@ function normalizeCatalogFile(value: unknown): SkillCatalogFile {
   if (!value || typeof value !== "object") {
     return {};
   }
-  const record = value as { readonly skills?: unknown; readonly bySource?: unknown; readonly byPath?: unknown };
+  const record = value as {
+    readonly skills?: unknown;
+    readonly bySource?: unknown;
+    readonly byPath?: unknown;
+    readonly activeProfileId?: unknown;
+    readonly profiles?: unknown;
+  };
   return {
     ...(isEntryRecord(record.skills) ? { skills: record.skills } : {}),
     ...(isEntryRecord(record.bySource) ? { bySource: record.bySource } : {}),
     ...(isEntryRecord(record.byPath) ? { byPath: record.byPath } : {}),
+    ...(typeof record.activeProfileId === "string" ? { activeProfileId: record.activeProfileId } : {}),
+    ...(isProfileArray(record.profiles) ? { profiles: record.profiles } : {}),
   };
+}
+
+function ensureDefaultProfile(profiles: readonly SkillProfileRecord[]): readonly SkillProfileRecord[] {
+  const withoutDefault = profiles.filter((profile) => profile.id !== DEFAULT_SKILL_PROFILE.id);
+  const explicitDefault = profiles.find((profile) => profile.id === DEFAULT_SKILL_PROFILE.id);
+  return [explicitDefault ?? DEFAULT_SKILL_PROFILE, ...withoutDefault];
+}
+
+function validateProfile(profile: SkillProfileRecord): void {
+  if (!/^[a-z0-9][a-z0-9._-]*$/.test(profile.id)) {
+    throw new Error(`Invalid skill profile id: ${profile.id}`);
+  }
+  if (!profile.name.trim()) {
+    throw new Error("Skill profile name is required.");
+  }
+  if (!isSkillModeRecord(profile.skills)) {
+    throw new Error("Skill profile has invalid skill modes.");
+  }
+}
+
+function isProfileArray(value: unknown): value is readonly SkillProfileRecord[] {
+  return Array.isArray(value) && value.every((profile) => {
+    if (!profile || typeof profile !== "object" || Array.isArray(profile)) return false;
+    const candidate = profile as SkillProfileRecord;
+    return typeof candidate.id === "string"
+      && typeof candidate.name === "string"
+      && (!candidate.description || typeof candidate.description === "string")
+      && isSkillModeRecord(candidate.skills);
+  });
+}
+
+function isSkillModeRecord(value: unknown): value is Readonly<Record<string, SkillInvocationMode>> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+  return Object.values(value).every((mode) => mode === "auto" || mode === "manual" || mode === "off");
 }
 
 function isEntryRecord(value: unknown): value is Readonly<Record<string, SkillCatalogEntry>> {

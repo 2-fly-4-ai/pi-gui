@@ -83,7 +83,7 @@ Use this skill when building Pi extensions, commands, tools, packages, or SDK in
     expect(Math.abs(listWidthAfterSelection - listWidthBeforeSelection)).toBeLessThan(20);
     await expect(window.locator(".skill-detail")).toContainText("/skill:demo-skill");
     await expect(window.locator(".skill-detail")).toContainText("Workflow");
-    await expect(window.locator(".skill-detail")).toContainText("Used 0 times");
+    await expect(window.locator(".skill-detail")).toContainText("0 slash uses");
     await expect(window.locator(".skill-detail")).toContainText("Never used");
     await expect(window.locator(".skill-detail")).toContainText("Use");
     await expect(window.locator(".skill-detail")).toContainText("Auto");

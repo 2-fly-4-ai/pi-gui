@@ -32,6 +32,7 @@ import type {
   RuntimeCommandRecord,
   RuntimeLoginCallbacks,
   RuntimeSettingsSnapshot,
+  RuntimeSkillProfileRecord,
   RuntimeSnapshot,
 } from "@pi-gui/session-driver/runtime-types";
 import {
@@ -772,6 +773,27 @@ export class DesktopAppStore implements AppStoreInternals {
   async setSkillMode(workspaceId: string, filePath: string, mode: "auto" | "manual" | "off"): Promise<DesktopAppState> {
     return this.withRuntimeUpdate(workspaceId, (ws) =>
       this.driver.runtimeSupervisor.setSkillMode(ws, filePath, mode),
+      { reloadSessions: true },
+    );
+  }
+
+  async setActiveSkillProfile(workspaceId: string, profileId: string): Promise<DesktopAppState> {
+    return this.withRuntimeUpdate(workspaceId, (ws) =>
+      this.driver.runtimeSupervisor.setActiveSkillProfile(ws, profileId),
+      { reloadSessions: true },
+    );
+  }
+
+  async saveSkillProfile(workspaceId: string, profile: RuntimeSkillProfileRecord): Promise<DesktopAppState> {
+    return this.withRuntimeUpdate(workspaceId, (ws) =>
+      this.driver.runtimeSupervisor.saveSkillProfile(ws, profile),
+      { reloadSessions: true },
+    );
+  }
+
+  async deleteSkillProfile(workspaceId: string, profileId: string): Promise<DesktopAppState> {
+    return this.withRuntimeUpdate(workspaceId, (ws) =>
+      this.driver.runtimeSupervisor.deleteSkillProfile(ws, profileId),
       { reloadSessions: true },
     );
   }

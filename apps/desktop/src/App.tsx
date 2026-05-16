@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type Dispatch, type DragEvent, type KeyboardEvent, type SetStateAction } from "react";
 import { DEFAULT_TOOL_ACCESS, type ToolAccessSelection } from "@pi-gui/session-driver";
 import type { SessionTreeSnapshot } from "@pi-gui/session-driver/types";
-import type { RuntimeSnapshot } from "@pi-gui/session-driver/runtime-types";
+import type { RuntimeSkillProfileRecord, RuntimeSnapshot } from "@pi-gui/session-driver/runtime-types";
 import {
   getSelectedSession,
   getSelectedWorkspace,
@@ -37,6 +37,7 @@ import {
 } from "./ipc";
 import { deriveModelOnboardingState } from "./model-onboarding";
 import { SkillsView } from "./skills-view";
+import { SkillProfileSelector } from "./skill-profile-selector";
 import { ExtensionsView } from "./extensions-view";
 import { SettingsView, type SettingsSection } from "./settings-view";
 import { SecondarySurface } from "./secondary-surface";
@@ -2181,6 +2182,31 @@ export default function App() {
     void updateSnapshot(api, setSnapshot, () => api.setSkillMode(skillsWorkspace.id, filePath, mode));
   };
 
+  const handleSetActiveSkillProfile = (workspaceId: string | undefined, profileId: string) => {
+    if (!workspaceId) {
+      return;
+    }
+    void updateSnapshot(api, setSnapshot, () => api.setActiveSkillProfile(workspaceId, profileId));
+  };
+
+  const handleSaveSkillProfile = (workspaceId: string | undefined, profile: RuntimeSkillProfileRecord) => {
+    if (!workspaceId) {
+      return;
+    }
+    void updateSnapshot(api, setSnapshot, () => api.saveSkillProfile(workspaceId, profile));
+  };
+
+  const handleDeleteSkillProfile = (workspaceId: string | undefined, profileId: string) => {
+    if (!workspaceId) {
+      return;
+    }
+    void updateSnapshot(api, setSnapshot, () => api.deleteSkillProfile(workspaceId, profileId));
+  };
+
+  const openSkillProfiles = (workspaceId?: string) => {
+    openSkills(workspaceId);
+  };
+
   const handleOpenSkillFolder = (filePath: string) => {
     if (!skillsWorkspace) {
       return;
@@ -2453,7 +2479,7 @@ export default function App() {
         {settingsSection === "providers" || settingsSection === "agents" || (settingsSection === "models" && snapshot.modelSettingsScopeMode === "per-repo") ? (
           <div className="surface-toolbar">
             <label className="surface-toolbar__field">
-              <span>Workspace</span>
+              <span>Discovery workspace</span>
               <select
                 value={settingsWorkspace?.id ?? ""}
                 onChange={(event) => setSettingsWorkspaceId(event.target.value)}
@@ -2539,7 +2565,7 @@ export default function App() {
         <SecondarySurface onBack={() => setActiveView("threads")} testId="skills-surface" title="Skills">
         <div className="surface-toolbar">
           <label className="surface-toolbar__field">
-            <span>Workspace</span>
+            <span>Discovery workspace</span>
             <select
               value={skillsWorkspace?.id ?? ""}
               onChange={(event) => setSkillsWorkspaceId(event.target.value)}
@@ -2551,6 +2577,7 @@ export default function App() {
               ))}
             </select>
           </label>
+          <span className="surface-toolbar__hint">Profiles are global. This only changes project-local skill discovery.</span>
         </div>
         <SkillsView
           workspace={skillsWorkspace}
@@ -2564,6 +2591,9 @@ export default function App() {
             void updateSnapshot(api, setSnapshot, () => api.refreshRuntime(skillsWorkspace.id));
           }}
           onSetSkillMode={handleSetSkillMode}
+          onSetActiveProfile={(profileId) => handleSetActiveSkillProfile(skillsWorkspace?.id, profileId)}
+          onSaveProfile={(profile) => handleSaveSkillProfile(skillsWorkspace?.id, profile)}
+          onDeleteProfile={(profileId) => handleDeleteSkillProfile(skillsWorkspace?.id, profileId)}
           onTrySkill={(skill) =>
             handleTrySkill(
               skill.filePath
@@ -2718,6 +2748,14 @@ export default function App() {
               modelOnboarding={newThreadModelOnboarding}
               toolAccess={resolvedNewThreadToolAccess}
               fastMode={newThreadFastMode}
+              skillProfileControl={newThreadRuntime ? (
+                <SkillProfileSelector
+                  profiles={newThreadRuntime.skillProfiles}
+                  activeProfileId={newThreadRuntime.activeSkillProfileId}
+                  onSelectProfile={(profileId) => handleSetActiveSkillProfile(newThreadWorkspace?.id, profileId)}
+                  onOpenSkillProfiles={() => openSkillProfiles(newThreadWorkspace?.id)}
+                />
+              ) : undefined}
               composerRef={newThreadComposerRef}
               activeSlashCommand={newThreadSlashMenu.activeSlashFlow?.command}
               activeSlashCommandMeta={newThreadSlashMenu.activeSlashFlow?.command?.description}
@@ -2854,6 +2892,14 @@ export default function App() {
               onSetModel={handleSetSessionModel}
               onSetThinking={handleSetSessionThinking}
               onRunFastCommand={handleRunFastCommand}
+              skillProfileControl={selectedRuntime ? (
+                <SkillProfileSelector
+                  profiles={selectedRuntime.skillProfiles}
+                  activeProfileId={selectedRuntime.activeSkillProfileId}
+                  onSelectProfile={(profileId) => handleSetActiveSkillProfile(selectedWorkspace?.id, profileId)}
+                  onOpenSkillProfiles={() => openSkillProfiles(selectedWorkspace?.rootWorkspaceId ?? selectedWorkspace?.id)}
+                />
+              ) : undefined}
               modelOnboarding={selectedSessionModelOnboarding}
               onOpenModelSettings={(section) =>
                 openSettings(selectedWorkspace?.rootWorkspaceId ?? selectedWorkspace?.id, section)

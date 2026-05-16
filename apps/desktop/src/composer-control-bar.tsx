@@ -5,6 +5,7 @@ interface ComposerControlBarProps {
   readonly modelControl: ReactNode;
   readonly reasoningControl: ReactNode;
   readonly fastModeControl?: ReactNode;
+  readonly skillProfileControl?: ReactNode;
   readonly modeControl: ReactNode;
   readonly supervisionControl: ReactNode;
   readonly contextControl: ReactNode;
@@ -19,6 +20,7 @@ export function ComposerControlBar({
   modelControl,
   reasoningControl,
   fastModeControl,
+  skillProfileControl,
   modeControl,
   supervisionControl,
   contextControl,
@@ -38,6 +40,12 @@ export function ComposerControlBar({
           <>
             <span aria-hidden="true" className="composer-control-bar__separator" />
             {fastModeControl}
+          </>
+        ) : null}
+        {skillProfileControl ? (
+          <>
+            <span aria-hidden="true" className="composer-control-bar__separator" />
+            {skillProfileControl}
           </>
         ) : null}
         <span aria-hidden="true" className="composer-control-bar__separator" />

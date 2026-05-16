@@ -19,7 +19,7 @@ import type {
   HostUiResponse,
   ToolAccessSelection,
 } from "@pi-gui/session-driver";
-import type { RuntimeSettingsSnapshot } from "@pi-gui/session-driver/runtime-types";
+import type { RuntimeSettingsSnapshot, RuntimeSkillProfileRecord } from "@pi-gui/session-driver/runtime-types";
 import type {
   AppView,
   ComposerAttachment,
@@ -192,6 +192,12 @@ contextBridge.exposeInMainWorld("piApp", {
     ipcRenderer.invoke(desktopIpc.setSkillEnabled, workspaceId, filePath, enabled) as Promise<DesktopAppState>,
   setSkillMode: (workspaceId: string, filePath: string, mode: "auto" | "manual" | "off") =>
     ipcRenderer.invoke(desktopIpc.setSkillMode, workspaceId, filePath, mode) as Promise<DesktopAppState>,
+  setActiveSkillProfile: (workspaceId: string, profileId: string) =>
+    ipcRenderer.invoke(desktopIpc.setActiveSkillProfile, workspaceId, profileId) as Promise<DesktopAppState>,
+  saveSkillProfile: (workspaceId: string, profile: RuntimeSkillProfileRecord) =>
+    ipcRenderer.invoke(desktopIpc.saveSkillProfile, workspaceId, profile) as Promise<DesktopAppState>,
+  deleteSkillProfile: (workspaceId: string, profileId: string) =>
+    ipcRenderer.invoke(desktopIpc.deleteSkillProfile, workspaceId, profileId) as Promise<DesktopAppState>,
   setExtensionEnabled: (workspaceId: string, filePath: string, enabled: boolean) =>
     ipcRenderer.invoke(desktopIpc.setExtensionEnabled, workspaceId, filePath, enabled) as Promise<DesktopAppState>,
   listAgentDefinitions: (workspaceId: string) =>

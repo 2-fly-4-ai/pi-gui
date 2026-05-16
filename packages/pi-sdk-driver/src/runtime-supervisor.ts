@@ -19,6 +19,7 @@ import type {
   RuntimeProviderRecord,
   RuntimeResourceDriver,
   RuntimeSettingsSnapshot,
+  RuntimeSkillProfileRecord,
   RuntimeSkillRecord,
   RuntimeSourceInfo,
   RuntimeSnapshot,
@@ -285,13 +286,31 @@ export class RuntimeSupervisor implements RuntimeResourceDriver {
     }
 
     const skill = await this.catalogSkillForResource(context, resource);
-    await this.skillCatalog.setSkillMode(skill, mode);
-    if (mode === "off") {
-      this.toggleResource(context, resource, false, "skill");
-    } else if (!resource.enabled) {
-      this.toggleResource(context, resource, true, "skill");
-    }
-    await context.settingsManager.flush();
+    await this.skillCatalog.setSkillModeInActiveProfile(skill, mode);
+    await this.skillCatalog.reload();
+    await context.resourceLoader.reload();
+    return this.buildSnapshot(context);
+  }
+
+  async setActiveSkillProfile(workspace: WorkspaceRef, profileId: string): Promise<RuntimeSnapshot> {
+    const context = await this.ensureContext(workspace);
+    await this.skillCatalog.setActiveProfile(profileId);
+    await this.skillCatalog.reload();
+    await context.resourceLoader.reload();
+    return this.buildSnapshot(context);
+  }
+
+  async saveSkillProfile(workspace: WorkspaceRef, profile: RuntimeSkillProfileRecord): Promise<RuntimeSnapshot> {
+    const context = await this.ensureContext(workspace);
+    await this.skillCatalog.saveProfile(profile);
+    await this.skillCatalog.reload();
+    await context.resourceLoader.reload();
+    return this.buildSnapshot(context);
+  }
+
+  async deleteSkillProfile(workspace: WorkspaceRef, profileId: string): Promise<RuntimeSnapshot> {
+    const context = await this.ensureContext(workspace);
+    await this.skillCatalog.deleteProfile(profileId);
     await this.skillCatalog.reload();
     await context.resourceLoader.reload();
     return this.buildSnapshot(context);
@@ -404,6 +423,8 @@ export class RuntimeSupervisor implements RuntimeResourceDriver {
       providers,
       models,
       skills,
+      skillProfiles: this.skillCatalog.getProfiles(),
+      activeSkillProfileId: this.skillCatalog.getActiveProfileId(),
       extensions,
       settings,
     };
@@ -575,10 +596,15 @@ export class RuntimeSupervisor implements RuntimeResourceDriver {
           filePath,
           source: resource.metadata.source,
         });
-        const catalogMode = catalogEntry?.mode;
-        const mode = !resource.enabled || catalogMode === "off"
-          ? "off"
-          : catalogMode ?? (baseDisableModelInvocation ? "manual" : "auto");
+        const catalogSkill = {
+          name,
+          filePath,
+          disableModelInvocation: baseDisableModelInvocation,
+          source: resource.metadata.source,
+        };
+        const profileMode = this.skillCatalog.getModeInActiveProfile(catalogSkill);
+        const catalogMode = this.skillCatalog.modeForSkill(catalogSkill);
+        const mode = (!resource.enabled && !profileMode) || catalogMode === "off" ? "off" : catalogMode;
         const disableModelInvocation = mode === "manual";
         const summary = catalogEntry?.summary ?? metadata?.summary;
         const category = catalogEntry?.category ?? metadata?.category;

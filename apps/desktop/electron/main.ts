@@ -46,6 +46,7 @@ import type {
   WorkspaceSessionTarget,
 } from "../src/desktop-state";
 import type { SessionDriverEvent } from "@pi-gui/session-driver";
+import type { RuntimeSkillProfileRecord } from "@pi-gui/session-driver/runtime-types";
 import type { GenerateThreadTitleOptions } from "@pi-gui/pi-sdk-driver";
 import type { WorkspaceRef } from "@pi-gui/session-driver";
 
@@ -602,6 +603,15 @@ app.whenReady().then(async () => {
   );
   ipcMain.handle(desktopIpc.setSkillMode, (_event, workspaceId: string, filePath: string, mode: "auto" | "manual" | "off") =>
     store.setSkillMode(workspaceId, filePath, mode),
+  );
+  ipcMain.handle(desktopIpc.setActiveSkillProfile, (_event, workspaceId: string, profileId: string) =>
+    store.setActiveSkillProfile(workspaceId, profileId),
+  );
+  ipcMain.handle(desktopIpc.saveSkillProfile, (_event, workspaceId: string, profile: RuntimeSkillProfileRecord) =>
+    store.saveSkillProfile(workspaceId, profile),
+  );
+  ipcMain.handle(desktopIpc.deleteSkillProfile, (_event, workspaceId: string, profileId: string) =>
+    store.deleteSkillProfile(workspaceId, profileId),
   );
   ipcMain.handle(desktopIpc.setExtensionEnabled, (_event, workspaceId: string, filePath: string, enabled: boolean) =>
     store.setExtensionEnabled(workspaceId, filePath, enabled),

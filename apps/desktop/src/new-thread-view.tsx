@@ -34,6 +34,7 @@ interface NewThreadViewProps {
   readonly modelOnboarding: ModelOnboardingState;
   readonly toolAccess: ToolAccessSelection;
   readonly fastMode: FastModeSelection;
+  readonly skillProfileControl?: ReactNode;
   readonly composerRef: RefObject<HTMLTextAreaElement | null>;
   readonly activeSlashCommand?: ComposerSlashCommand;
   readonly activeSlashCommandMeta?: string;
@@ -82,6 +83,7 @@ export function NewThreadView({
   modelOnboarding,
   toolAccess,
   fastMode,
+  skillProfileControl,
   composerRef,
   activeSlashCommand,
   activeSlashCommandMeta,
@@ -219,6 +221,7 @@ export function NewThreadView({
                   modelOnboarding={modelOnboarding}
                   toolAccess={toolAccess}
                   fastMode={fastMode}
+                  skillProfileControl={skillProfileControl}
                   hasContent={Boolean(prompt.trim() || attachments.length > 0)}
                   fileInputRef={fileInputRef}
                   onSelectEnvironment={onSelectEnvironment}
@@ -248,6 +251,7 @@ interface NewThreadComposerFooterProps {
   readonly modelOnboarding: ModelOnboardingState;
   readonly toolAccess: ToolAccessSelection;
   readonly fastMode: FastModeSelection;
+  readonly skillProfileControl?: ReactNode;
   readonly hasContent: boolean;
   readonly fileInputRef: RefObject<HTMLInputElement | null>;
   readonly onSelectEnvironment: (environment: NewThreadEnvironment) => void;
@@ -268,6 +272,7 @@ function NewThreadComposerFooter({
   modelOnboarding,
   toolAccess,
   fastMode,
+  skillProfileControl,
   hasContent,
   fileInputRef,
   onSelectEnvironment,
@@ -301,6 +306,7 @@ function NewThreadComposerFooter({
           )}
           reasoningControl={<ReasoningSelector thinkingLevel={thinkingLevel} onSetThinking={onSetThinking} />}
           fastModeControl={<FastModeSelector value={fastMode} onSetFastMode={onSetFastMode} />}
+          skillProfileControl={skillProfileControl}
           modeControl={(
             <div className="new-thread__environment-group">
               <button

@@ -370,6 +370,13 @@ declare module "@pi-gui/session-driver/runtime-types" {
 
   export type RuntimeSkillMode = "auto" | "manual" | "off";
 
+  export interface RuntimeSkillProfileRecord {
+    readonly id: string;
+    readonly name: string;
+    readonly description?: string;
+    readonly skills: Readonly<Record<string, RuntimeSkillMode>>;
+  }
+
   export interface RuntimeSkillRecord {
     readonly name: string;
     readonly description: string;
@@ -442,6 +449,8 @@ declare module "@pi-gui/session-driver/runtime-types" {
     readonly providers: readonly RuntimeProviderRecord[];
     readonly models: readonly RuntimeModelRecord[];
     readonly skills: readonly RuntimeSkillRecord[];
+    readonly skillProfiles: readonly RuntimeSkillProfileRecord[];
+    readonly activeSkillProfileId: string;
     readonly extensions: readonly RuntimeExtensionRecord[];
     readonly settings: RuntimeSettingsSnapshot;
   }
@@ -467,6 +476,9 @@ declare module "@pi-gui/session-driver/runtime-types" {
     setScopedModelPatterns(workspace: WorkspaceRef, patterns: readonly string[]): Promise<RuntimeSnapshot>;
     setSkillEnabled(workspace: WorkspaceRef, filePath: string, enabled: boolean): Promise<RuntimeSnapshot>;
     setSkillMode(workspace: WorkspaceRef, filePath: string, mode: RuntimeSkillMode): Promise<RuntimeSnapshot>;
+    setActiveSkillProfile(workspace: WorkspaceRef, profileId: string): Promise<RuntimeSnapshot>;
+    saveSkillProfile(workspace: WorkspaceRef, profile: RuntimeSkillProfileRecord): Promise<RuntimeSnapshot>;
+    deleteSkillProfile(workspace: WorkspaceRef, profileId: string): Promise<RuntimeSnapshot>;
     setExtensionEnabled(workspace: WorkspaceRef, filePath: string, enabled: boolean): Promise<RuntimeSnapshot>;
   }
 }
