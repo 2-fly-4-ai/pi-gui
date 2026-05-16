@@ -181,7 +181,6 @@ export function ComposerPanel({
                     modelId={modelId}
                     thinkingLevel={undefined}
                     variant="composer"
-                    disabled={selectedSession.status === "running"}
                     unselectedModelLabel={modelOnboarding.unselectedModelLabel}
                     emptyModelTitle={modelOnboarding.emptyModelTitle}
                     emptyModelDescription={modelOnboarding.emptyModelDescription}
@@ -192,7 +191,6 @@ export function ComposerPanel({
                 reasoningControl={(
                   <ReasoningSelector
                     thinkingLevel={thinkingLevel}
-                    disabled={selectedSession.status === "running"}
                     onSetThinking={onSetThinking}
                   />
                 )}
@@ -205,8 +203,6 @@ export function ComposerPanel({
                 modeControl={<button className="composer-control" type="button">Build</button>}
                 supervisionControl={(
                   <ToolAccessSelector
-                    disabled
-                    disabledReason="Tool access is fixed when a thread starts. Choose it on a new thread."
                     value={toolAccess}
                     onChange={onSetToolAccess}
                   />

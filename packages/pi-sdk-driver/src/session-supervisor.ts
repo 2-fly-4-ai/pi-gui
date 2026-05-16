@@ -32,6 +32,7 @@ import type {
   SessionEventListener,
   SessionModelSelection,
   SessionRef,
+  ToolAccessSelection,
   SessionSnapshot,
   SessionStatus,
   Unsubscribe,
@@ -505,6 +506,22 @@ export class SessionSupervisor {
     this.applySessionThinkingLevel(session, thinkingLevel);
     forcePersistSession(session.sessionManager);
     record.config = mergeSessionConfigWithToolAccess(record.config, session.sessionManager.buildSessionContext());
+    await this.persistSnapshot(record);
+    await this.emit(record, sessionUpdatedEvent(record));
+  }
+
+  async setSessionToolAccess(sessionRef: SessionRef, toolAccess: ToolAccessSelection): Promise<void> {
+    const record = await this.ensureRecord(sessionRef);
+    const session = this.requireSession(record);
+    const activeToolNames = toolAccess.mode === "full"
+      ? session.getAllTools().map((tool) => tool.name)
+      : [...toolAccess.tools];
+    session.setActiveToolsByName(activeToolNames);
+    forcePersistSession(session.sessionManager);
+    record.config = mergeSessionConfigWithToolAccess(
+      { ...record.config, toolAccess },
+      session.sessionManager.buildSessionContext(),
+    );
     await this.persistSnapshot(record);
     await this.emit(record, sessionUpdatedEvent(record));
   }

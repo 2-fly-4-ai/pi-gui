@@ -152,6 +152,7 @@ export type StartThreadInput = {
   readonly modelId?: string;
   readonly thinkingLevel?: string;
   readonly toolAccess?: ToolAccessSelection;
+  readonly fastMode?: "auto" | "on" | "off";
 };
 
 export interface RemoveWorktreeInput {

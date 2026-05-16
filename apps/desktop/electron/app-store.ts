@@ -24,6 +24,7 @@ import type {
   SessionQueuedMessage,
   SessionRef,
   SessionSnapshot,
+  ToolAccessSelection,
   WorkspaceRef,
 } from "@pi-gui/session-driver";
 import type {
@@ -633,6 +634,10 @@ export class DesktopAppStore implements AppStoreInternals {
     thinkingLevel: NonNullable<RuntimeSettingsSnapshot["defaultThinkingLevel"]>,
   ): Promise<DesktopAppState> {
     return composer.setSessionThinkingLevel(this, sessionRef, thinkingLevel);
+  }
+
+  async setSessionToolAccess(sessionRef: SessionRef, toolAccess: ToolAccessSelection): Promise<DesktopAppState> {
+    return composer.setSessionToolAccess(this, sessionRef, toolAccess);
   }
 
   async loginProvider(workspaceId: string, providerId: string, callbacks: RuntimeLoginCallbacks): Promise<DesktopAppState> {

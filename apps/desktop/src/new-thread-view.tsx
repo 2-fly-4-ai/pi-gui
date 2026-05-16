@@ -18,6 +18,7 @@ import { ComposerControlBar } from "./composer-control-bar";
 import { ReasoningSelector } from "./reasoning-selector";
 import { ToolAccessSelector } from "./tool-access-selector";
 import { ContextWindowIndicator } from "./context-window-indicator";
+import { FastModeSelector, type FastModeSelection } from "./fast-mode-selector";
 
 interface NewThreadViewProps {
   readonly workspaces: readonly WorkspaceRecord[];
@@ -32,6 +33,7 @@ interface NewThreadViewProps {
   readonly thinkingLevel: string | undefined;
   readonly modelOnboarding: ModelOnboardingState;
   readonly toolAccess: ToolAccessSelection;
+  readonly fastMode: FastModeSelection;
   readonly composerRef: RefObject<HTMLTextAreaElement | null>;
   readonly activeSlashCommand?: ComposerSlashCommand;
   readonly activeSlashCommandMeta?: string;
@@ -51,6 +53,7 @@ interface NewThreadViewProps {
   readonly onSetModel: (provider: string, modelId: string) => void;
   readonly onSetThinking: (level: string) => void;
   readonly onSetToolAccess: (selection: ToolAccessSelection) => void;
+  readonly onSetFastMode: (mode: FastModeSelection) => void;
   readonly onOpenModelSettings: (section: ModelOnboardingSettingsSection) => void;
   readonly onComposerKeyDown: (event: KeyboardEvent<HTMLTextAreaElement>) => void;
   readonly onComposerPaste: (event: ClipboardEvent<HTMLDivElement>) => void;
@@ -78,6 +81,7 @@ export function NewThreadView({
   thinkingLevel,
   modelOnboarding,
   toolAccess,
+  fastMode,
   composerRef,
   activeSlashCommand,
   activeSlashCommandMeta,
@@ -97,6 +101,7 @@ export function NewThreadView({
   onSetModel,
   onSetThinking,
   onSetToolAccess,
+  onSetFastMode,
   onOpenModelSettings,
   onComposerKeyDown,
   onComposerPaste,
@@ -213,12 +218,14 @@ export function NewThreadView({
                   thinkingLevel={thinkingLevel}
                   modelOnboarding={modelOnboarding}
                   toolAccess={toolAccess}
+                  fastMode={fastMode}
                   hasContent={Boolean(prompt.trim() || attachments.length > 0)}
                   fileInputRef={fileInputRef}
                   onSelectEnvironment={onSelectEnvironment}
                   onSetModel={onSetModel}
                   onSetThinking={onSetThinking}
                   onSetToolAccess={onSetToolAccess}
+                  onSetFastMode={onSetFastMode}
                   onAddAttachments={onAddAttachments}
                   onSubmit={onSubmit}
                 />
@@ -240,12 +247,14 @@ interface NewThreadComposerFooterProps {
   readonly thinkingLevel: string | undefined;
   readonly modelOnboarding: ModelOnboardingState;
   readonly toolAccess: ToolAccessSelection;
+  readonly fastMode: FastModeSelection;
   readonly hasContent: boolean;
   readonly fileInputRef: RefObject<HTMLInputElement | null>;
   readonly onSelectEnvironment: (environment: NewThreadEnvironment) => void;
   readonly onSetModel: (provider: string, modelId: string) => void;
   readonly onSetThinking: (level: string) => void;
   readonly onSetToolAccess: (selection: ToolAccessSelection) => void;
+  readonly onSetFastMode: (mode: FastModeSelection) => void;
   readonly onAddAttachments: (files: File[]) => void;
   readonly onSubmit: () => void;
 }
@@ -258,12 +267,14 @@ function NewThreadComposerFooter({
   thinkingLevel,
   modelOnboarding,
   toolAccess,
+  fastMode,
   hasContent,
   fileInputRef,
   onSelectEnvironment,
   onSetModel,
   onSetThinking,
   onSetToolAccess,
+  onSetFastMode,
   onAddAttachments,
   onSubmit,
 }: NewThreadComposerFooterProps) {
@@ -289,6 +300,7 @@ function NewThreadComposerFooter({
             />
           )}
           reasoningControl={<ReasoningSelector thinkingLevel={thinkingLevel} onSetThinking={onSetThinking} />}
+          fastModeControl={<FastModeSelector value={fastMode} onSetFastMode={onSetFastMode} />}
           modeControl={(
             <div className="new-thread__environment-group">
               <button

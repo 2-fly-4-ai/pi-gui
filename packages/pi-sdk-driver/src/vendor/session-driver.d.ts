@@ -319,6 +319,7 @@ declare module "@pi-gui/session-driver" {
     cancelCurrentRun(sessionRef: SessionRef): Promise<void>;
     setSessionModel(sessionRef: SessionRef, selection: SessionModelSelection): Promise<void>;
     setSessionThinkingLevel(sessionRef: SessionRef, thinkingLevel: string): Promise<void>;
+    setSessionToolAccess(sessionRef: SessionRef, toolAccess: ToolAccessSelection): Promise<void>;
     renameSession(sessionRef: SessionRef, title: string): Promise<void>;
     compactSession(sessionRef: SessionRef, customInstructions?: string): Promise<void>;
     reloadSession(sessionRef: SessionRef): Promise<void>;

@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { sessionKey } from "@pi-gui/pi-sdk-driver";
-import type { SessionConfig, SessionQueuedMessage, SessionRef } from "@pi-gui/session-driver";
+import type { SessionConfig, SessionQueuedMessage, SessionRef, ToolAccessSelection } from "@pi-gui/session-driver";
 import type { ComposerAttachment, DesktopAppState, QueuedComposerMessage, TranscriptMessage, WorkspaceSessionTarget } from "../src/desktop-state";
 import { toSessionRef } from "./app-store-utils";
 import {
@@ -421,6 +421,20 @@ export async function setSessionThinkingLevel(
     await store.driver.setSessionThinkingLevel(sessionRef, thinkingLevel);
     syncSessionConfig(store, key, { thinkingLevel });
     return finishComposerCommand(store, sessionRef, key, `Thinking set to ${thinkingLevel}`);
+  });
+}
+
+export async function setSessionToolAccess(
+  store: AppStoreInternals,
+  sessionRef: SessionRef,
+  toolAccess: ToolAccessSelection,
+): Promise<DesktopAppState> {
+  await store.initialize();
+  const key = sessionKey(sessionRef);
+  return store.withErrorHandling(async () => {
+    await store.driver.setSessionToolAccess(sessionRef, toolAccess);
+    syncSessionConfig(store, key, { toolAccess });
+    return finishComposerCommand(store, sessionRef, key, `Tool access set to ${toolAccess.mode}`);
   });
 }
 

@@ -1,3 +1,4 @@
+import type { ToolAccessSelection } from "@pi-gui/session-driver";
 import type { RuntimeSettingsSnapshot } from "@pi-gui/session-driver/runtime-types";
 import type {
   NavigateSessionTreeOptions,
@@ -67,6 +68,7 @@ export const desktopIpc = {
   setDefaultThinkingLevel: "pi-gui:set-default-thinking-level",
   setSessionModel: "pi-gui:set-session-model",
   setSessionThinkingLevel: "pi-gui:set-session-thinking-level",
+  setSessionToolAccess: "pi-gui:set-session-tool-access",
   loginProvider: "pi-gui:login-provider",
   logoutProvider: "pi-gui:logout-provider",
   setProviderApiKey: "pi-gui:set-provider-api-key",
@@ -275,6 +277,11 @@ export interface PiDesktopApi {
     workspaceId: string,
     sessionId: string,
     thinkingLevel: NonNullable<RuntimeSettingsSnapshot["defaultThinkingLevel"]>,
+  ): Promise<DesktopAppState>;
+  setSessionToolAccess(
+    workspaceId: string,
+    sessionId: string,
+    toolAccess: ToolAccessSelection,
   ): Promise<DesktopAppState>;
   loginProvider(workspaceId: string, providerId: string): Promise<DesktopAppState>;
   logoutProvider(workspaceId: string, providerId: string): Promise<DesktopAppState>;

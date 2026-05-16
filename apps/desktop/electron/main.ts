@@ -565,6 +565,11 @@ app.whenReady().then(async () => {
     (_event, workspaceId: string, sessionId: string, thinkingLevel) =>
       store.setSessionThinkingLevel({ workspaceId, sessionId }, thinkingLevel),
   );
+  ipcMain.handle(
+    desktopIpc.setSessionToolAccess,
+    (_event, workspaceId: string, sessionId: string, toolAccess) =>
+      store.setSessionToolAccess({ workspaceId, sessionId }, toolAccess),
+  );
   ipcMain.handle(desktopIpc.loginProvider, (_event, workspaceId: string, providerId: string) =>
     store.loginProvider(workspaceId, providerId, createRuntimeLoginCallbacks()),
   );

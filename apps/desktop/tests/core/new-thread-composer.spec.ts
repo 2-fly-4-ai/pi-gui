@@ -43,6 +43,15 @@ test("new thread reuses composer behaviors for slash commands, image previews, a
 
     const modelBadge = window.locator(".new-thread .model-selector__badge").first();
     await expect(modelBadge).toBeVisible();
+    const fastModeTrigger = window.getByTestId("fast-mode-selector-trigger");
+    await expect(fastModeTrigger).toBeVisible();
+    await fastModeTrigger.click();
+    const fastModeDropdown = window.locator(".fast-mode-selector__dropdown");
+    await expect(fastModeDropdown).toContainText("Enable Codex Fast before the first prompt");
+    await fastModeDropdown.getByRole("button", { name: /On/ }).click();
+    await expect(fastModeTrigger).toContainText("Fast On");
+    await fastModeTrigger.click();
+    await fastModeDropdown.getByRole("button", { name: /Auto/ }).click();
     await expect(window.locator('.new-thread input[type="file"]')).toBeHidden();
 
     await composer.fill("/stat");

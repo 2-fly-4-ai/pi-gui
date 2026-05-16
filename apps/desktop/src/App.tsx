@@ -181,6 +181,7 @@ export default function App() {
   const [newThreadModelId, setNewThreadModelId] = useState<string | undefined>();
   const [newThreadThinkingLevel, setNewThreadThinkingLevel] = useState<string | undefined>();
   const [newThreadToolAccess, setNewThreadToolAccess] = useState<ToolAccessSelection>(DEFAULT_TOOL_ACCESS);
+  const [newThreadFastMode, setNewThreadFastMode] = useState<"auto" | "on" | "off">("auto");
   const [newThreadComposerError, setNewThreadComposerError] = useState<string | undefined>();
   const [themeMode, setThemeMode] = useState<"system" | "light" | "dark">("system");
   const [notificationPermissionStatus, setNotificationPermissionStatus] =
@@ -1912,6 +1913,15 @@ export default function App() {
     );
   };
 
+  const handleSetSessionToolAccess = (selection: ToolAccessSelection) => {
+    if (!selectedWorkspace || !selectedSession) {
+      return;
+    }
+    void updateSnapshot(api, setSnapshot, () =>
+      api.setSessionToolAccess(selectedWorkspace.id, selectedSession.id, selection),
+    );
+  };
+
   const handleRunFastCommand = (command: string) => {
     if (!selectedSession) {
       return;
@@ -2134,6 +2144,7 @@ export default function App() {
       modelId: resolvedNewThreadModelId,
       thinkingLevel: resolvedNewThreadThinkingLevel,
       toolAccess: resolvedNewThreadToolAccess,
+      fastMode: newThreadFastMode,
     };
     const input: StartThreadInput = {
       rootWorkspaceId: newThreadRootWorkspaceId,
@@ -2150,6 +2161,7 @@ export default function App() {
       setNewThreadModelId(undefined);
       setNewThreadThinkingLevel(undefined);
       setNewThreadToolAccess(DEFAULT_TOOL_ACCESS);
+      setNewThreadFastMode("auto");
       setNewThreadEnvironment("local");
     });
   };
@@ -2507,6 +2519,7 @@ export default function App() {
               thinkingLevel={resolvedNewThreadThinkingLevel}
               modelOnboarding={newThreadModelOnboarding}
               toolAccess={resolvedNewThreadToolAccess}
+              fastMode={newThreadFastMode}
               composerRef={newThreadComposerRef}
               activeSlashCommand={newThreadSlashMenu.activeSlashFlow?.command}
               activeSlashCommandMeta={newThreadSlashMenu.activeSlashFlow?.command?.description}
@@ -2526,6 +2539,7 @@ export default function App() {
               onSetModel={(provider, modelId) => { setNewThreadProvider(provider); setNewThreadModelId(modelId); }}
               onSetThinking={setNewThreadThinkingLevel}
               onSetToolAccess={setNewThreadToolAccess}
+              onSetFastMode={setNewThreadFastMode}
               onOpenModelSettings={(section) => openSettings(newThreadWorkspace?.id, section)}
               onComposerKeyDown={handleNewThreadComposerKeyDown}
               onComposerPaste={handleNewThreadComposerPaste}
@@ -2622,7 +2636,7 @@ export default function App() {
               thinkingLevel={resolvedSessionThinkingLevel}
               toolAccess={resolvedSessionToolAccess}
               sessionCommands={selectedSessionCommands}
-              onSetToolAccess={() => undefined}
+              onSetToolAccess={handleSetSessionToolAccess}
               onClearSlashCommand={slashMenu.resetSlashUi}
               onComposerKeyDown={handleComposerKeyDown}
               onComposerPaste={handleComposerPaste}

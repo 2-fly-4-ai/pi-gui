@@ -13,6 +13,7 @@ import type {
   SessionEventListener,
   SessionModelSelection,
   SessionRef,
+  ToolAccessSelection,
   SessionSnapshot,
   SessionMessageInput,
   Unsubscribe,
@@ -90,6 +91,10 @@ export class PiSdkDriver implements SessionDriver {
 
   setSessionThinkingLevel(sessionRef: SessionRef, thinkingLevel: string): Promise<void> {
     return this.supervisor.setSessionThinkingLevel(sessionRef, thinkingLevel);
+  }
+
+  setSessionToolAccess(sessionRef: SessionRef, toolAccess: ToolAccessSelection): Promise<void> {
+    return this.supervisor.setSessionToolAccess(sessionRef, toolAccess);
   }
 
   renameSession(sessionRef: SessionRef, title: string): Promise<void> {

@@ -17,6 +17,7 @@ import type {
 } from "@pi-gui/session-driver/types";
 import type {
   HostUiResponse,
+  ToolAccessSelection,
 } from "@pi-gui/session-driver";
 import type { RuntimeSettingsSnapshot } from "@pi-gui/session-driver/runtime-types";
 import type {
@@ -174,6 +175,8 @@ contextBridge.exposeInMainWorld("piApp", {
     ipcRenderer.invoke(desktopIpc.setSessionModel, workspaceId, sessionId, provider, modelId) as Promise<DesktopAppState>,
   setSessionThinkingLevel: (workspaceId: string, sessionId: string, thinkingLevel: RuntimeSettingsSnapshot["defaultThinkingLevel"]) =>
     ipcRenderer.invoke(desktopIpc.setSessionThinkingLevel, workspaceId, sessionId, thinkingLevel) as Promise<DesktopAppState>,
+  setSessionToolAccess: (workspaceId: string, sessionId: string, toolAccess: ToolAccessSelection) =>
+    ipcRenderer.invoke(desktopIpc.setSessionToolAccess, workspaceId, sessionId, toolAccess) as Promise<DesktopAppState>,
   loginProvider: (workspaceId: string, providerId: string) =>
     ipcRenderer.invoke(desktopIpc.loginProvider, workspaceId, providerId) as Promise<DesktopAppState>,
   logoutProvider: (workspaceId: string, providerId: string) =>
