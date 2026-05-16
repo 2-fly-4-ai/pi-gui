@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { RuntimeSkillProfileRecord } from "@pi-gui/session-driver/runtime-types";
 import { SkillIcon } from "./icons";
 
@@ -12,11 +12,37 @@ interface SkillProfileSelectorProps {
 export function SkillProfileSelector({ profiles, activeProfileId, onSelectProfile, onOpenSkillProfiles }: SkillProfileSelectorProps) {
   const [open, setOpen] = useState(false);
   const [previewProfileId, setPreviewProfileId] = useState<string | undefined>();
+  const rootRef = useRef<HTMLDivElement>(null);
   const active = profiles.find((profile) => profile.id === activeProfileId) ?? profiles[0];
   const previewProfile = profiles.find((profile) => profile.id === previewProfileId) ?? active ?? profiles[0];
   const activeName = active?.name ?? "Default";
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+
+    const handlePointerDown = (event: PointerEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    };
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setOpen(false);
+      }
+    };
+
+    window.addEventListener("pointerdown", handlePointerDown);
+    window.addEventListener("keydown", handleEscape);
+    return () => {
+      window.removeEventListener("pointerdown", handlePointerDown);
+      window.removeEventListener("keydown", handleEscape);
+    };
+  }, [open]);
+
   return (
-    <div className="skill-profile-selector">
+    <div className="skill-profile-selector" ref={rootRef}>
       <button aria-label={`Skills profile: ${activeName}`} className="composer-control" type="button" onClick={() => setOpen((value) => !value)}>
         <SkillIcon />
         <span>{activeName}</span>
