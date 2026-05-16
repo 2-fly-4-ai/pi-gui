@@ -15,7 +15,12 @@ export function SidebarToggleButton({ collapsed, shortcutLabel, onToggle }: Side
         className="icon-button sidebar-toggle__button"
         data-testid="sidebar-toggle"
         type="button"
-        onClick={onToggle}
+        onPointerDown={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          onToggle();
+        }}
+        onClick={(event) => event.stopPropagation()}
       >
         <SidebarToggleIcon />
       </button>

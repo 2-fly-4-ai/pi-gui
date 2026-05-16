@@ -1,10 +1,14 @@
+import { join } from "node:path";
 import { expect, test } from "@playwright/test";
 import {
   createSessionViaIpc,
   launchDesktop,
   makeUserDataDir,
   makeWorkspace,
+  seedAgentDir,
+  seedCompactedSessionFixture,
   seedTranscriptMessages,
+  selectSession,
   waitForWorkspaceByPath,
 } from "../helpers/electron-app";
 
@@ -74,6 +78,50 @@ test("keeps assistant markdown from widening the chat surface", async () => {
       });
   } finally {
     await harness.close();
+  }
+});
+
+test("keeps compacted session context collapsed until requested", async () => {
+  const userDataDir = await makeUserDataDir();
+  const workspacePath = await makeWorkspace("timeline-compaction-workspace");
+  const title = "Compacted history thread";
+  const agentDir = join(userDataDir, "agent");
+  await seedAgentDir(agentDir);
+  const longArtifactPath = "/Users/brianfarley/Desktop/Githhub-project/serp-extensions-v2-app-factory/runtime/probes/browser-inspect-artifacts/stragglers-1/network-interesting.json";
+  const summaryText = [
+    "## Goal",
+    "False-pass rerun recap should stay readable after compaction.",
+    "",
+    "<read-files>",
+    Array.from({ length: 16 }, () => longArtifactPath).join("\n"),
+    "</read-files>",
+  ].join("\n");
+  await seedCompactedSessionFixture(agentDir, workspacePath, title, summaryText);
+
+  const secondRun = await launchDesktop(userDataDir, {
+    initialWorkspaces: [workspacePath],
+    testMode: "background",
+    agentDir,
+  });
+
+  try {
+    const window = await secondRun.firstWindow();
+    await waitForWorkspaceByPath(window, workspacePath);
+    await selectSession(window, title);
+
+    const card = window.getByTestId("timeline-compaction-summary");
+    await expect(card).toBeVisible();
+    await expect(card).toContainText("False-pass rerun recap should stay readable");
+    await expect(card).not.toContainText(longArtifactPath);
+    await expect
+      .poll(async () => card.evaluate((node) => Math.round(node.getBoundingClientRect().height)))
+      .toBeLessThan(180);
+
+    await card.getByRole("button", { name: "Show compacted context" }).click();
+    await expect(card).toContainText(longArtifactPath);
+    await expect(card.getByRole("button", { name: "Hide compacted context" })).toBeVisible();
+  } finally {
+    await secondRun.close();
   }
 });
 

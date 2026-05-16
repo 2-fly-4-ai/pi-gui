@@ -1296,14 +1296,14 @@ export default function App() {
 
   const primarySidebarToggleVisible = canTogglePrimarySidebar(snapshot?.activeView);
   const handleTogglePrimarySidebar = useCallback(() => {
-    const sidebarState = sidebarToggleStateRef.current;
-    const sidebarApi = sidebarState.api;
-    if (!sidebarApi || !canTogglePrimarySidebar(sidebarState.activeView)) {
+    if (!api || !snapshot || !canTogglePrimarySidebar(snapshot.activeView)) {
       return false;
     }
-    void updateSnapshot(sidebarApi, setSnapshot, () => sidebarApi.setSidebarCollapsed(!sidebarState.sidebarCollapsed));
+    const nextCollapsed = !snapshot.sidebarCollapsed;
+    setSnapshot((current) => current ? { ...current, sidebarCollapsed: nextCollapsed } : current);
+    void updateSnapshot(api, setSnapshot, () => api.setSidebarCollapsed(nextCollapsed));
     return true;
-  }, []);
+  }, [api, snapshot, setSnapshot]);
   const sidebarToggleShortcutLabel = api ? getDesktopShortcutLabel(api.platform, "B") : "";
 
   useEffect(() => {

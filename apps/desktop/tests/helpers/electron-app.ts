@@ -513,6 +513,56 @@ export async function seedBranchedTreeSessionFixture(
   });
 }
 
+export async function seedCompactedSessionFixture(
+  agentDir: string,
+  workspacePath: string,
+  title: string,
+  summary: string,
+): Promise<{
+  readonly sessionId: string;
+  readonly title: string;
+}> {
+  const { SessionManager } = (await import(
+    "../../../../node_modules/@earendil-works/pi-coding-agent/dist/core/session-manager.js"
+  )) as {
+    SessionManager: {
+      create(cwd: string): {
+        appendMessage(message: { role: "user" | "assistant"; content: string; timestamp: number }): string;
+        appendCompaction(
+          summary: string,
+          firstKeptEntryId: string,
+          tokensBefore: number,
+          details?: unknown,
+          fromHook?: boolean,
+        ): string;
+        appendSessionInfo(name: string): string;
+        getSessionId(): string;
+      };
+    };
+  };
+
+  return withAgentDirEnv(agentDir, async () => {
+    const sessionManager = SessionManager.create(workspacePath);
+    const firstKeptEntryId = sessionManager.appendMessage({
+      role: "user",
+      content: "Original prompt before compaction",
+      timestamp: Date.now(),
+    });
+    sessionManager.appendMessage({
+      role: "assistant",
+      content: "Original answer before compaction",
+      timestamp: Date.now() + 1_000,
+    });
+    sessionManager.appendCompaction(summary, firstKeptEntryId, 123_456);
+    sessionManager.appendSessionInfo(title);
+
+    return {
+      sessionId: sessionManager.getSessionId(),
+      title,
+    };
+  });
+}
+
 export async function seedToolResultTreeSessionFixture(
   agentDir: string,
   workspacePath: string,

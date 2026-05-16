@@ -1,4 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
+import * as http from "node:http";
 import * as net from "node:net";
 import * as path from "node:path";
 import * as fs from "node:fs";
@@ -75,6 +76,18 @@ async function getVSCodePort(): Promise<number> {
   });
 }
 
+function isProcessAlive(entry: ServerEntry): boolean {
+  if (!entry.process.pid || entry.process.exitCode !== null || entry.process.signalCode !== null) {
+    return false;
+  }
+  try {
+    process.kill(entry.process.pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function stopServer(entry: ServerEntry): void {
   if (!entry.process.pid) {
     return;
@@ -98,6 +111,41 @@ async function waitForPortRelease(port: number, timeoutMs: number): Promise<void
     }
     await sleep(100);
   }
+}
+
+function probeVSCodeWeb(port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const request = http.request(
+      {
+        host: "127.0.0.1",
+        port,
+        path: "/",
+        method: "GET",
+        timeout: 1_500,
+      },
+      (response) => {
+        response.resume();
+        resolve((response.statusCode ?? 500) < 500);
+      },
+    );
+    request.once("timeout", () => {
+      request.destroy();
+      resolve(false);
+    });
+    request.once("error", () => resolve(false));
+    request.end();
+  });
+}
+
+async function waitForVSCodeWebReady(port: number, timeoutMs: number): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (await probeVSCodeWeb(port)) {
+      return;
+    }
+    await sleep(250);
+  }
+  throw new Error(`VS Code web server did not respond on port ${port} within ${timeoutMs}ms`);
 }
 
 function findMostRecentLegacySettings(rootDir: string): string | null {
@@ -184,7 +232,17 @@ function prepareVSCodeDataDirs(): VSCodeDataDirs {
 
 export async function ensureVSCodeServer(workspaceId: string, folderPath: string): Promise<number> {
   const existing = [...servers.values()][0];
-  if (existing && existing.workspaceId === workspaceId && existing.folderPath === folderPath) return existing.port;
+  if (existing && existing.workspaceId === workspaceId && existing.folderPath === folderPath) {
+    if (isProcessAlive(existing)) {
+      try {
+        await waitForVSCodeWebReady(existing.port, 10_000);
+        return existing.port;
+      } catch {
+        stopServer(existing);
+      }
+    }
+    servers.delete(existing.workspaceId);
+  }
   for (const entry of servers.values()) {
     stopServer(entry);
   }
@@ -243,7 +301,8 @@ export async function ensureVSCodeServer(workspaceId: string, folderPath: string
       if (code !== 0 && code !== null) done(new Error(`VS Code server exited with code ${String(code)}`));
     });
   });
-  await sleep(2_000);
+  await waitForVSCodeWebReady(port, 15_000);
+  await sleep(500);
 
   return port;
 }

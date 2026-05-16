@@ -309,7 +309,7 @@
   position: absolute;
   top: 11px;
   left: var(--titlebar-toggle-left);
-  z-index: 80;
+  z-index: 200;
   pointer-events: auto;
 }
 
@@ -714,6 +714,41 @@
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
+}
+
+.timeline-item--compaction-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.timeline-item__compaction-preview {
+  margin: 0;
+  color: var(--text-strong);
+  line-height: 1.5;
+}
+
+.timeline-item__compaction-toggle {
+  align-self: flex-start;
+  border: 1px solid rgba(210, 177, 98, 0.45);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.68);
+  color: #7a4a00;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 6px 10px;
+}
+
+.timeline-item__compaction-toggle:hover {
+  background: rgba(255, 255, 255, 0.92);
+}
+
+.timeline-item__compaction-body {
+  max-height: 60vh;
+  overflow: auto;
+  padding-top: 4px;
 }
 
 .timeline-item--user {
@@ -4402,6 +4437,16 @@ mark.thread-find-active {
 :root.dark .timeline-item--summary-card {
   border-color: rgba(210, 177, 98, 0.22);
   background: linear-gradient(180deg, rgba(71, 55, 28, 0.58) 0%, rgba(46, 38, 24, 0.78) 100%);
+}
+
+:root.dark .timeline-item__compaction-toggle {
+  border-color: rgba(210, 177, 98, 0.32);
+  background: rgba(255, 255, 255, 0.08);
+  color: #f2d18b;
+}
+
+:root.dark .timeline-item__compaction-toggle:hover {
+  background: rgba(255, 255, 255, 0.14);
 }
 
 :root.dark .timeline-item__summary-eyebrow {

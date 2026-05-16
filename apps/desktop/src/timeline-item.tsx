@@ -1,4 +1,4 @@
-import { memo } from "react";
+import { memo, useState } from "react";
 import type { SessionTranscriptMessage } from "@pi-gui/pi-sdk-driver";
 import type { TimelineActivity, TimelineToolCall, TimelineSummary, TranscriptMessage } from "./timeline-types";
 import { MessageMarkdown } from "./message-markdown";
@@ -71,6 +71,11 @@ function areTimelineItemPropsEqual(
 }
 
 function TimelineMessage({ item }: { readonly item: SessionTranscriptMessage }) {
+  const wrappedCompactionSummary = extractWrappedCompactionSummary(item.text);
+  if (wrappedCompactionSummary) {
+    return <TimelineCompactionSummary item={{ ...item, role: "compactionSummary", text: wrappedCompactionSummary }} />;
+  }
+
   if (item.role === "user") {
     return (
       <article className="timeline-item timeline-item--user">
@@ -106,12 +111,14 @@ function TimelineMessage({ item }: { readonly item: SessionTranscriptMessage }) 
     );
   }
 
-  if (item.role === "branchSummary" || item.role === "compactionSummary") {
+  if (item.role === "compactionSummary") {
+    return <TimelineCompactionSummary item={item} />;
+  }
+
+  if (item.role === "branchSummary") {
     return (
       <article className="timeline-item timeline-item--summary-card">
-        <div className="timeline-item__summary-eyebrow">
-          {item.role === "branchSummary" ? "Branch summary" : "Compaction summary"}
-        </div>
+        <div className="timeline-item__summary-eyebrow">Branch summary</div>
         <MessageMarkdown text={item.text} />
       </article>
     );
@@ -122,6 +129,48 @@ function TimelineMessage({ item }: { readonly item: SessionTranscriptMessage }) 
       <MessageMarkdown text={item.text} />
     </article>
   );
+}
+
+function extractWrappedCompactionSummary(text: string): string | undefined {
+  if (!text.startsWith("The conversation history before this point was compacted")) {
+    return undefined;
+  }
+  const match = text.match(/<summary>\s*([\s\S]*?)\s*<\/summary>/);
+  return match?.[1]?.trim() || undefined;
+}
+
+function TimelineCompactionSummary({ item }: { readonly item: SessionTranscriptMessage }) {
+  const [expanded, setExpanded] = useState(false);
+  const preview = compactionPreview(item.text);
+
+  return (
+    <article className="timeline-item timeline-item--summary-card timeline-item--compaction-summary" data-testid="timeline-compaction-summary">
+      <div className="timeline-item__summary-eyebrow">Compaction summary</div>
+      <p className="timeline-item__compaction-preview">{preview}</p>
+      <button
+        aria-expanded={expanded}
+        className="timeline-item__compaction-toggle"
+        type="button"
+        onClick={() => setExpanded((current) => !current)}
+      >
+        {expanded ? "Hide compacted context" : "Show compacted context"}
+      </button>
+      {expanded ? (
+        <div className="timeline-item__compaction-body">
+          <MessageMarkdown text={item.text} />
+        </div>
+      ) : null}
+    </article>
+  );
+}
+
+function compactionPreview(text: string): string {
+  const goalLine = text
+    .split("\n")
+    .map((line) => line.trim())
+    .find((line) => line && !line.startsWith("#") && !line.startsWith("<"));
+  const preview = goalLine ?? "This session was compacted. Open it to inspect the preserved context.";
+  return preview.length > 180 ? `${preview.slice(0, 177)}…` : preview;
 }
 
 function TimelineActivityItem({ item }: { readonly item: TimelineActivity }) {

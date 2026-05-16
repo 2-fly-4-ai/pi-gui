@@ -84,6 +84,7 @@ export function DisplayModeView({
   const [vsCodeWidth, setVsCodeWidth] = useState<number>(() => getInitialVsCodeWidth());
   const [vsCodePort, setVsCodePort] = useState<number | null>(null);
   const [vsCodeLoading, setVsCodeLoading] = useState(false);
+  const [vsCodeFrameLoaded, setVsCodeFrameLoaded] = useState(false);
   const [vsCodeError, setVsCodeError] = useState<string | null>(null);
   const lastFetchAt = useRef<number>(0);
   const pendingRefresh = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -117,6 +118,7 @@ export function DisplayModeView({
   useEffect(() => {
     if (!vsCodeOpen || !vsCodeWorkspaceId || !vsCodeFolderPath) return;
     setVsCodeLoading(true);
+    setVsCodeFrameLoaded(false);
     setVsCodeError(null);
     setVsCodePort(null);
     void api.ensureVSCodeServer(vsCodeWorkspaceId, vsCodeFolderPath)
@@ -653,12 +655,22 @@ export function DisplayModeView({
             <p>{vsCodeError}</p>
           </div>
         ) : vsCodePort !== null ? (
-          <iframe
-            className="display-mode-vscode__webview"
-            src={`http://localhost:${vsCodePort}/`}
-            title="VS Code"
-            allow="clipboard-read; clipboard-write"
-          />
+          <>
+            {!vsCodeFrameLoaded ? (
+              <div className="display-mode-vscode__loading">
+                <span className="display-mode-vscode__spinner" aria-hidden="true" />
+                Loading VS Code…
+              </div>
+            ) : null}
+            <iframe
+              className="display-mode-vscode__webview"
+              src={`http://localhost:${vsCodePort}/`}
+              title="VS Code"
+              allow="clipboard-read; clipboard-write"
+              style={vsCodeFrameLoaded ? undefined : { opacity: 0 }}
+              onLoad={() => setVsCodeFrameLoaded(true)}
+            />
+          </>
         ) : (
           <div className="display-mode-vscode__loading">Open a workspace to start VS Code.</div>
         )}

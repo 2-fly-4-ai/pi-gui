@@ -10,11 +10,13 @@ interface VSCodePanelProps {
 export function VSCodePanel({ api, workspaceId, folderPath }: VSCodePanelProps) {
   const [port, setPort] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
+  const [frameLoaded, setFrameLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
+    setFrameLoaded(false);
     setError(null);
     setPort(null);
 
@@ -50,12 +52,22 @@ export function VSCodePanel({ api, workspaceId, folderPath }: VSCodePanelProps) 
           <p>{error}</p>
         </div>
       ) : port !== null ? (
-        <iframe
-          className="display-mode-vscode__webview"
-          src={`http://localhost:${port}/`}
-          title="VS Code"
-          allow="clipboard-read; clipboard-write"
-        />
+        <>
+          {!frameLoaded ? (
+            <div className="display-mode-vscode__loading">
+              <span className="display-mode-vscode__spinner" aria-hidden="true" />
+              Loading VS Code…
+            </div>
+          ) : null}
+          <iframe
+            className="display-mode-vscode__webview"
+            src={`http://localhost:${port}/`}
+            title="VS Code"
+            allow="clipboard-read; clipboard-write"
+            style={frameLoaded ? undefined : { opacity: 0 }}
+            onLoad={() => setFrameLoaded(true)}
+          />
+        </>
       ) : (
         <div className="display-mode-vscode__loading">Open a workspace to start VS Code.</div>
       )}
