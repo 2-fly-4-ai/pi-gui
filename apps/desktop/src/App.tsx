@@ -22,6 +22,8 @@ import type { CommandPaletteAction } from "./command-palette-model";
 import { ComposerPanel } from "./composer-panel";
 import { CheckoutSelector, type CheckoutSelectorOption } from "./checkout-selector";
 import { DiffPanel, type DiffPanelFileRequest } from "./diff-panel";
+import { PlanPanel } from "./plan-panel";
+import { buildImplementPlanPrompt, detectLatestPlan } from "./plan-panel-model";
 import { buildModelOptions } from "./composer-commands";
 import { parseTreeComposerCommand } from "./composer-commands";
 import { findSubmittedSkillPath, loadSkillUsage, recordSkillUse, saveSkillUsage, type SkillUsageByPath } from "./skill-usage";
@@ -222,6 +224,7 @@ export default function App() {
   const handledComposerSyncNonceRef = useRef(0);
   const [showJumpToLatest, setShowJumpToLatest] = useState(false);
   const [showDiffPanel, setShowDiffPanel] = useState(false);
+  const [planPanelOpen, setPlanPanelOpen] = useState(false);
   const [dmDrawerOpen, setDmDrawerOpen] = useState(() => { try { return localStorage.getItem("dm:drawerOpen") !== "false"; } catch { return true; } });
   const toggleDmDrawer = useCallback(() => { setDmDrawerOpen((o) => { try { localStorage.setItem("dm:drawerOpen", String(!o)); } catch {} return !o; }); }, []);
   const [vsCodeOpen, setVsCodeOpen] = useState(false);
@@ -455,6 +458,8 @@ export default function App() {
     selectedTranscript.sessionId === selectedSession.id
       ? selectedTranscript.transcript
       : [];
+  const activeTranscriptMarker = buildTranscriptChangeMarker(selectedSessionKey, activeTranscript);
+  const latestPlan = useMemo(() => detectLatestPlan(activeTranscript), [activeTranscript, activeTranscriptMarker]);
   const isTranscriptLoading = Boolean(selectedSession) && activeTranscript.length === 0 && (
     !selectedTranscript ||
     selectedTranscript.workspaceId !== selectedWorkspace?.id ||
@@ -465,6 +470,12 @@ export default function App() {
   const selectedWorkspaceCommandCompatibility = selectedWorkspace
     ? snapshot?.extensionCommandCompatibilityByWorkspace[selectedWorkspace.id] ?? []
     : [];
+
+  useEffect(() => {
+    if (!latestPlan) {
+      setPlanPanelOpen(false);
+    }
+  }, [latestPlan?.messageId]);
 
   useEffect(() => {
     if (!api || snapshot?.activeView !== "review" || !selectedWorkspace) {
@@ -708,6 +719,14 @@ export default function App() {
       composerRef.current?.focus();
     });
   }, []);
+  const askPiToImplementLatestPlan = useCallback(() => {
+    if (!latestPlan) return;
+    setComposerDraft((current) => {
+      const prompt = buildImplementPlanPrompt(latestPlan);
+      return current.trim() ? `${current.trimEnd()}\n\n${prompt}` : prompt;
+    });
+    window.requestAnimationFrame(() => composerRef.current?.focus());
+  }, [latestPlan]);
   const focusNewThreadComposer = () => {
     window.requestAnimationFrame(() => {
       newThreadComposerRef.current?.focus();
@@ -1601,10 +1620,12 @@ export default function App() {
 
   const showTerminalTakeover = isTerminalVisible && isVisibleTerminalTakeover && Boolean(visibleTerminalTarget);
   const showThreadVsCodePanel = snapshot.activeView === "threads" && vsCodeOpen && Boolean(vsCodeWorkspaceId && vsCodeFolderPath);
+  const showPlanPanel = planPanelOpen && Boolean(latestPlan);
   const mainClassName = [
     "main",
     showDiffPanel ? "main--with-diff" : "",
     showThreadVsCodePanel ? "main--with-vscode" : "",
+    showPlanPanel ? "main--with-plan" : "",
     isTerminalVisible ? "main--with-terminal" : "",
     showTerminalTakeover ? "main--terminal-takeover" : "",
   ].filter(Boolean).join(" ");
@@ -2566,6 +2587,9 @@ export default function App() {
           onAddAction={openAddActionDialog}
           onRunProjectAction={runProjectAction}
           onToggleTerminal={toggleTerminal}
+          planAvailable={Boolean(latestPlan)}
+          planPanelOpen={planPanelOpen}
+          onTogglePlanPanel={() => setPlanPanelOpen((open) => !open)}
           showDiffPanel={showDiffPanel}
           onToggleDiffPanel={toggleDiffPanel}
           drawerOpen={snapshot.activeView === "display-mode" ? dmDrawerOpen : undefined}
@@ -2812,6 +2836,13 @@ export default function App() {
                 tree={treeModalState.tree}
                 onClose={closeTreeModal}
                 onNavigate={navigateTreeSelection}
+              />
+            ) : null}
+            {planPanelOpen && latestPlan ? (
+              <PlanPanel
+                plan={latestPlan}
+                onClose={() => setPlanPanelOpen(false)}
+                onImplement={askPiToImplementLatestPlan}
               />
             ) : null}
           </>

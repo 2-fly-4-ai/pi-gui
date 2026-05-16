@@ -28,6 +28,9 @@ interface TopbarProps {
   readonly onAddAction: () => void;
   readonly onRunProjectAction: (action: ProjectActionRecord) => void;
   readonly onToggleTerminal: () => void;
+  readonly planAvailable: boolean;
+  readonly planPanelOpen: boolean;
+  readonly onTogglePlanPanel: () => void;
   readonly showDiffPanel: boolean;
   readonly onToggleDiffPanel: () => void;
   readonly drawerOpen?: boolean;
@@ -56,6 +59,9 @@ export function Topbar(props: TopbarProps) {
     onAddAction,
     onRunProjectAction,
     onToggleTerminal,
+    planAvailable,
+    planPanelOpen,
+    onTogglePlanPanel,
     showDiffPanel,
     onToggleDiffPanel,
     drawerOpen,
@@ -170,6 +176,21 @@ export function Topbar(props: TopbarProps) {
             {action.name}
           </button>
         ))}
+        {planAvailable ? (
+          <div className="shortcut-tooltip-wrap topbar__tooltip-wrap">
+            <button
+              aria-label="Toggle plan"
+              className={`icon-button topbar__icon ${planPanelOpen ? "icon-button--active" : ""}`}
+              type="button"
+              onClick={onTogglePlanPanel}
+            >
+              <span aria-hidden="true">▦</span>
+            </button>
+            <span className="shortcut-tooltip topbar__tooltip" role="tooltip">
+              <span>Toggle plan</span>
+            </span>
+          </div>
+        ) : null}
         <div className="shortcut-tooltip-wrap topbar__tooltip-wrap">
           <button
             aria-label="Toggle terminal"

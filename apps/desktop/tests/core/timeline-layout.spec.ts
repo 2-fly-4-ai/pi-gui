@@ -76,3 +76,45 @@ test("keeps assistant markdown from widening the chat surface", async () => {
     await harness.close();
   }
 });
+
+test("opens the latest assistant plan in a side panel and queues an implementation prompt", async () => {
+  const userDataDir = await makeUserDataDir();
+  const workspacePath = await makeWorkspace("plan-panel-workspace");
+  const harness = await launchDesktop(userDataDir, {
+    initialWorkspaces: [workspacePath],
+    testMode: "background",
+  });
+
+  try {
+    const window = await harness.firstWindow();
+    await waitForWorkspaceByPath(window, workspacePath);
+    await createSessionViaIpc(window, workspacePath, "Plan panel thread");
+    await seedTranscriptMessages(harness, window, {
+      count: 2,
+      textFactory: (index) =>
+        index === 0
+          ? "# Old Plan\n\n1. Old plan step\n\n- [ ] Do old thing"
+          : "# Implementation Plan\n\n1. Add the model.\n2. Add the UI.\n\n- [ ] Write tests\n- [ ] Implement feature",
+    });
+
+    const composer = window.getByTestId("composer");
+    await composer.fill("draft before plan prompt");
+
+    await expect(window.getByLabel("Toggle plan")).toBeVisible();
+    await window.getByLabel("Toggle plan").click();
+    const panel = window.getByTestId("plan-panel");
+    await expect(panel).toBeVisible();
+    await expect(panel).toContainText("Implementation Plan");
+    await expect(panel).toContainText("Write tests");
+    await expect(panel).not.toContainText("Old plan step");
+
+    await panel.getByRole("button", { name: "Ask pi to implement this plan" }).click();
+    await expect(composer).toHaveValue(/draft before plan prompt/);
+    await expect(composer).toHaveValue(/Please implement this plan/);
+    await expect(composer).toHaveValue(/Add the model/);
+    await expect(composer).not.toHaveValue(/Old plan step/);
+    await expect(composer).toBeFocused();
+  } finally {
+    await harness.close();
+  }
+});
