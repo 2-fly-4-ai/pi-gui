@@ -43,6 +43,10 @@ test("opens a workspace terminal with persistent output, tabs, and takeover cont
     await expect(terminal.locator(".xterm-rows")).toContainText("PI_TERMINAL_OK", { timeout: 15_000 });
     await expect(terminal.locator(".xterm-rows")).toContainText(basename(workspacePath), { timeout: 15_000 });
 
+    await window.keyboard.type("node -e \"console.log(process.env.NODE_ENV ?? 'NODE_ENV_UNSET')\"");
+    await window.keyboard.press("Enter");
+    await expect(terminal.locator(".xterm-rows")).toContainText("NODE_ENV_UNSET", { timeout: 15_000 });
+
     await window.keyboard.press(desktopShortcut("J"));
     await expect(terminal).toHaveCount(0);
     await window.keyboard.press(desktopShortcut("J"));

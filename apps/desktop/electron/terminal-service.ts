@@ -460,6 +460,7 @@ function buildTerminalEnv(): Record<string, string> {
     }
   }
   env.TERM = "xterm-256color";
+  delete env.NODE_ENV;
   delete env.TERMINFO;
   delete env.TERMINFO_DIRS;
   return env;
