@@ -3435,6 +3435,10 @@
   background: #fbfcfe;
 }
 
+.skill-card--project {
+  border-color: color-mix(in srgb, var(--accent) 26%, #dfe4ee);
+}
+
 .skill-card--active {
   border-color: #b8c5df;
   background: #f5f7fc;
@@ -3499,6 +3503,12 @@
   font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.skill-tag--project {
+  border-color: color-mix(in srgb, var(--accent) 35%, transparent);
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+  color: var(--text-strong);
 }
 
 .skill-card__badge,
@@ -6421,6 +6431,13 @@ mark.thread-find-active {
 .skills-header-discovery {
   display: flex;
   align-items: center;
+  gap: 8px;
+}
+
+.skills-header-discovery__count {
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
 }
 
 .skills-discovery-select {

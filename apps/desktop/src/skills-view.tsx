@@ -13,6 +13,8 @@ interface SkillViewModel {
   readonly categoryLabel: string;
   readonly tags: readonly string[];
   readonly summary: string;
+  readonly sourceLabel: string;
+  readonly sourceDetail: string;
 }
 
 const CATEGORY_FILTERS: readonly { readonly id: SkillCategory; readonly label: string }[] = [
@@ -68,7 +70,8 @@ export function SkillsView({
   const profiles = runtime?.skillProfiles ?? [{ id: "default", name: "Default", description: "Use default skill modes from Pi and the local catalog.", skills: {} }];
   const activeProfileId = runtime?.activeSkillProfileId ?? "default";
   const activeProfile = profiles.find((profile) => profile.id === activeProfileId) ?? profiles[0];
-  const skillModels = useMemo(() => skills.map(toSkillViewModel), [skills]);
+  const workspaceName = workspace?.name ?? "selected workspace";
+  const skillModels = useMemo(() => skills.map((skill) => toSkillViewModel(skill, workspaceName)), [skills, workspaceName]);
   const filteredSkills = useMemo(() => {
     const normalized = query.trim().toLowerCase();
 
@@ -120,7 +123,10 @@ export function SkillsView({
           </div>
           <div className="view-header__actions">
             {discoveryWorkspaceControl ? (
-              <div className="skills-header-discovery">{discoveryWorkspaceControl}</div>
+              <div className="skills-header-discovery">
+                {discoveryWorkspaceControl}
+                <span className="skills-header-discovery__count">{skills.filter((skill) => skill.source === "project").length} project-local</span>
+              </div>
             ) : null}
             <button className="button button--secondary" type="button" onClick={onRefresh}>
               <RefreshIcon />
@@ -236,7 +242,7 @@ export function SkillsView({
             ) : (
               filteredSkills.map((model) => (
                 <div
-                  className={`skill-card ${selectedSkill?.filePath === model.skill.filePath ? "skill-card--active" : ""}`}
+                  className={`skill-card ${model.skill.source === "project" ? "skill-card--project" : ""} ${selectedSkill?.filePath === model.skill.filePath ? "skill-card--active" : ""}`}
                   key={model.skill.filePath}
                   role="button"
                   tabIndex={0}
@@ -261,7 +267,10 @@ export function SkillsView({
                   </span>
                   <span className="skill-card__description">{model.summary}</span>
                   <span className="skill-card__tags">
-                    {model.tags.slice(0, 3).map((tag) => (
+                    {model.skill.source === "project" ? (
+                      <span className="skill-tag skill-tag--project" title={`Project-local skill from ${workspace.name}`}>Local to this project</span>
+                    ) : null}
+                    {model.tags.filter((tag) => tag !== "Project").slice(0, model.skill.source === "project" ? 2 : 3).map((tag) => (
                       <span className="skill-tag" key={tag} title={tag}>{tag}</span>
                     ))}
                   </span>
@@ -274,7 +283,7 @@ export function SkillsView({
                     <SkillUsageStats usage={usageByPath[model.skill.filePath]} compact />
                   </span>
                   <span className="skill-card__meta">
-                    <span>{model.skill.source}</span>
+                    <span>{model.sourceLabel}</span>
                     <span>{model.skill.slashCommand}</span>
                     {model.skill.mode === "manual" ? <span>slash only</span> : null}
                   </span>
@@ -331,7 +340,7 @@ export function SkillsView({
                   <div className="skill-detail__meta-list">
                     <div>
                       <div className="skill-detail__meta-label">Source</div>
-                      <div className="skill-detail__description">{selectedSkill.source}</div>
+                      <div className="skill-detail__description">{selectedSkillModel?.sourceDetail ?? selectedSkill.source}</div>
                     </div>
                     <div>
                       <div className="skill-detail__meta-label">Category</div>
@@ -389,7 +398,7 @@ export function SkillsView({
   );
 }
 
-function toSkillViewModel(skill: RuntimeSkillRecord): SkillViewModel {
+function toSkillViewModel(skill: RuntimeSkillRecord, workspaceName: string): SkillViewModel {
   const category = inferSkillCategory(skill);
   return {
     skill,
@@ -397,6 +406,8 @@ function toSkillViewModel(skill: RuntimeSkillRecord): SkillViewModel {
     categoryLabel: categoryLabel(category),
     tags: inferSkillTags(skill, category),
     summary: summarizeSkill(skill.summary ?? skill.description),
+    sourceLabel: sourceLabel(skill.source),
+    sourceDetail: sourceDetail(skill.source, workspaceName),
   };
 }
 
@@ -452,7 +463,22 @@ function isPiDevelopmentSkill(skill: RuntimeSkillRecord, text: string): boolean 
 function sourceTag(source: string): string {
   if (source === "project") return "Project";
   if (source === "user") return "User";
+  return packageSourceName(source);
+}
 
+function sourceLabel(source: string): string {
+  if (source === "project") return "Project-local skill";
+  if (source === "user") return "User skill";
+  return `Package: ${packageSourceName(source)}`;
+}
+
+function sourceDetail(source: string, workspaceName: string): string {
+  if (source === "project") return `Project-local skill from ${workspaceName}`;
+  if (source === "user") return "User-level skill available across projects";
+  return `Installed package skill from ${packageSourceName(source)}`;
+}
+
+function packageSourceName(source: string): string {
   const withoutPrefix = source.replace(/^(git|npm):/, "");
   const withoutVersion = withoutPrefix.replace(/@[a-f0-9]{7,40}$/i, "");
   if (withoutVersion.includes("github.com/")) {
