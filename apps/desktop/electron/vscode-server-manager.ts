@@ -22,7 +22,9 @@ interface VSCodeDataDirs {
 }
 
 const servers = new Map<string, ServerEntry>();
+const serverStartups = new Map<string, Promise<number>>();
 const preferredPort = 19538;
+let startupQueue: Promise<void> = Promise.resolve();
 
 function getServerKey(workspaceId: string, folderPath: string): string {
   return `${workspaceId}:${path.resolve(folderPath)}`;
@@ -152,6 +154,62 @@ async function waitForVSCodeWebReady(port: number, timeoutMs: number): Promise<v
   throw new Error(`VS Code web server did not respond on port ${port} within ${timeoutMs}ms`);
 }
 
+async function withStartupLock<T>(start: () => Promise<T>): Promise<T> {
+  const previousStartup = startupQueue;
+  let release!: () => void;
+  startupQueue = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+
+  await previousStartup;
+  try {
+    return await start();
+  } finally {
+    release();
+  }
+}
+
+function waitForVSCodeServerReadySignal(proc: ChildProcess): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => done(new Error("VS Code server startup timed out after 45s")), 45_000);
+    let settled = false;
+
+    const cleanup = () => {
+      clearTimeout(timer);
+      proc.stdout?.off("data", handleOutput);
+      proc.stderr?.off("data", handleOutput);
+      proc.off("error", handleError);
+      proc.off("exit", handleExit);
+    };
+
+    const done = (err?: Error) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      if (err) reject(err); else resolve();
+    };
+
+    const handleOutput = (chunk: Buffer) => {
+      if (chunk.toString().includes("Web UI available at")) {
+        done();
+      }
+    };
+
+    const handleError = (err: Error) => done(err);
+
+    const handleExit = (code: number | null) => {
+      if (code !== 0 && code !== null) {
+        done(new Error(`VS Code server exited with code ${String(code)}`));
+      }
+    };
+
+    proc.stdout?.on("data", handleOutput);
+    proc.stderr?.on("data", handleOutput);
+    proc.once("error", handleError);
+    proc.once("exit", handleExit);
+  });
+}
+
 function findMostRecentLegacySettings(rootDir: string): string | null {
   if (!fs.existsSync(rootDir)) {
     return null;
@@ -236,6 +294,23 @@ function prepareVSCodeDataDirs(): VSCodeDataDirs {
 
 export async function ensureVSCodeServer(workspaceId: string, folderPath: string): Promise<number> {
   const serverKey = getServerKey(workspaceId, folderPath);
+  const pendingStartup = serverStartups.get(serverKey);
+  if (pendingStartup) {
+    return pendingStartup;
+  }
+
+  const startup = withStartupLock(() => startVSCodeServer(serverKey, workspaceId, folderPath));
+  serverStartups.set(serverKey, startup);
+  try {
+    return await startup;
+  } finally {
+    if (serverStartups.get(serverKey) === startup) {
+      serverStartups.delete(serverKey);
+    }
+  }
+}
+
+async function startVSCodeServer(serverKey: string, workspaceId: string, folderPath: string): Promise<number> {
   const existing = servers.get(serverKey);
 
   if (existing) {
@@ -278,7 +353,8 @@ export async function ensureVSCodeServer(workspaceId: string, folderPath: string
     detached: true,
   });
 
-  servers.set(serverKey, { port, process: proc, workspaceId, folderPath });
+  const entry = { port, process: proc, workspaceId, folderPath };
+  servers.set(serverKey, entry);
   proc.once("exit", () => {
     const current = servers.get(serverKey);
     if (current?.process === proc) {
@@ -286,34 +362,20 @@ export async function ensureVSCodeServer(workspaceId: string, folderPath: string
     }
   });
 
-  // Wait for VS Code's own ready signal before loading the webview. A TCP
-  // listener appears earlier and can make the workbench fail its backend socket.
-  await new Promise<void>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error("VS Code server startup timed out after 45s")), 45_000);
-    let settled = false;
-
-    const done = (err?: Error) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      if (err) reject(err); else resolve();
-    };
-
-    const handleOutput = (chunk: Buffer) => {
-      if (chunk.toString().includes("Web UI available at")) {
-        done();
-      }
-    };
-
-    proc.stdout?.on("data", handleOutput);
-    proc.stderr?.on("data", handleOutput);
-    proc.on("error", (err) => done(err));
-    proc.on("exit", (code) => {
-      if (code !== 0 && code !== null) done(new Error(`VS Code server exited with code ${String(code)}`));
-    });
-  });
-  await waitForVSCodeWebReady(port, 15_000);
-  await sleep(500);
+  try {
+    // Wait for VS Code's own ready signal before loading the webview. A TCP
+    // listener appears earlier and can make the workbench fail its backend socket.
+    await waitForVSCodeServerReadySignal(proc);
+    await waitForVSCodeWebReady(port, 15_000);
+    await sleep(500);
+  } catch (err) {
+    const current = servers.get(serverKey);
+    if (current?.process === proc) {
+      servers.delete(serverKey);
+      stopServer(entry);
+    }
+    throw err;
+  }
 
   return port;
 }
