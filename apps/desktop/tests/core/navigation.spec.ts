@@ -2,6 +2,7 @@ import { basename } from "node:path";
 import { expect, test } from "@playwright/test";
 import {
   createNamedThread,
+  desktopShortcut,
   getDesktopState,
   launchDesktop,
   makeUserDataDir,
@@ -157,6 +158,43 @@ test("switching sessions republishes the selected transcript", async () => {
     await expect(window.locator(".topbar__session")).toHaveText("Thread two");
     await expect(window.getByTestId("transcript")).toContainText("beta response");
     await expect(window.getByTestId("transcript")).not.toContainText("Loading transcript");
+  } finally {
+    await harness.close();
+  }
+});
+
+test("opens and runs actions from the command palette", async () => {
+  const userDataDir = await makeUserDataDir();
+  const workspacePath = await makeWorkspace("command-palette-workspace");
+  const harness = await launchDesktop(userDataDir, {
+    initialWorkspaces: [workspacePath],
+    testMode: "background",
+  });
+
+  try {
+    const window = await harness.firstWindow();
+    await waitForWorkspaceByPath(window, workspacePath);
+    await createNamedThread(window, "Palette host thread");
+
+    await window.keyboard.press(desktopShortcut("K"));
+    const palette = window.getByTestId("command-palette");
+    await expect(palette).toBeVisible();
+    await expect(window.getByRole("option", { name: /New thread/ })).toBeVisible();
+
+    await window.getByPlaceholder("Search commands…").fill("terminal");
+    await expect(window.getByRole("option", { name: /Toggle terminal/ })).toBeVisible();
+    await window.keyboard.press("Enter");
+    await expect(window.getByTestId("integrated-terminal")).toBeVisible();
+
+    await window.keyboard.press(desktopShortcut("K"));
+    await window.getByPlaceholder("Search commands…").fill("new thread");
+    await window.keyboard.press("Enter");
+    await expect(window.getByTestId("new-thread-composer")).toBeVisible();
+
+    await window.keyboard.press(desktopShortcut("K"));
+    await expect(palette).toBeVisible();
+    await window.keyboard.press("Escape");
+    await expect(palette).toHaveCount(0);
   } finally {
     await harness.close();
   }

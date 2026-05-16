@@ -132,6 +132,7 @@ export const desktopIpc = {
 export const desktopCommands = {
   openSettings: "open-settings",
   openNewThread: "open-new-thread",
+  openCommandPalette: "open-command-palette",
   toggleTerminal: "toggle-terminal",
   toggleSidebar: "toggle-sidebar",
 } as const;
@@ -203,6 +204,7 @@ export function getDesktopCommandFromShortcut(input: DesktopShortcutInput): PiDe
   const isComma = input.key === "," || input.code === "Comma";
   const isB = lowerKey === "b" || input.code === "KeyB";
   const isJ = lowerKey === "j" || input.code === "KeyJ";
+  const isK = lowerKey === "k" || input.code === "KeyK";
   const isShiftO = input.shift && (lowerKey === "o" || input.code === "KeyO");
 
   if (!input.shift && isComma) {
@@ -219,6 +221,10 @@ export function getDesktopCommandFromShortcut(input: DesktopShortcutInput): PiDe
 
   if (isShiftO) {
     return desktopCommands.openNewThread;
+  }
+
+  if (!input.shift && isK) {
+    return desktopCommands.openCommandPalette;
   }
 
   return undefined;

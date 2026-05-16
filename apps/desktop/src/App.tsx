@@ -17,6 +17,8 @@ import {
 } from "./desktop-state";
 import { formatRelativeTime } from "./string-utils";
 import { AddActionDialog } from "./add-action-dialog";
+import { CommandPalette } from "./command-palette";
+import type { CommandPaletteAction } from "./command-palette-model";
 import { ComposerPanel } from "./composer-panel";
 import { CheckoutSelector, type CheckoutSelectorOption } from "./checkout-selector";
 import { DiffPanel, type DiffPanelFileRequest } from "./diff-panel";
@@ -169,6 +171,7 @@ export default function App() {
   const [skillUsageByPath, setSkillUsageByPath] = useState<SkillUsageByPath>(() => loadSkillUsage());
   const [projectActionsByWorkspace, setProjectActionsByWorkspace] = useState<ProjectActionsByWorkspace>(() => loadProjectActions());
   const [addActionDialogOpen, setAddActionDialogOpen] = useState(false);
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [settingsSection, setSettingsSection] = useState<SettingsSection>("general");
   const [settingsWorkspaceId, setSettingsWorkspaceId] = useState("");
   const [skillsWorkspaceId, setSkillsWorkspaceId] = useState("");
@@ -941,6 +944,57 @@ export default function App() {
     void updateSnapshot(api, setSnapshot, () => api.setActiveView("settings"));
   };
 
+  const selectedRootWorkspaceId = selectedWorkspace?.rootWorkspaceId ?? selectedWorkspace?.id;
+  const commandPaletteActions = useMemo<readonly CommandPaletteAction[]>(
+    () => [
+      {
+        id: "new-thread",
+        title: "New thread",
+        subtitle: "Start a new pi session",
+        keywords: ["chat", "session", "thread"],
+        run: () => openNewThreadSurface(selectedRootWorkspaceId),
+      },
+      {
+        id: "toggle-terminal",
+        title: "Toggle terminal",
+        subtitle: "Show or hide the integrated terminal",
+        keywords: ["terminal", "shell", "command line"],
+        disabled: !selectedSession,
+        run: toggleTerminal,
+      },
+      {
+        id: "toggle-changes",
+        title: "Toggle changes",
+        subtitle: "Show or hide the workspace diff panel",
+        keywords: ["diff", "changes", "files"],
+        disabled: !selectedWorkspace,
+        run: toggleDiffPanel,
+      },
+      {
+        id: "settings",
+        title: "Settings",
+        subtitle: "Configure pi and model providers",
+        keywords: ["preferences", "configuration", "model"],
+        run: () => openSettings(selectedRootWorkspaceId),
+      },
+      {
+        id: "skills",
+        title: "Skills",
+        subtitle: "Manage available pi skills",
+        keywords: ["skills", "slash commands", "capabilities"],
+        run: () => openSkills(selectedRootWorkspaceId),
+      },
+      {
+        id: "extensions",
+        title: "Extensions",
+        subtitle: "Manage pi extensions",
+        keywords: ["extensions", "plugins", "integrations"],
+        run: () => openExtensions(selectedRootWorkspaceId),
+      },
+    ],
+    [selectedRootWorkspaceId, selectedSession, selectedWorkspace, snapshot, toggleDiffPanel, toggleTerminal],
+  );
+
   const closeTreeModal = useCallback(() => {
     setTreeModalState((current) =>
       current.submitting
@@ -1234,7 +1288,10 @@ export default function App() {
 
   useEffect(() => {
     const handleCommand = (command: PiDesktopCommand): boolean => {
-      if (command === desktopCommands.openSettings) {
+      if (command === desktopCommands.openCommandPalette) {
+        setCommandPaletteOpen(true);
+        return true;
+      } else if (command === desktopCommands.openSettings) {
         openSettings(selectedWorkspace?.rootWorkspaceId ?? selectedWorkspace?.id);
         return true;
       } else if (command === desktopCommands.openNewThread) {
@@ -1263,7 +1320,7 @@ export default function App() {
           key: event.key,
           code: event.code,
         });
-        if (command === desktopCommands.toggleTerminal) {
+        if (command === desktopCommands.toggleTerminal || command === desktopCommands.openCommandPalette) {
           event.preventDefault();
           handleCommand(command);
         }
@@ -1628,7 +1685,7 @@ export default function App() {
     void updateSnapshot(api, setSnapshot, () => api.updateComposerDraft(prompt));
   };
 
-  const openSkills = (workspaceId?: string) => {
+  function openSkills(workspaceId?: string) {
     const nextWorkspaceId =
       workspaceId && rootWorkspaceOptions.some((workspace) => workspace.id === workspaceId)
         ? workspaceId
@@ -1637,9 +1694,9 @@ export default function App() {
       setSkillsWorkspaceId(nextWorkspaceId);
     }
     setActiveView("skills");
-  };
+  }
 
-  const openExtensions = (workspaceId?: string) => {
+  function openExtensions(workspaceId?: string) {
     const nextWorkspaceId =
       workspaceId && rootWorkspaceOptions.some((workspace) => workspace.id === workspaceId)
         ? workspaceId
@@ -1648,13 +1705,13 @@ export default function App() {
       setExtensionsWorkspaceId(nextWorkspaceId);
     }
     setActiveView("extensions");
-  };
+  }
 
-  const openNewThreadSurface = (workspaceId?: string) => {
+  function openNewThreadSurface(workspaceId?: string) {
     setPendingNewThreadWorkspaceId("");
     resetNewThreadSurface(workspaceId);
     setActiveView("new-thread");
-  };
+  }
 
   const handleSelectNewThreadWorkspace = (workspaceId: string) => {
     setPendingNewThreadWorkspaceId("");
@@ -2280,9 +2337,15 @@ export default function App() {
     { id: "notifications", label: "Notifications" },
   ] as const;
 
+  const commandPalette = commandPaletteOpen ? (
+    <CommandPalette actions={commandPaletteActions} onClose={() => setCommandPaletteOpen(false)} />
+  ) : null;
+
   if (snapshot.activeView === "settings") {
     return (
-      <SecondarySurface
+      <>
+        {commandPalette}
+        <SecondarySurface
         activeNavId={settingsSection}
         navItems={settingsNav}
         onBack={() => setActiveView("threads")}
@@ -2332,13 +2395,16 @@ export default function App() {
           onSetThinkingLevel={handleSetThinkingLevel}
           onToggleSkillCommands={handleToggleSkillCommands}
         />
-      </SecondarySurface>
+        </SecondarySurface>
+      </>
     );
   }
 
   if (snapshot.activeView === "review") {
     return (
-      <SecondarySurface onBack={() => setActiveView("threads")} testId="review-surface-shell" title="Review changes">
+      <>
+        {commandPalette}
+        <SecondarySurface onBack={() => setActiveView("threads")} testId="review-surface-shell" title="Review changes">
         {reviewLoading || !reviewSnapshot ? (
           <section className="canvas canvas--empty">
             <div className="empty-panel">
@@ -2357,13 +2423,16 @@ export default function App() {
             }}
           />
         )}
-      </SecondarySurface>
+        </SecondarySurface>
+      </>
     );
   }
 
   if (snapshot.activeView === "skills") {
     return (
-      <SecondarySurface onBack={() => setActiveView("threads")} testId="skills-surface" title="Skills">
+      <>
+        {commandPalette}
+        <SecondarySurface onBack={() => setActiveView("threads")} testId="skills-surface" title="Skills">
         <div className="surface-toolbar">
           <label className="surface-toolbar__field">
             <span>Workspace</span>
@@ -2399,13 +2468,16 @@ export default function App() {
             )
           }
         />
-      </SecondarySurface>
+        </SecondarySurface>
+      </>
     );
   }
 
   if (snapshot.activeView === "extensions") {
     return (
-      <SecondarySurface onBack={() => setActiveView("threads")} testId="extensions-surface" title="Extensions">
+      <>
+        {commandPalette}
+        <SecondarySurface onBack={() => setActiveView("threads")} testId="extensions-surface" title="Extensions">
         <div className="surface-toolbar">
           <label className="surface-toolbar__field">
             <span>Workspace</span>
@@ -2434,7 +2506,8 @@ export default function App() {
           }}
           onToggleExtension={handleToggleExtension}
         />
-      </SecondarySurface>
+        </SecondarySurface>
+      </>
     );
   }
 
@@ -2442,6 +2515,7 @@ export default function App() {
 
   return (
     <div className={shellClassName}>
+      {commandPalette}
       {primarySidebarToggleVisible ? (
         <SidebarToggleButton
           collapsed={snapshot.sidebarCollapsed}
