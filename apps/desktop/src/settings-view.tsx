@@ -1,5 +1,5 @@
 import type { RuntimeSettingsSnapshot, RuntimeSnapshot } from "@pi-gui/session-driver/runtime-types";
-import type { AgentDefinitionsSnapshot, ResetAgentDefinitionInput, SaveAgentDefinitionInput } from "./agent-definitions";
+import type { AgentDefinitionsSnapshot, DeleteAgentDefinitionInput, ResetAgentDefinitionInput, SaveAgentDefinitionInput } from "./agent-definitions";
 import type { ModelSettingsScopeMode, NotificationPreferences, WorkspaceRecord } from "./desktop-state";
 import type { DesktopNotificationPermissionStatus } from "./ipc";
 import { SettingsAgentsSection } from "./settings-agents-section";
@@ -20,6 +20,8 @@ interface SettingsViewProps {
   readonly notificationPermissionStatus: DesktopNotificationPermissionStatus;
   readonly notificationPermissionPending: boolean;
   readonly agentDefinitions?: AgentDefinitionsSnapshot;
+  readonly agentDefinitionsPending: boolean;
+  readonly agentDefinitionsError?: string;
   readonly modelSettingsScopeMode: ModelSettingsScopeMode;
   readonly integratedTerminalShell: string;
   readonly themeMode: "system" | "light" | "dark";
@@ -37,8 +39,10 @@ interface SettingsViewProps {
   readonly onRequestNotificationPermission: () => void;
   readonly onOpenSystemNotificationSettings: () => void;
   readonly onSetThemeMode: (mode: "system" | "light" | "dark") => void;
-  readonly onSaveAgentDefinition: (input: SaveAgentDefinitionInput) => void;
-  readonly onResetAgentDefinition: (input: ResetAgentDefinitionInput) => void;
+  readonly onSaveAgentDefinition: (input: SaveAgentDefinitionInput) => Promise<void>;
+  readonly onResetAgentDefinition: (input: ResetAgentDefinitionInput) => Promise<void>;
+  readonly onDeleteAgentDefinition: (input: DeleteAgentDefinitionInput) => Promise<void>;
+  readonly onOpenAgentsSettings: () => void;
 }
 
 export function SettingsView({
@@ -49,6 +53,8 @@ export function SettingsView({
   notificationPermissionStatus,
   notificationPermissionPending,
   agentDefinitions,
+  agentDefinitionsPending,
+  agentDefinitionsError,
   modelSettingsScopeMode,
   integratedTerminalShell,
   themeMode,
@@ -68,6 +74,8 @@ export function SettingsView({
   onSetThemeMode,
   onSaveAgentDefinition,
   onResetAgentDefinition,
+  onDeleteAgentDefinition,
+  onOpenAgentsSettings,
 }: SettingsViewProps) {
   if (!workspace && section !== "general" && section !== "notifications" && section !== "appearance") {
     return (
@@ -129,6 +137,7 @@ export function SettingsView({
               onSetDefaultModel={onSetDefaultModel}
               onSetScopedModelPatterns={onSetScopedModelPatterns}
               onSetThinkingLevel={onSetThinkingLevel}
+              onOpenAgentsSettings={onOpenAgentsSettings}
             />
           ) : null}
 
@@ -136,8 +145,11 @@ export function SettingsView({
             <SettingsAgentsSection
               runtime={runtime}
               snapshot={agentDefinitions}
+              pending={agentDefinitionsPending}
+              error={agentDefinitionsError}
               onSave={onSaveAgentDefinition}
               onReset={onResetAgentDefinition}
+              onDelete={onDeleteAgentDefinition}
             />
           ) : null}
 

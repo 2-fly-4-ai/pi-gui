@@ -6247,3 +6247,86 @@ mark.thread-find-active {
 .agent-definition-editor {
   width: min(620px, 100%);
 }
+
+.agent-definition-editor--wide {
+  width: min(860px, calc(100vw - 48px));
+  max-height: calc(100vh - 48px);
+  overflow: auto;
+}
+
+.agent-definition-editor__header {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
+}
+
+.agent-definition-editor__enabled,
+.agent-definition-editor__inline-check,
+.agent-definition-editor__check {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.agent-definition-editor__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.agent-definition-editor__grid--compact {
+  align-items: end;
+}
+
+.agent-definition-editor__span {
+  grid-column: 1 / -1;
+}
+
+.agent-definition-editor__prompt {
+  min-height: 180px;
+  resize: vertical;
+  font-family: var(--font-mono);
+}
+
+.agent-definition-editor__panel {
+  display: grid;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 14px;
+  background: var(--surface-muted);
+}
+
+.agent-definition-editor__panel h3 {
+  margin: 0;
+  color: var(--text-strong);
+  font-size: 13px;
+}
+
+.agent-definition-editor__checks {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.agent-definition-editor__check {
+  align-items: flex-start;
+  padding: 9px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  background: var(--surface);
+}
+
+.agent-definition-editor__check span {
+  display: grid;
+  gap: 2px;
+}
+
+.agent-definition-editor__check small {
+  color: var(--muted);
+}
+
+.button--danger {
+  color: var(--danger, #dc2626);
+}

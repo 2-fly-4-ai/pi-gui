@@ -1,90 +1,172 @@
 import { useMemo, useState } from "react";
 import type { RuntimeSnapshot } from "@pi-gui/session-driver/runtime-types";
 import type { AgentDefinitionConfig, AgentDefinitionScope, SaveAgentDefinitionInput } from "./agent-definitions";
+import { AGENT_TOOL_OPTIONS } from "./agent-definitions";
+import {
+  buildAgentDefinitionConfig,
+  createAgentDefinitionFormState,
+  toggleAgentTool,
+  validateAgentDefinitionForm,
+  type AgentDefinitionFormState,
+} from "./agent-definition-form";
 import { THINKING_LEVELS, labelForThinking } from "./settings-utils";
 
 interface AgentDefinitionEditorProps {
+  readonly mode: "create" | "edit";
   readonly config: AgentDefinitionConfig;
   readonly runtime?: RuntimeSnapshot;
   readonly defaultScope: AgentDefinitionScope;
+  readonly builtin: boolean;
+  readonly pending?: boolean;
   readonly onClose: () => void;
-  readonly onSave: (input: SaveAgentDefinitionInput) => void;
+  readonly onSave: (input: SaveAgentDefinitionInput) => Promise<void> | void;
 }
 
-export function AgentDefinitionEditor({ config, runtime, defaultScope, onClose, onSave }: AgentDefinitionEditorProps) {
-  const titleId = `agent-definition-editor-title-${config.name}`;
-  const [scope, setScope] = useState<AgentDefinitionScope>(defaultScope);
-  const [modelValue, setModelValue] = useState(
-    config.modelMode === "fixed" && config.model ? `${config.model.providerId}:${config.model.modelId}` : "inherit",
-  );
-  const [thinkingValue, setThinkingValue] = useState(
-    config.thinkingMode === "fixed" && config.thinking ? config.thinking : "inherit",
-  );
+export function AgentDefinitionEditor({ mode, config, runtime, defaultScope, builtin, pending = false, onClose, onSave }: AgentDefinitionEditorProps) {
+  const title = mode === "create" ? "New agent" : `Edit ${config.name}`;
+  const titleId = `agent-definition-editor-title-${mode}-${config.name || "new"}`;
+  const [form, setForm] = useState<AgentDefinitionFormState>(() => createAgentDefinitionFormState({ mode, config, scope: defaultScope, builtin }));
+  const [attemptedSave, setAttemptedSave] = useState(false);
+  const validation = validateAgentDefinitionForm(form);
   const enabledModels = useMemo(() => (runtime?.models ?? []).filter((model) => model.available), [runtime]);
 
+  const update = <Key extends keyof AgentDefinitionFormState>(key: Key, value: AgentDefinitionFormState[Key]) => {
+    setForm((current) => ({ ...current, [key]: value }));
+  };
+
   const save = () => {
-    const modelParts = modelValue === "inherit" ? [] : modelValue.split(":");
-    const providerId = modelParts[0] ?? "";
-    const modelId = modelParts.slice(1).join(":");
-    const nextConfig: AgentDefinitionConfig = {
-      ...config,
-      modelMode: modelValue === "inherit" ? "inherit" : "fixed",
-      model: modelValue === "inherit" ? undefined : { providerId, modelId },
-      thinkingMode: thinkingValue === "inherit" ? "inherit" : "fixed",
-      thinking: thinkingValue === "inherit" ? undefined : (thinkingValue as AgentDefinitionConfig["thinking"]),
-    };
-    onSave({ scope, config: nextConfig });
+    setAttemptedSave(true);
+    if (!validation.valid) return;
+    void Promise.resolve(onSave({ scope: form.scope, config: buildAgentDefinitionConfig(form) })).catch(() => undefined);
   };
 
   return (
     <div className="action-dialog-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
-      <section aria-labelledby={titleId} aria-modal="true" className="action-dialog agent-definition-editor" data-testid="agent-definition-editor" role="dialog">
-        <h2 id={titleId}>Edit {config.name}</h2>
-        <p>Configure the model and reasoning this subagent uses when Pi launches it automatically.</p>
+      <section aria-labelledby={titleId} aria-modal="true" className="action-dialog agent-definition-editor agent-definition-editor--wide" data-testid="agent-definition-editor" role="dialog">
+        <header className="agent-definition-editor__header">
+          <div>
+            <h2 id={titleId}>{title}</h2>
+            <p>Create and tune pi-subagents definitions without editing markdown by hand.</p>
+          </div>
+          <label className="agent-definition-editor__enabled">
+            <input aria-label="Enabled" checked={form.enabled} type="checkbox" onChange={(event) => update("enabled", event.target.checked)} />
+            <span>Enabled</span>
+          </label>
+        </header>
+
+        {attemptedSave && !validation.valid ? (
+          <div className="settings-warning" role="alert">
+            {validation.errors.map((error) => <div key={error}>{error}</div>)}
+          </div>
+        ) : null}
+
+        <div className="agent-definition-editor__grid">
+          <label className="action-dialog__field">
+            <span>Agent name</span>
+            <input aria-label="Agent name" disabled={mode === "edit"} value={form.name} onChange={(event) => update("name", event.target.value)} />
+          </label>
+          <label className="action-dialog__field">
+            <span>Display name</span>
+            <input aria-label="Display name" value={form.displayName} onChange={(event) => update("displayName", event.target.value)} />
+          </label>
+          <label className="action-dialog__field agent-definition-editor__span">
+            <span>Description</span>
+            <input aria-label="Description" value={form.description} onChange={(event) => update("description", event.target.value)} />
+          </label>
+          <label className="action-dialog__field">
+            <span>Scope</span>
+            <select aria-label="Scope" className="settings-select" value={form.scope} onChange={(event) => update("scope", event.target.value as AgentDefinitionScope)}>
+              <option value="global">Global — all projects</option>
+              <option value="project">Project — this workspace</option>
+            </select>
+          </label>
+          <label className="action-dialog__field">
+            <span>Model</span>
+            <select aria-label="Model" className="settings-select" value={form.modelValue} onChange={(event) => update("modelValue", event.target.value)}>
+              <option value="inherit">Inherit current thread</option>
+              {enabledModels.map((model) => (
+                <option key={`${model.providerId}:${model.modelId}`} value={`${model.providerId}:${model.modelId}`}>
+                  {model.providerName} · {model.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="action-dialog__field">
+            <span>Reasoning</span>
+            <select aria-label="Reasoning" className="settings-select" value={form.thinkingValue} onChange={(event) => update("thinkingValue", event.target.value as AgentDefinitionFormState["thinkingValue"])}>
+              <option value="inherit">Inherit</option>
+              <option value="off">Off</option>
+              <option value="minimal">Minimal</option>
+              {THINKING_LEVELS.map((level) => <option key={level} value={level}>{labelForThinking(level)}</option>)}
+            </select>
+          </label>
+          <label className="action-dialog__field">
+            <span>Prompt mode</span>
+            <select aria-label="Prompt mode" className="settings-select" value={form.promptMode} onChange={(event) => update("promptMode", event.target.value as "append" | "replace")}>
+              <option value="replace">Replace — standalone agent prompt</option>
+              <option value="append">Append — parent-twin prompt</option>
+            </select>
+          </label>
+        </div>
+
         <label className="action-dialog__field">
-          <span>Scope</span>
-          <select aria-label="Scope" className="settings-select" value={scope} onChange={(event) => setScope(event.target.value as AgentDefinitionScope)}>
-            <option value="global">Global — all projects</option>
-            <option value="project">Project — this workspace</option>
-          </select>
+          <span>System prompt</span>
+          <textarea aria-label="System prompt" className="agent-definition-editor__prompt" value={form.systemPrompt} onChange={(event) => update("systemPrompt", event.target.value)} />
         </label>
-        <label className="action-dialog__field">
-          <span>Model</span>
-          <select aria-label="Model" className="settings-select" value={modelValue} onChange={(event) => setModelValue(event.target.value)}>
-            <option value="inherit">Inherit current thread</option>
-            {enabledModels.map((model) => (
-              <option key={`${model.providerId}:${model.modelId}`} value={`${model.providerId}:${model.modelId}`}>
-                {model.providerName} · {model.label}
-              </option>
+
+        <section className="agent-definition-editor__panel">
+          <h3>Tools and context</h3>
+          <div className="agent-definition-editor__checks">
+            {AGENT_TOOL_OPTIONS.map((tool) => (
+              <label className="agent-definition-editor__check" key={tool.name}>
+                <input
+                  aria-label={`Tool: ${tool.name}`}
+                  checked={form.tools.includes(tool.name)}
+                  type="checkbox"
+                  onChange={(event) => update("tools", toggleAgentTool(form.tools, tool.name, event.target.checked))}
+                />
+                <span><strong>{tool.label}</strong><small>{tool.description}</small></span>
+              </label>
             ))}
-          </select>
-        </label>
-        <label className="action-dialog__field">
-          <span>Reasoning</span>
-          <select aria-label="Reasoning" className="settings-select" value={thinkingValue} onChange={(event) => setThinkingValue(event.target.value)}>
-            <option value="inherit">Inherit</option>
-            <option value="off">Off</option>
-            <option value="minimal">Minimal</option>
-            {THINKING_LEVELS.map((level) => (
-              <option key={level} value={level}>{labelForThinking(level)}</option>
-            ))}
-          </select>
-        </label>
-        <details className="settings-disclosure">
-          <summary className="settings-disclosure__summary">
-            <span>Definition details</span>
-            <span>{config.promptMode}</span>
-          </summary>
-          <div className="settings-disclosure__body">
+          </div>
+          <div className="agent-definition-editor__grid agent-definition-editor__grid--compact">
+            <label className="agent-definition-editor__inline-check">
+              <input aria-label="Extensions" checked={form.extensions} type="checkbox" onChange={(event) => update("extensions", event.target.checked)} />
+              <span>Extensions</span>
+            </label>
+            <label className="agent-definition-editor__inline-check">
+              <input aria-label="Skills" checked={form.skills} type="checkbox" onChange={(event) => update("skills", event.target.checked)} />
+              <span>Skills</span>
+            </label>
+            <label className="agent-definition-editor__inline-check">
+              <input aria-label="Inherit context" checked={form.inheritContext} type="checkbox" onChange={(event) => update("inheritContext", event.target.checked)} />
+              <span>Inherit context</span>
+            </label>
+            <label className="agent-definition-editor__inline-check">
+              <input aria-label="Run in background" checked={form.runInBackground} type="checkbox" onChange={(event) => update("runInBackground", event.target.checked)} />
+              <span>Run in background</span>
+            </label>
+            <label className="agent-definition-editor__inline-check">
+              <input aria-label="Isolated" checked={form.isolated} type="checkbox" onChange={(event) => update("isolated", event.target.checked)} />
+              <span>Isolated</span>
+            </label>
             <label className="action-dialog__field">
-              <span>System prompt</span>
-              <textarea readOnly value={config.systemPrompt} />
+              <span>Isolation</span>
+              <select aria-label="Isolation" className="settings-select" value={form.isolation} onChange={(event) => update("isolation", event.target.value as "" | "worktree")}>
+                <option value="">None</option>
+                <option value="worktree">Worktree</option>
+              </select>
+            </label>
+            <label className="action-dialog__field">
+              <span>Max turns</span>
+              <input aria-label="Max turns" inputMode="numeric" value={form.maxTurns} onChange={(event) => update("maxTurns", event.target.value)} />
             </label>
           </div>
-        </details>
+        </section>
+
         <div className="action-dialog__actions">
-          <button className="button button--secondary" type="button" onClick={onClose}>Cancel</button>
-          <button className="button button--primary" type="button" onClick={save}>Save</button>
+          <button className="button button--secondary" disabled={pending} type="button" onClick={onClose}>Cancel</button>
+          <button className="button button--primary" disabled={pending} type="button" onClick={save}>{mode === "create" ? "Create agent" : "Save"}</button>
         </div>
       </section>
     </div>

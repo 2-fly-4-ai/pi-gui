@@ -20,7 +20,7 @@ import type {
   StartThreadInput,
   WorkspaceSessionTarget,
 } from "./desktop-state";
-import type { AgentDefinitionsSnapshot, ResetAgentDefinitionInput, SaveAgentDefinitionInput } from "./agent-definitions";
+import type { AgentDefinitionsSnapshot, DeleteAgentDefinitionInput, ResetAgentDefinitionInput, SaveAgentDefinitionInput } from "./agent-definitions";
 import type { CreateReviewSnapshotOptions, ReviewSnapshot } from "./review/review-types";
 
 export type DesktopNotificationPermissionStatus =
@@ -81,6 +81,7 @@ export const desktopIpc = {
   listAgentDefinitions: "pi-gui:list-agent-definitions",
   saveAgentDefinition: "pi-gui:save-agent-definition",
   resetAgentDefinition: "pi-gui:reset-agent-definition",
+  deleteAgentDefinition: "pi-gui:delete-agent-definition",
   respondToHostUiRequest: "pi-gui:respond-to-host-ui-request",
   setNotificationPreferences: "pi-gui:set-notification-preferences",
   setIntegratedTerminalShell: "pi-gui:set-integrated-terminal-shell",
@@ -305,6 +306,7 @@ export interface PiDesktopApi {
   listAgentDefinitions(workspaceId: string): Promise<AgentDefinitionsSnapshot>;
   saveAgentDefinition(workspaceId: string, input: SaveAgentDefinitionInput): Promise<AgentDefinitionsSnapshot>;
   resetAgentDefinition(workspaceId: string, input: ResetAgentDefinitionInput): Promise<AgentDefinitionsSnapshot>;
+  deleteAgentDefinition(workspaceId: string, input: DeleteAgentDefinitionInput): Promise<AgentDefinitionsSnapshot>;
   respondToHostUiRequest(
     workspaceId: string,
     sessionId: string,

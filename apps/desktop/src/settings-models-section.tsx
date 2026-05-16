@@ -14,6 +14,7 @@ interface SettingsModelsSectionProps {
   readonly onSetDefaultModel: (provider: string, modelId: string) => void;
   readonly onSetThinkingLevel: (thinkingLevel: RuntimeSettingsSnapshot["defaultThinkingLevel"]) => void;
   readonly onSetScopedModelPatterns: (patterns: readonly string[]) => void;
+  readonly onOpenAgentsSettings: () => void;
 }
 
 export function SettingsModelsSection({
@@ -21,6 +22,7 @@ export function SettingsModelsSection({
   onSetDefaultModel,
   onSetThinkingLevel,
   onSetScopedModelPatterns,
+  onOpenAgentsSettings,
 }: SettingsModelsSectionProps) {
   const [modelQuery, setModelQuery] = useState("");
   const [scopedQuery, setScopedQuery] = useState("");
@@ -100,6 +102,12 @@ export function SettingsModelsSection({
               </button>
             ))}
           </div>
+        </SettingsRow>
+      </SettingsGroup>
+
+      <SettingsGroup title="Subagent models" description="Subagents can inherit the active thread model or use their own fixed model.">
+        <SettingsRow title="Agent-specific models" description="Configure general-purpose, Explore, Plan, and custom pi-subagents definitions from Settings → Agents.">
+          <button className="button button--secondary" type="button" onClick={onOpenAgentsSettings}>Configure subagents</button>
         </SettingsRow>
       </SettingsGroup>
 

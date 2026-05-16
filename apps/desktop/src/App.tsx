@@ -15,7 +15,7 @@ import {
   type WorktreeRecord,
   type WorkspaceRecord,
 } from "./desktop-state";
-import type { AgentDefinitionsSnapshot, ResetAgentDefinitionInput, SaveAgentDefinitionInput } from "./agent-definitions";
+import type { AgentDefinitionsSnapshot, DeleteAgentDefinitionInput, ResetAgentDefinitionInput, SaveAgentDefinitionInput } from "./agent-definitions";
 import { formatRelativeTime } from "./string-utils";
 import { AddActionDialog } from "./add-action-dialog";
 import { CommandPalette } from "./command-palette";
@@ -174,6 +174,8 @@ export default function App() {
   const [skillUsageByPath, setSkillUsageByPath] = useState<SkillUsageByPath>(() => loadSkillUsage());
   const [projectActionsByWorkspace, setProjectActionsByWorkspace] = useState<ProjectActionsByWorkspace>(() => loadProjectActions());
   const [agentDefinitions, setAgentDefinitions] = useState<AgentDefinitionsSnapshot | undefined>();
+  const [agentDefinitionsPending, setAgentDefinitionsPending] = useState(false);
+  const [agentDefinitionsError, setAgentDefinitionsError] = useState<string | undefined>();
   const [addActionDialogOpen, setAddActionDialogOpen] = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [settingsSection, setSettingsSection] = useState<SettingsSection>("general");
@@ -397,9 +399,12 @@ export default function App() {
       setAgentDefinitions(undefined);
       return;
     }
+    setAgentDefinitionsPending(true);
+    setAgentDefinitionsError(undefined);
     void api.listAgentDefinitions(workspaceId).then(setAgentDefinitions).catch((error) => {
+      setAgentDefinitionsError(error instanceof Error ? error.message : String(error));
       console.warn("Failed to load agent definitions", error);
-    });
+    }).finally(() => setAgentDefinitionsPending(false));
   }, [api]);
 
   useEffect(() => {
@@ -2077,22 +2082,55 @@ export default function App() {
     void updateSnapshot(api, setSnapshot, () => api.setScopedModelPatterns(settingsWorkspace.id, patterns));
   };
 
-  const handleSaveAgentDefinition = (input: SaveAgentDefinitionInput) => {
+  const handleSaveAgentDefinition = async (input: SaveAgentDefinitionInput) => {
     if (!api || !settingsWorkspace) {
       return;
     }
-    void api.saveAgentDefinition(settingsWorkspace.id, input).then(setAgentDefinitions).catch((error) => {
+    setAgentDefinitionsPending(true);
+    setAgentDefinitionsError(undefined);
+    try {
+      setAgentDefinitions(await api.saveAgentDefinition(settingsWorkspace.id, input));
+    } catch (error) {
+      setAgentDefinitionsError(error instanceof Error ? error.message : String(error));
       console.warn("Failed to save agent definition", error);
-    });
+      throw error;
+    } finally {
+      setAgentDefinitionsPending(false);
+    }
   };
 
-  const handleResetAgentDefinition = (input: ResetAgentDefinitionInput) => {
+  const handleResetAgentDefinition = async (input: ResetAgentDefinitionInput) => {
     if (!api || !settingsWorkspace) {
       return;
     }
-    void api.resetAgentDefinition(settingsWorkspace.id, input).then(setAgentDefinitions).catch((error) => {
+    setAgentDefinitionsPending(true);
+    setAgentDefinitionsError(undefined);
+    try {
+      setAgentDefinitions(await api.resetAgentDefinition(settingsWorkspace.id, input));
+    } catch (error) {
+      setAgentDefinitionsError(error instanceof Error ? error.message : String(error));
       console.warn("Failed to reset agent definition", error);
-    });
+      throw error;
+    } finally {
+      setAgentDefinitionsPending(false);
+    }
+  };
+
+  const handleDeleteAgentDefinition = async (input: DeleteAgentDefinitionInput) => {
+    if (!api || !settingsWorkspace) {
+      return;
+    }
+    setAgentDefinitionsPending(true);
+    setAgentDefinitionsError(undefined);
+    try {
+      setAgentDefinitions(await api.deleteAgentDefinition(settingsWorkspace.id, input));
+    } catch (error) {
+      setAgentDefinitionsError(error instanceof Error ? error.message : String(error));
+      console.warn("Failed to delete agent definition", error);
+      throw error;
+    } finally {
+      setAgentDefinitionsPending(false);
+    }
   };
 
   const handleSetModelSettingsScopeMode = (mode: "app-global" | "per-repo") => {
@@ -2435,6 +2473,8 @@ export default function App() {
           section={settingsSection}
           notificationPreferences={snapshot.notificationPreferences}
           agentDefinitions={agentDefinitions}
+          agentDefinitionsPending={agentDefinitionsPending}
+          agentDefinitionsError={agentDefinitionsError}
           notificationPermissionStatus={notificationPermissionStatus}
           notificationPermissionPending={notificationPermissionPending}
           modelSettingsScopeMode={snapshot.modelSettingsScopeMode}
@@ -2456,6 +2496,8 @@ export default function App() {
           onToggleSkillCommands={handleToggleSkillCommands}
           onSaveAgentDefinition={handleSaveAgentDefinition}
           onResetAgentDefinition={handleResetAgentDefinition}
+          onDeleteAgentDefinition={handleDeleteAgentDefinition}
+          onOpenAgentsSettings={() => setSettingsSection("agents")}
         />
         </SecondarySurface>
       </>

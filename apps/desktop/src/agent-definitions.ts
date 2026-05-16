@@ -59,9 +59,54 @@ export interface ResetAgentDefinitionInput {
   readonly name: string;
 }
 
+export interface DeleteAgentDefinitionInput {
+  readonly scope: AgentDefinitionScope;
+  readonly name: string;
+}
+
 export const BUILTIN_AGENT_NAMES = ["general-purpose", "Explore", "Plan"] as const;
 
 export const READ_ONLY_AGENT_TOOLS: readonly AgentToolName[] = ["read", "bash", "grep", "find", "ls"];
+
+export const AGENT_TOOL_OPTIONS: readonly { readonly name: AgentToolName; readonly label: string; readonly description: string }[] = [
+  { name: "read", label: "Read", description: "Read files" },
+  { name: "bash", label: "Bash", description: "Run shell commands" },
+  { name: "grep", label: "Grep", description: "Search file contents" },
+  { name: "find", label: "Find", description: "Find files by glob" },
+  { name: "ls", label: "List", description: "List directories" },
+  { name: "edit", label: "Edit", description: "Edit files" },
+  { name: "write", label: "Write", description: "Create or overwrite files" },
+];
+
+export const DEFAULT_CUSTOM_AGENT_PROMPT = `You are a focused specialist agent.
+
+Use the repository context and available tools to complete the delegated task.
+Be concise, cite files when relevant, and stop when the task is complete.`;
+
+export function createDefaultCustomAgentConfig(): AgentDefinitionConfig {
+  return {
+    name: "",
+    displayName: "",
+    description: "Specialist agent for delegated tasks",
+    modelMode: "inherit",
+    thinkingMode: "inherit",
+    tools: READ_ONLY_AGENT_TOOLS,
+    extensions: true,
+    skills: true,
+    promptMode: "replace",
+    enabled: true,
+    systemPrompt: DEFAULT_CUSTOM_AGENT_PROMPT,
+  };
+}
+
+export function duplicateAgentConfig(config: AgentDefinitionConfig): AgentDefinitionConfig {
+  return {
+    ...config,
+    name: "",
+    displayName: config.displayName ? `${config.displayName} Copy` : `${config.name} Copy`,
+    description: config.description,
+  };
+}
 
 export const DEFAULT_GENERAL_PURPOSE_PROMPT = "";
 

@@ -5,6 +5,7 @@ import type {
   AgentDefinitionConfig,
   AgentDefinitionRecord,
   AgentDefinitionScope,
+  DeleteAgentDefinitionInput,
   AgentDefinitionsSnapshot,
   AgentThinkingLevel,
   AgentToolName,
@@ -62,6 +63,20 @@ export async function resetAgentDefinition(
   input: ResetAgentDefinitionInput,
 ): Promise<AgentDefinitionsSnapshot> {
   validateResetInput(input);
+  const dir = resolveScopeDir(workspacePath, input.scope);
+  const path = safeAgentPath(dir, input.name);
+  await rm(path, { force: true });
+  return listAgentDefinitions(workspacePath);
+}
+
+export async function deleteAgentDefinition(
+  workspacePath: string | undefined,
+  input: DeleteAgentDefinitionInput,
+): Promise<AgentDefinitionsSnapshot> {
+  validateResetInput(input);
+  if (isBuiltin(input.name)) {
+    throw new Error("Built-in agents can be reset, not deleted.");
+  }
   const dir = resolveScopeDir(workspacePath, input.scope);
   const path = safeAgentPath(dir, input.name);
   await rm(path, { force: true });
@@ -248,6 +263,11 @@ function validateSaveInput(input: SaveAgentDefinitionInput): void {
   if (config.thinkingMode !== "inherit" && config.thinkingMode !== "fixed") throw new Error("Invalid agent thinking mode.");
   if (config.thinking && !isThinkingLevel(config.thinking)) throw new Error("Invalid agent thinking level.");
   if (config.promptMode !== "append" && config.promptMode !== "replace") throw new Error("Invalid agent prompt mode.");
+  if (config.tools?.some((tool) => !BUILTIN_TOOL_NAMES.includes(tool))) throw new Error("Invalid agent tool.");
+  if (config.isolation && config.isolation !== "worktree") throw new Error("Invalid isolation mode.");
+  if (config.enabled !== true && config.enabled !== false) throw new Error("Invalid enabled value.");
+  if (config.extensions !== true && config.extensions !== false) throw new Error("Invalid extensions value.");
+  if (config.skills !== true && config.skills !== false) throw new Error("Invalid skills value.");
   if (config.maxTurns !== undefined && (!Number.isInteger(config.maxTurns) || config.maxTurns <= 0)) throw new Error("Agent max turns must be a positive integer.");
   if (config.systemPrompt.length > 200_000) throw new Error("Agent system prompt is too large.");
 }
