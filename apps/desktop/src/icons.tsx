@@ -336,6 +336,17 @@ export function WorktreeIcon() {
   );
 }
 
+export function GitBranchIcon() {
+  return (
+    <Icon>
+      <circle cx="6" cy="5" r="1.7" stroke="currentColor" strokeWidth="1.35" />
+      <circle cx="14" cy="15" r="1.7" stroke="currentColor" strokeWidth="1.35" />
+      <circle cx="6" cy="15" r="1.7" stroke="currentColor" strokeWidth="1.35" />
+      <path d="M6 6.7v6.6M7.7 5h2.1c2.3 0 4.2 1.9 4.2 4.2v4.1" stroke="currentColor" strokeLinecap="round" strokeWidth="1.35" />
+    </Icon>
+  );
+}
+
 export function GripIcon() {
   return (
     <Icon>

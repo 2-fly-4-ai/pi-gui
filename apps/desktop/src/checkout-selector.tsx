@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { GitBranchIcon } from "./icons";
 
 export interface CheckoutSelectorOption {
   readonly id: string;
@@ -59,7 +60,7 @@ export function CheckoutSelector({ label, currentRef, options }: CheckoutSelecto
           onClick={() => setOpen((current) => !current)}
         >
           <span>{currentRef}</span>
-          <span aria-hidden="true">⌄</span>
+          <span aria-hidden="true" className="checkout-selector__branch-icon"><GitBranchIcon /></span>
         </button>
       </div>
       {open ? (
