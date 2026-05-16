@@ -6385,13 +6385,19 @@ mark.thread-find-active {
   position: relative;
 }
 
-.skill-profile-selector__menu {
+.skill-profile-selector__popover {
   position: absolute;
   bottom: calc(100% + 6px);
   left: 0;
   z-index: 40;
   display: grid;
-  width: 280px;
+  grid-template-columns: 280px 320px;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.skill-profile-selector__menu {
+  display: grid;
   max-height: min(360px, calc(100vh - 180px));
   overflow-y: auto;
   padding: 5px;
@@ -6448,6 +6454,88 @@ mark.thread-find-active {
   color: var(--accent);
   font-size: 13px;
   font-weight: 600;
+}
+
+.skill-profile-selector__preview {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  max-height: min(360px, calc(100vh - 180px));
+  overflow: hidden;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: 0 18px 52px rgba(0, 0, 0, 0.16);
+}
+
+.skill-profile-selector__preview-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.skill-profile-selector__preview-header strong {
+  color: var(--text-strong);
+  font-size: 13px;
+  line-height: 1.25;
+}
+
+.skill-profile-selector__preview-header span {
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.skill-profile-selector__preview p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.skill-profile-selector__skills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  overflow-y: auto;
+}
+
+.skill-profile-selector__skill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 144px;
+  padding: 3px 6px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  color: var(--text-strong);
+  background: var(--surface-muted);
+  font-size: 11px;
+  line-height: 1.2;
+}
+
+.skill-profile-selector__skill span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.skill-profile-selector__skill em {
+  color: var(--muted);
+  font-style: normal;
+  font-size: 10px;
+}
+
+.skill-profile-selector__skill--auto {
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--line));
+}
+
+.skill-profile-selector__empty,
+.skill-profile-selector__more {
+  color: var(--muted);
+  font-size: 11px;
 }
 
 .skills-header-discovery {
