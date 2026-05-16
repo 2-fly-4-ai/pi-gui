@@ -1,9 +1,23 @@
 import { type KeyboardEvent, useEffect, useId, useMemo, useRef, useState } from "react";
-import { filterCommandPaletteActions, firstEnabledAction, type CommandPaletteAction } from "./command-palette-model";
+import { filterCommandPaletteActions, type CommandPaletteAction } from "./command-palette-model";
 
 interface CommandPaletteProps {
   readonly actions: readonly CommandPaletteAction[];
   readonly onClose: () => void;
+}
+
+function firstEnabledIndex(actions: readonly CommandPaletteAction[]): number {
+  const index = actions.findIndex((action) => !action.disabled);
+  return index >= 0 ? index : 0;
+}
+
+function nextEnabledIndex(actions: readonly CommandPaletteAction[], current: number, direction: 1 | -1): number {
+  if (actions.length === 0) return 0;
+  for (let offset = 1; offset <= actions.length; offset += 1) {
+    const index = (current + direction * offset + actions.length) % actions.length;
+    if (!actions[index]?.disabled) return index;
+  }
+  return current;
 }
 
 export function CommandPalette({ actions, onClose }: CommandPaletteProps) {
@@ -14,7 +28,7 @@ export function CommandPalette({ actions, onClose }: CommandPaletteProps) {
   const previouslyFocusedElementRef = useRef<HTMLElement | null>(null);
   const listboxId = useId();
   const filteredActions = useMemo(() => filterCommandPaletteActions(actions, query), [actions, query]);
-  const selectedAction = filteredActions[selectedIndex] ?? firstEnabledAction(filteredActions);
+  const selectedAction = filteredActions[selectedIndex];
   const selectedActionId = selectedAction ? `${listboxId}-${selectedAction.id}` : undefined;
 
   useEffect(() => {
@@ -26,12 +40,8 @@ export function CommandPalette({ actions, onClose }: CommandPaletteProps) {
   }, []);
 
   useEffect(() => {
-    setSelectedIndex(0);
-  }, [query]);
-
-  useEffect(() => {
-    setSelectedIndex((current) => Math.min(current, Math.max(filteredActions.length - 1, 0)));
-  }, [filteredActions.length]);
+    setSelectedIndex(firstEnabledIndex(filteredActions));
+  }, [filteredActions]);
 
   const runAction = (action: CommandPaletteAction | undefined) => {
     if (!action || action.disabled) return;
@@ -47,12 +57,12 @@ export function CommandPalette({ actions, onClose }: CommandPaletteProps) {
     }
     if (event.key === "ArrowDown") {
       event.preventDefault();
-      setSelectedIndex((current) => Math.min(current + 1, Math.max(filteredActions.length - 1, 0)));
+      setSelectedIndex((current) => nextEnabledIndex(filteredActions, current, 1));
       return;
     }
     if (event.key === "ArrowUp") {
       event.preventDefault();
-      setSelectedIndex((current) => Math.max(current - 1, 0));
+      setSelectedIndex((current) => nextEnabledIndex(filteredActions, current, -1));
       return;
     }
     if (event.key === "Enter") {
