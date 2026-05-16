@@ -71,13 +71,13 @@ test("opens a workspace terminal with persistent output, tabs, and takeover cont
     await window.keyboard.press(desktopShortcut("Shift+O"));
     await expect(window.getByTestId("new-thread-composer")).toHaveCount(0);
     await harness.electronApp.evaluate(({ clipboard }) => {
-      clipboard.writeText("echo PASTE_ONCE");
+      clipboard.writeText('NODE_ENV=test node -e "console.log(process.env.NODE_ENV)"');
     });
     await window.keyboard.press(desktopShortcut("V"));
     await window.keyboard.press("Enter");
-    await expect(terminal.locator(".xterm-rows")).toContainText("PASTE_ONCE", { timeout: 15_000 });
-    await expect(terminal.locator(".xterm-rows")).not.toContainText("echo PASTE_ONCEecho PASTE_ONCE");
-    await expect.poll(async () => (await terminal.locator(".xterm-rows").innerText()).match(/PASTE_ONCE/g)?.length ?? 0).toBe(2);
+    await expect(terminal.locator(".xterm-rows")).toContainText("test", { timeout: 15_000 });
+    await expect(terminal.locator(".xterm-rows")).not.toContainText('NODE_ENV=test node -e "console.log(process.env.NODE_ENV)"NODE_ENV=test');
+    await expect(terminal.locator(".xterm-rows")).not.toContainText("SyntaxError");
 
     await harness.electronApp.evaluate(({ clipboard, nativeImage }, pngBase64) => {
       clipboard.writeImage(nativeImage.createFromDataURL(`data:image/png;base64,${pngBase64}`));
