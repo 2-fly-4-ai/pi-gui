@@ -98,8 +98,13 @@ export const ComposerSurface = memo(function ComposerSurface({
   onToggleExtensionDock,
   footer,
 }: ComposerSurfaceProps) {
+  const exposeRenderCount =
+    typeof window !== "undefined" &&
+    new URL(window.location.href).searchParams.get("pi-app-test-mode") === "1";
   const renderCountRef = useRef(0);
-  renderCountRef.current += 1;
+  if (exposeRenderCount) {
+    renderCountRef.current += 1;
+  }
   const [isDragActive, setIsDragActive] = useState(false);
   const dragDepthRef = useRef(0);
 
@@ -149,7 +154,7 @@ export const ComposerSurface = memo(function ComposerSurface({
     <div
       className={`composer__surface ${isDragActive ? "composer__surface--drag-active" : ""}`}
       data-testid={`${textareaTestId}-surface`}
-      data-render-count={renderCountRef.current}
+      data-render-count={exposeRenderCount ? renderCountRef.current : undefined}
       onPaste={onComposerPaste}
       onDragEnter={handleDragEnter}
       onDragLeave={handleDragLeave}

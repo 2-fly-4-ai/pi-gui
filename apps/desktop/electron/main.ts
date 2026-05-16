@@ -121,6 +121,15 @@ function readClipboardImageAttachment(): ComposerImageAttachment | null {
   };
 }
 
+function appendRendererTestModeParam(rawUrl: string): string {
+  if (!process.env.PI_APP_TEST_MODE) {
+    return rawUrl;
+  }
+  const url = new URL(rawUrl);
+  url.searchParams.set("pi-app-test-mode", "1");
+  return url.toString();
+}
+
 function createWindow(): BrowserWindow {
   const backgroundTestMode = windowTestMode === "background";
   const window = new BrowserWindow({
@@ -188,13 +197,13 @@ function createWindow(): BrowserWindow {
   });
 
   if (isDev) {
-    void window.loadURL(process.env.ELECTRON_RENDERER_URL as string);
+    void window.loadURL(appendRendererTestModeParam(process.env.ELECTRON_RENDERER_URL as string));
     if (process.env.PI_APP_OPEN_DEVTOOLS !== "0") {
       window.webContents.openDevTools({ mode: "detach" });
     }
   } else {
     const indexPath = path.join(__dirname, "..", "renderer", "index.html");
-    void window.loadURL(pathToFileURL(indexPath).toString());
+    void window.loadURL(appendRendererTestModeParam(pathToFileURL(indexPath).toString()));
   }
 
   return window;

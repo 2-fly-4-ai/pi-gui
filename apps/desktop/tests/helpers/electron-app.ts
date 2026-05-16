@@ -1029,7 +1029,17 @@ export async function emitTestSessionEventNoWait(
     if (!hooks?.emitSessionEvent) {
       throw new Error("Test session-event hook is unavailable");
     }
-    void hooks.emitSessionEvent(payload);
+    void hooks.emitSessionEvent(payload).catch((error) => {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const globalWithErrors = globalThis as typeof globalThis & {
+        __PI_APP_TEST_HOOK_ERRORS?: string[];
+      };
+      globalWithErrors.__PI_APP_TEST_HOOK_ERRORS = [
+        ...(globalWithErrors.__PI_APP_TEST_HOOK_ERRORS ?? []),
+        errorMessage,
+      ];
+      console.error("Test session-event hook failed", error);
+    });
   }, event);
 }
 
