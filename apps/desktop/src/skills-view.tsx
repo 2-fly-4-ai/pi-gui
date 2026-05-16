@@ -125,7 +125,9 @@ export function SkillsView({
             {discoveryWorkspaceControl ? (
               <div className="skills-header-discovery">
                 {discoveryWorkspaceControl}
-                <span className="skills-header-discovery__count">{skills.filter((skill) => skill.source === "project").length} project-local</span>
+                <span className={`skills-header-discovery__count ${skills.some((skill) => skill.source === "project") ? "skills-header-discovery__count--active" : ""}`}>
+                  {skills.filter((skill) => skill.source === "project").length} local
+                </span>
               </div>
             ) : null}
             <button className="button button--secondary" type="button" onClick={onRefresh}>

@@ -2568,9 +2568,10 @@ export default function App() {
           runtime={skillsRuntime}
           usageByPath={skillUsageByPath}
           discoveryWorkspaceControl={rootWorkspaceOptions.length > 1 ? (
-            <label className="skills-discovery-select">
-              <span>Show skills from</span>
+            <label className="skills-discovery-select" title="Project-local skills are loaded from the selected workspace.">
+              <span>Project skills</span>
               <select
+                aria-label="Project-local skill workspace"
                 value={skillsWorkspace?.id ?? ""}
                 onChange={(event) => setSkillsWorkspaceId(event.target.value)}
               >
