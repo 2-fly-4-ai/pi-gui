@@ -65,36 +65,38 @@ export function VSCodePanel({
           </button>
         </div>
       ) : null}
-      {loading ? (
-        <div className="display-mode-vscode__loading">
-          <span className="display-mode-vscode__spinner" aria-hidden="true" />
-          Starting VS Code…
-        </div>
-      ) : error ? (
-        <div className="display-mode-vscode__error">
-          <strong>Could not start VS Code</strong>
-          <p>{error}</p>
-        </div>
-      ) : port !== null ? (
-        <>
-          {!frameLoaded ? (
-            <div className="display-mode-vscode__loading">
-              <span className="display-mode-vscode__spinner" aria-hidden="true" />
-              Loading VS Code…
-            </div>
-          ) : null}
-          <iframe
-            className="display-mode-vscode__webview"
-            src={`http://localhost:${port}/`}
-            title="VS Code"
-            allow="clipboard-read; clipboard-write"
-            style={frameLoaded ? undefined : { opacity: 0 }}
-            onLoad={() => setFrameLoaded(true)}
-          />
-        </>
-      ) : (
-        <div className="display-mode-vscode__loading">Open a workspace to start VS Code.</div>
-      )}
+      <div className="vscode-panel__body">
+        {loading ? (
+          <div className="display-mode-vscode__loading">
+            <span className="display-mode-vscode__spinner" aria-hidden="true" />
+            Starting VS Code…
+          </div>
+        ) : error ? (
+          <div className="display-mode-vscode__error">
+            <strong>Could not start VS Code</strong>
+            <p>{error}</p>
+          </div>
+        ) : port !== null ? (
+          <>
+            {!frameLoaded ? (
+              <div className="display-mode-vscode__loading">
+                <span className="display-mode-vscode__spinner" aria-hidden="true" />
+                Loading VS Code…
+              </div>
+            ) : null}
+            <iframe
+              className="display-mode-vscode__webview"
+              src={`http://localhost:${port}/`}
+              title="VS Code"
+              allow="clipboard-read; clipboard-write"
+              style={frameLoaded ? undefined : { opacity: 0 }}
+              onLoad={() => setFrameLoaded(true)}
+            />
+          </>
+        ) : (
+          <div className="display-mode-vscode__loading">Open a workspace to start VS Code.</div>
+        )}
+      </div>
     </aside>
   );
 }

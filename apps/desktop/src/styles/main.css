@@ -5695,11 +5695,43 @@ mark.thread-find-active {
 
 .thread-vscode-panel {
   position: relative;
+  display: flex;
+  flex-direction: column;
   min-width: 0;
   min-height: 0;
   overflow: hidden;
   background: #111318;
   border-left: 1px solid #333;
+}
+
+.vscode-panel__header {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border-bottom: 1px solid #333;
+  background: #111318;
+}
+
+.vscode-panel__title {
+  min-width: 0;
+  overflow: hidden;
+  color: #f0f0f0;
+  font-size: 13px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vscode-panel__body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .display-mode-vscode__resize {
@@ -5711,6 +5743,8 @@ mark.thread-find-active {
 .display-mode-vscode {
   grid-column: 3;
   grid-row: 1;
+  display: flex;
+  flex-direction: column;
   align-self: stretch;
   height: 100%;
   min-height: 0;
