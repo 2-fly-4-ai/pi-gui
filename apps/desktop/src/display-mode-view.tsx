@@ -23,6 +23,7 @@ import type { DesktopAppState, DisplayModeThreadRecord, ExtensionCommandCompatib
 import { TimelineItem } from "./timeline-item";
 import { TerminalPanel } from "./terminal-panel";
 import { ComposerSurface } from "./composer-surface";
+import { VSCodePanel } from "./vscode-panel";
 import { useSlashMenu } from "./hooks/use-slash-menu";
 import { ArrowUpIcon, MaximizeIcon, MinimizeIcon, SidebarToggleIcon, StopSquareIcon, TerminalIcon } from "./icons";
 import type { PiDesktopApi } from "./ipc";
@@ -82,10 +83,6 @@ export function DisplayModeView({
 
   const [drawerWidth, setDrawerWidth] = useState<number>(() => lsGetNum("dm:drawerWidth", 320));
   const [vsCodeWidth, setVsCodeWidth] = useState<number>(() => getInitialVsCodeWidth());
-  const [vsCodePort, setVsCodePort] = useState<number | null>(null);
-  const [vsCodeLoading, setVsCodeLoading] = useState(false);
-  const [vsCodeFrameLoaded, setVsCodeFrameLoaded] = useState(false);
-  const [vsCodeError, setVsCodeError] = useState<string | null>(null);
   const lastFetchAt = useRef<number>(0);
   const pendingRefresh = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const sectionRef = useRef<HTMLElement | null>(null);
@@ -114,18 +111,6 @@ export function DisplayModeView({
       setVsCodeWidth(maxWidth);
     }
   }, [vsCodeOpen, vsCodeWidth]);
-  // Boot VS Code server whenever the workspace changes
-  useEffect(() => {
-    if (!vsCodeOpen || !vsCodeWorkspaceId || !vsCodeFolderPath) return;
-    setVsCodeLoading(true);
-    setVsCodeFrameLoaded(false);
-    setVsCodeError(null);
-    setVsCodePort(null);
-    void api.ensureVSCodeServer(vsCodeWorkspaceId, vsCodeFolderPath)
-      .then((port) => { setVsCodePort(port); setVsCodeLoading(false); })
-      .catch((err: unknown) => { setVsCodeError(err instanceof Error ? err.message : String(err)); setVsCodeLoading(false); });
-  }, [api, vsCodeOpen, vsCodeWorkspaceId, vsCodeFolderPath]);
-
   const startDrawerResize = (e: React.PointerEvent<HTMLDivElement>) => {
     e.preventDefault();
     e.currentTarget.setPointerCapture(e.pointerId);
@@ -644,33 +629,14 @@ export function DisplayModeView({
         style={{ pointerEvents: vsCodeOpen ? undefined : "none" }}
       />
       <aside className={`display-mode-vscode${vsCodeOpen ? "" : " display-mode-vscode--hidden"}`}>
-        {vsCodeLoading ? (
-          <div className="display-mode-vscode__loading">
-            <span className="display-mode-vscode__spinner" aria-hidden="true" />
-            Starting VS Code…
-          </div>
-        ) : vsCodeError ? (
-          <div className="display-mode-vscode__error">
-            <strong>Could not start VS Code</strong>
-            <p>{vsCodeError}</p>
-          </div>
-        ) : vsCodePort !== null ? (
-          <>
-            {!vsCodeFrameLoaded ? (
-              <div className="display-mode-vscode__loading">
-                <span className="display-mode-vscode__spinner" aria-hidden="true" />
-                Loading VS Code…
-              </div>
-            ) : null}
-            <iframe
-              className="display-mode-vscode__webview"
-              src={`http://localhost:${vsCodePort}/`}
-              title="VS Code"
-              allow="clipboard-read; clipboard-write"
-              style={vsCodeFrameLoaded ? undefined : { opacity: 0 }}
-              onLoad={() => setVsCodeFrameLoaded(true)}
-            />
-          </>
+        {vsCodeOpen && vsCodeWorkspaceId && vsCodeFolderPath ? (
+          <VSCodePanel
+            api={api}
+            workspaceId={vsCodeWorkspaceId}
+            folderPath={vsCodeFolderPath}
+            className="display-mode-vscode__panel"
+            testId="display-mode-vscode-panel"
+          />
         ) : (
           <div className="display-mode-vscode__loading">Open a workspace to start VS Code.</div>
         )}
