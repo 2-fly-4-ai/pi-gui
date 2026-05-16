@@ -149,6 +149,8 @@ contextBridge.exposeInMainWorld("piApp", {
     ipcRenderer.invoke(desktopIpc.renameSession, target, title) as Promise<DesktopAppState>,
   ensureVSCodeServer: (workspaceId: string, folderPath: string) =>
     ipcRenderer.invoke(desktopIpc.ensureVSCodeServer, workspaceId, folderPath) as Promise<number>,
+  killVSCodeServer: (workspaceId: string, folderPath: string) =>
+    ipcRenderer.invoke(desktopIpc.killVSCodeServer, workspaceId, folderPath) as Promise<void>,
   archiveSession: (target: WorkspaceSessionTarget) =>
     ipcRenderer.invoke(desktopIpc.archiveSession, target) as Promise<DesktopAppState>,
   unarchiveSession: (target: WorkspaceSessionTarget) =>

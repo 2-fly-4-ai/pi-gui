@@ -23,7 +23,7 @@ import { createReviewSnapshot } from "./review/review-snapshot";
 import type { DeleteAgentDefinitionInput, ResetAgentDefinitionInput, SaveAgentDefinitionInput } from "../src/agent-definitions";
 import type { CreateReviewSnapshotOptions, ReviewSnapshot } from "../src/review/review-types";
 import { listWorkspaceFiles } from "./app-store-files";
-import { ensureVSCodeServer, killAllVSCodeServers } from "./vscode-server-manager";
+import { ensureVSCodeServer, killAllVSCodeServers, killVSCodeServer } from "./vscode-server-manager";
 import { MAIN_DEV_RELOAD_MARKER } from "./dev-reload-main-probe";
 import { NotificationManager } from "./notification-manager";
 import {
@@ -551,6 +551,9 @@ app.whenReady().then(async () => {
   ipcMain.handle(desktopIpc.ensureVSCodeServer, (_event, workspaceId: string, folderPath: string) =>
     ensureVSCodeServer(workspaceId, folderPath),
   );
+  ipcMain.handle(desktopIpc.killVSCodeServer, (_event, workspaceId: string, folderPath: string) => {
+    killVSCodeServer(workspaceId, folderPath);
+  });
   ipcMain.handle(desktopIpc.archiveSession, (_event, target: WorkspaceSessionTarget) =>
     store.archiveSession(target),
   );

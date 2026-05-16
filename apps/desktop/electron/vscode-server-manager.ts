@@ -307,6 +307,11 @@ export async function ensureVSCodeServer(workspaceId: string, folderPath: string
   return port;
 }
 
+export function killVSCodeServer(workspaceId: string, folderPath: string): void {
+  void workspaceId;
+  void folderPath;
+}
+
 export function killAllVSCodeServers(): void {
   for (const entry of servers.values()) {
     stopServer(entry);

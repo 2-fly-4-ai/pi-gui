@@ -55,6 +55,7 @@ export const desktopIpc = {
   selectSession: "pi-gui:select-session",
   renameSession: "pi-gui:rename-session",
   ensureVSCodeServer: "pi-gui:ensure-vscode-server",
+  killVSCodeServer: "pi-gui:kill-vscode-server",
   archiveSession: "pi-gui:archive-session",
   unarchiveSession: "pi-gui:unarchive-session",
   createSession: "pi-gui:create-session",
@@ -267,6 +268,7 @@ export interface PiDesktopApi {
   selectSession(target: WorkspaceSessionTarget): Promise<DesktopAppState>;
   renameSession(target: WorkspaceSessionTarget, title: string): Promise<DesktopAppState>;
   ensureVSCodeServer(workspaceId: string, folderPath: string): Promise<number>;
+  killVSCodeServer(workspaceId: string, folderPath: string): Promise<void>;
   archiveSession(target: WorkspaceSessionTarget): Promise<DesktopAppState>;
   unarchiveSession(target: WorkspaceSessionTarget): Promise<DesktopAppState>;
   createSession(input: CreateSessionInput): Promise<DesktopAppState>;
