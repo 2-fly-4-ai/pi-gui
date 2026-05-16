@@ -142,7 +142,9 @@ export class DesktopAppStore implements AppStoreInternals {
   };
   private sessionEventChain: Promise<void> = Promise.resolve();
   private readonly assistantDeltaBatcher = new AssistantDeltaBatcher(32, () => {
-    void this.flushQueuedAssistantDeltas();
+    void this.flushQueuedAssistantDeltas().catch((error: unknown) => {
+      console.warn("Assistant delta flush failed", error);
+    });
   });
   readonly driver: PiSdkDriver;
   readonly catalogStore: JsonCatalogStore;
@@ -1392,10 +1394,15 @@ export class DesktopAppStore implements AppStoreInternals {
   }
 
   private async flushQueuedAssistantDeltas(): Promise<void> {
-    this.sessionEventChain = this.sessionEventChain.then(async () => {
+    await this.enqueueSessionEventWork(async () => {
       await this.applyAssistantDeltaEvents(this.assistantDeltaBatcher.takeAll());
     });
-    await this.sessionEventChain;
+  }
+
+  private async enqueueSessionEventWork(work: () => Promise<void>): Promise<void> {
+    const nextWork = this.sessionEventChain.catch(() => undefined).then(work);
+    this.sessionEventChain = nextWork.catch(() => undefined);
+    await nextWork;
   }
 
   private async applyAssistantDeltaEvents(events: readonly Extract<SessionDriverEvent, { type: "assistantDelta" }>[]): Promise<void> {
@@ -1415,7 +1422,7 @@ export class DesktopAppStore implements AppStoreInternals {
       this.migrateSessionSubscriptionKey(subscriptionKey, key);
     }
 
-    this.sessionEventChain = this.sessionEventChain.then(async () => {
+    await this.enqueueSessionEventWork(async () => {
       if (event.type === "assistantDelta") {
         this.assistantDeltaBatcher.enqueue(event);
         return;
@@ -1424,7 +1431,6 @@ export class DesktopAppStore implements AppStoreInternals {
       await this.applyAssistantDeltaEvents(this.assistantDeltaBatcher.takeFor(event.sessionRef));
       await this.applySessionEventImmediately(event, subscriptionKey);
     });
-    await this.sessionEventChain;
   }
 
   private async applySessionEventImmediately(event: SessionDriverEvent, subscriptionKey = sessionKey(event.sessionRef)): Promise<void> {
