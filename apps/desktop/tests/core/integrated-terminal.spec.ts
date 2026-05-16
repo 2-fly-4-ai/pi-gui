@@ -20,6 +20,7 @@ test("opens a workspace terminal with persistent output, tabs, and takeover cont
   const harness = await launchDesktop(userDataDir, {
     initialWorkspaces: [workspacePath],
     testMode: "background",
+    envOverrides: { NODE_ENV: "development" },
   });
 
   try {
