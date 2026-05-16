@@ -22,9 +22,14 @@ export function SkillProfileSelector({ profiles, activeProfileId, onSelectProfil
       {open ? (
         <div className="skill-profile-selector__menu">
           {profiles.map((profile) => (
-            <button className="skill-profile-selector__item" key={profile.id} type="button" onClick={() => { onSelectProfile(profile.id); setOpen(false); }}>
-              <strong>{profile.name}</strong>
-              {profile.description ? <span>{profile.description}</span> : null}
+            <button
+              className={`skill-profile-selector__item${profile.id === active?.id ? " skill-profile-selector__item--active" : ""}`}
+              key={profile.id}
+              type="button"
+              onClick={() => { onSelectProfile(profile.id); setOpen(false); }}
+            >
+              <span className="skill-profile-selector__item-label">{profile.name}</span>
+              {profile.description ? <span className="skill-profile-selector__item-meta">{profile.description}</span> : null}
             </button>
           ))}
           <button className="skill-profile-selector__manage" type="button" onClick={() => { onOpenSkillProfiles(); setOpen(false); }}>Manage profiles…</button>
