@@ -5,9 +5,21 @@ interface VSCodePanelProps {
   readonly api: PiDesktopApi;
   readonly workspaceId: string;
   readonly folderPath: string;
+  readonly className?: string;
+  readonly testId?: string;
+  readonly title?: string;
+  readonly onHardClose?: () => void;
 }
 
-export function VSCodePanel({ api, workspaceId, folderPath }: VSCodePanelProps) {
+export function VSCodePanel({
+  api,
+  workspaceId,
+  folderPath,
+  className = "thread-vscode-panel",
+  testId = "thread-vscode-panel",
+  title = "VS Code",
+  onHardClose,
+}: VSCodePanelProps) {
   const [port, setPort] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   const [frameLoaded, setFrameLoaded] = useState(false);
@@ -40,7 +52,19 @@ export function VSCodePanel({ api, workspaceId, folderPath }: VSCodePanelProps) 
   }, [api, workspaceId, folderPath]);
 
   return (
-    <aside className="thread-vscode-panel" data-testid="thread-vscode-panel">
+    <aside className={className} data-testid={testId}>
+      {onHardClose ? (
+        <div className="vscode-panel__header">
+          <div className="vscode-panel__title">{title}</div>
+          <button
+            type="button"
+            className="button button--ghost vscode-panel__hard-close"
+            onClick={onHardClose}
+          >
+            Hard close
+          </button>
+        </div>
+      ) : null}
       {loading ? (
         <div className="display-mode-vscode__loading">
           <span className="display-mode-vscode__spinner" aria-hidden="true" />
