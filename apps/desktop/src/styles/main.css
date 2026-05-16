@@ -5704,6 +5704,18 @@ mark.thread-find-active {
   border-left: 1px solid #333;
 }
 
+.display-mode-vscode__panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
 .vscode-panel__header {
   position: relative;
   z-index: 1;
