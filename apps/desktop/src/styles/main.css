@@ -5708,7 +5708,6 @@ mark.thread-find-active {
 /* VS Code panel */
 
 .thread-vscode-resize-handle {
-  grid-column: 2;
   cursor: col-resize;
   background: transparent;
 }

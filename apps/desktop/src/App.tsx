@@ -215,6 +215,7 @@ export default function App() {
   });
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const newThreadComposerRef = useRef<HTMLTextAreaElement | null>(null);
+  const mainRef = useRef<HTMLElement | null>(null);
   const timelinePaneRef = useRef<HTMLDivElement | null>(null);
   const lastTranscriptMarkerRef = useRef("");
   const pinnedToBottomRef = useRef(true);
@@ -241,6 +242,9 @@ export default function App() {
     return Number.isFinite(saved) && saved > 0 ? saved : 520;
   });
   const threadVsCodeWidthRef = useRef(threadVsCodeWidth);
+  const setThreadVsCodeCssWidth = useCallback((width: number) => {
+    mainRef.current?.style.setProperty("--thread-vscode-width", `${width}px`);
+  }, []);
   const toggleVsCode = useCallback(() => setVsCodeOpen((o) => !o), []);
   const openVsCodeForWorkspace = useCallback((workspaceId: string, folderPath: string) => {
     setVsCodeWorkspaceId(workspaceId);
@@ -257,7 +261,7 @@ export default function App() {
       const delta = startX - moveEvent.clientX;
       const nextWidth = Math.max(360, Math.min(900, startWidth + delta));
       threadVsCodeWidthRef.current = nextWidth;
-      setThreadVsCodeWidth(nextWidth);
+      setThreadVsCodeCssWidth(nextWidth);
     };
 
     const onUp = () => {
@@ -268,7 +272,32 @@ export default function App() {
 
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
-  }, []);
+  }, [setThreadVsCodeCssWidth]);
+  const handleThreadVsCodeResizeKeyDown = useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
+    let nextWidth: number | undefined;
+
+    switch (event.key) {
+      case "ArrowLeft":
+        nextWidth = Math.min(900, threadVsCodeWidthRef.current + 24);
+        break;
+      case "ArrowRight":
+        nextWidth = Math.max(360, threadVsCodeWidthRef.current - 24);
+        break;
+      case "Home":
+        nextWidth = 360;
+        break;
+      case "End":
+        nextWidth = 900;
+        break;
+      default:
+        return;
+    }
+
+    event.preventDefault();
+    threadVsCodeWidthRef.current = nextWidth;
+    setThreadVsCodeCssWidth(nextWidth);
+    setThreadVsCodeWidth(nextWidth);
+  }, [setThreadVsCodeCssWidth]);
   const [openTerminalSessionKeys, setOpenTerminalSessionKeys] = useState<ReadonlySet<string>>(() => new Set());
   const [takeoverTerminalSessionKeys, setTakeoverTerminalSessionKeys] = useState<ReadonlySet<string>>(() => new Set());
   const [activeTerminalSessionKey, setActiveTerminalSessionKey] = useState("");
@@ -300,8 +329,9 @@ export default function App() {
 
   useEffect(() => {
     threadVsCodeWidthRef.current = threadVsCodeWidth;
+    setThreadVsCodeCssWidth(threadVsCodeWidth);
     try { localStorage.setItem("threads:vsCodeWidth", String(threadVsCodeWidth)); } catch {}
-  }, [threadVsCodeWidth]);
+  }, [setThreadVsCodeCssWidth, threadVsCodeWidth]);
 
   useEffect(() => {
     const piApi = window.piApp;
@@ -2732,6 +2762,7 @@ export default function App() {
       ) : null}
 
       <main
+        ref={mainRef}
         className={mainClassName}
         style={{ "--thread-vscode-width": `${threadVsCodeWidth}px` } as React.CSSProperties}
       >
@@ -3064,7 +3095,13 @@ export default function App() {
             <div
               className="thread-vscode-resize-handle"
               role="separator"
+              tabIndex={0}
               aria-label="Resize VS Code panel"
+              aria-orientation="vertical"
+              aria-valuemin={360}
+              aria-valuemax={900}
+              aria-valuenow={threadVsCodeWidth}
+              onKeyDown={handleThreadVsCodeResizeKeyDown}
               onPointerDown={startThreadVsCodeResize}
             />
             <VSCodePanel
