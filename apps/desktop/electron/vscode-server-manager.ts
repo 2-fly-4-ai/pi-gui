@@ -24,6 +24,10 @@ interface VSCodeDataDirs {
 const servers = new Map<string, ServerEntry>();
 const preferredPort = 19538;
 
+function getServerKey(workspaceId: string, folderPath: string): string {
+  return `${workspaceId}:${path.resolve(folderPath)}`;
+}
+
 function findVSCodeServerInstall(): VSCodeServerInstall | null {
   const cliDir = path.join(os.homedir(), ".vscode", "cli", "serve-web");
   if (!fs.existsSync(cliDir)) {
@@ -231,8 +235,10 @@ function prepareVSCodeDataDirs(): VSCodeDataDirs {
 }
 
 export async function ensureVSCodeServer(workspaceId: string, folderPath: string): Promise<number> {
-  const existing = [...servers.values()][0];
-  if (existing && existing.workspaceId === workspaceId && existing.folderPath === folderPath) {
+  const serverKey = getServerKey(workspaceId, folderPath);
+  const existing = servers.get(serverKey);
+
+  if (existing) {
     if (isProcessAlive(existing)) {
       try {
         await waitForVSCodeWebReady(existing.port, 10_000);
@@ -241,13 +247,12 @@ export async function ensureVSCodeServer(workspaceId: string, folderPath: string
         stopServer(existing);
       }
     }
-    servers.delete(existing.workspaceId);
+    servers.delete(serverKey);
   }
-  for (const entry of servers.values()) {
-    stopServer(entry);
+
+  if (await canListenOnPort(preferredPort)) {
+    await waitForPortRelease(preferredPort, 2_000);
   }
-  servers.clear();
-  await waitForPortRelease(preferredPort, 2_000);
 
   const install = findVSCodeServerInstall();
   if (!install) {
@@ -273,7 +278,13 @@ export async function ensureVSCodeServer(workspaceId: string, folderPath: string
     detached: true,
   });
 
-  servers.set(workspaceId, { port, process: proc, workspaceId, folderPath });
+  servers.set(serverKey, { port, process: proc, workspaceId, folderPath });
+  proc.once("exit", () => {
+    const current = servers.get(serverKey);
+    if (current?.process === proc) {
+      servers.delete(serverKey);
+    }
+  });
 
   // Wait for VS Code's own ready signal before loading the webview. A TCP
   // listener appears earlier and can make the workbench fail its backend socket.
@@ -308,8 +319,13 @@ export async function ensureVSCodeServer(workspaceId: string, folderPath: string
 }
 
 export function killVSCodeServer(workspaceId: string, folderPath: string): void {
-  void workspaceId;
-  void folderPath;
+  const serverKey = getServerKey(workspaceId, folderPath);
+  const entry = servers.get(serverKey);
+  if (!entry) {
+    return;
+  }
+  stopServer(entry);
+  servers.delete(serverKey);
 }
 
 export function killAllVSCodeServers(): void {
