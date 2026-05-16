@@ -262,7 +262,7 @@ export function SkillsView({
                   <span className="skill-card__description">{model.summary}</span>
                   <span className="skill-card__tags">
                     {model.tags.slice(0, 3).map((tag) => (
-                      <span className="skill-tag" key={tag}>{tag}</span>
+                      <span className="skill-tag" key={tag} title={tag}>{tag}</span>
                     ))}
                   </span>
                   <SkillModeControl
@@ -315,7 +315,7 @@ export function SkillsView({
                   {selectedSkillModel ? (
                     <div className="skill-detail__tags">
                       {selectedSkillModel.tags.map((tag) => (
-                        <span className="skill-tag" key={tag}>{tag}</span>
+                        <span className="skill-tag" key={tag} title={tag}>{tag}</span>
                       ))}
                     </div>
                   ) : null}
@@ -450,7 +450,19 @@ function isPiDevelopmentSkill(skill: RuntimeSkillRecord, text: string): boolean 
 }
 
 function sourceTag(source: string): string {
-  return source === "project" ? "Project" : source;
+  if (source === "project") return "Project";
+  if (source === "user") return "User";
+
+  const withoutPrefix = source.replace(/^(git|npm):/, "");
+  const withoutVersion = withoutPrefix.replace(/@[a-f0-9]{7,40}$/i, "");
+  if (withoutVersion.includes("github.com/")) {
+    const repoName = withoutVersion.split("/").filter(Boolean).at(-1);
+    return repoName ? titleCase(repoName.replace(/\.git$/, "").replace(/[-_]+/g, " ")) : "Git package";
+  }
+  if (source.startsWith("npm:")) {
+    return withoutPrefix.replace(/@[^/]+$/, "");
+  }
+  return withoutVersion.length > 28 ? `${withoutVersion.slice(0, 25).trimEnd()}...` : withoutVersion;
 }
 
 function normalizeSkillCategory(value: string | undefined): SkillCategory | undefined {
