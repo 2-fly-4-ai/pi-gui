@@ -2579,8 +2579,13 @@ export default function App() {
                       >
                         <VSCodeIcon />
                       </button>
-                      <div className="chat-header__status">
-                        {selectedSession.status === "running" ? runningLabel : formatRelativeTime(selectedSession.updatedAt)}
+                      <div className={`chat-header__status${selectedSession.status === "running" ? " chat-header__status--running" : ""}`}>
+                        {selectedSession.status === "running" ? (
+                          <>
+                            <span className="chat-header__status-dot" aria-hidden="true" />
+                            <span>{runningLabel}</span>
+                          </>
+                        ) : formatRelativeTime(selectedSession.updatedAt)}
                       </div>
                     </div>
                   </div>

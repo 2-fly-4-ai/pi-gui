@@ -361,8 +361,11 @@ export function DiffIcon() {
 export function VSCodeIcon() {
   return (
     <Icon>
-      <path d="M14.5 3.5L8.5 9l-3-2.5L3 8l3 2.5L3 13l2.5 1.5 3-2.5 6 5.5 2.5-1V4L14.5 3.5z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" fill="none" />
-      <path d="M17 4.5v11" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+      <path
+        d="M16.55 4.45 12.65 2.6a.8.8 0 0 0-.92.16L4.75 9.1 2.1 7.08a.53.53 0 0 0-.68.04L.55 7.9a.53.53 0 0 0 0 .8L2.85 10 .55 11.3a.53.53 0 0 0 0 .8l.87.78c.2.18.5.2.68.04l2.65-2.02 6.98 6.34a.8.8 0 0 0 .92.16l3.9-1.85c.28-.13.45-.41.45-.72V5.17c0-.31-.17-.59-.45-.72ZM12.2 6.88v6.24L7.42 10l4.78-3.12Z"
+        fill="currentColor"
+        transform="translate(1 0)"
+      />
     </Icon>
   );
 }

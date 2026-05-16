@@ -199,7 +199,6 @@ export function ComposerPanel({
                 fastModeControl={(
                   <FastModeSelector
                     commands={sessionCommands}
-                    disabled={selectedSession.status === "running"}
                     onRunFastCommand={onRunFastCommand}
                   />
                 )}

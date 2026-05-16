@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { ChevronDownIcon, GitCommitIcon, GitHubIcon, GitPushIcon } from "./icons";
+import { GitCommitIcon, GitHubIcon, GitPushIcon } from "./icons";
 
 interface GitQuickActionsProps {
   readonly disabled?: boolean;
@@ -47,7 +47,6 @@ export function GitQuickActions({ disabled = false, disabledReason, onCommit, on
         onClick={() => setOpen((current) => !current)}
       >
         <GitHubIcon />
-        <ChevronDownIcon />
       </button>
       {open ? (
         <div className="git-quick-actions__menu">
