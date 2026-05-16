@@ -70,6 +70,15 @@ test("opens a workspace terminal with persistent output, tabs, and takeover cont
     await expect(window.getByTestId("settings-surface")).toHaveCount(0);
     await window.keyboard.press(desktopShortcut("Shift+O"));
     await expect(window.getByTestId("new-thread-composer")).toHaveCount(0);
+    await harness.electronApp.evaluate(({ clipboard }) => {
+      clipboard.writeText("echo PASTE_ONCE");
+    });
+    await window.keyboard.press(desktopShortcut("V"));
+    await window.keyboard.press("Enter");
+    await expect(terminal.locator(".xterm-rows")).toContainText("PASTE_ONCE", { timeout: 15_000 });
+    await expect(terminal.locator(".xterm-rows")).not.toContainText("echo PASTE_ONCEecho PASTE_ONCE");
+    await expect.poll(async () => (await terminal.locator(".xterm-rows").innerText()).match(/PASTE_ONCE/g)?.length ?? 0).toBe(2);
+
     await harness.electronApp.evaluate(({ clipboard, nativeImage }, pngBase64) => {
       clipboard.writeImage(nativeImage.createFromDataURL(`data:image/png;base64,${pngBase64}`));
     }, TINY_PNG_BASE64);

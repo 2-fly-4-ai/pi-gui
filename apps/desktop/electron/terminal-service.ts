@@ -21,6 +21,7 @@ let nodePty: NodePty | undefined;
 const DEFAULT_TERMINAL_SIZE: TerminalSize = { cols: 80, rows: 24 };
 const MAX_WRITE_LENGTH = 128 * 1024;
 const MAX_TERMINAL_SESSIONS_PER_ROOT = 8;
+const DUPLICATE_PASTE_WRITE_WINDOW_MS = 120;
 
 interface TerminalRoot {
   readonly rootKey: string;
@@ -61,6 +62,7 @@ export interface TerminalServiceOptions {
 export class TerminalService {
   private readonly rootsByKey = new Map<string, TerminalRoot>();
   private readonly sessionsById = new Map<string, TerminalSession>();
+  private readonly lastWriteBySession = new Map<string, { readonly data: string; readonly timestamp: number }>();
   private nextSessionNumber = 1;
 
   constructor(private readonly options: TerminalServiceOptions) {}
@@ -119,7 +121,14 @@ export class TerminalService {
     if (typeof data !== "string" || data.length === 0 || data.length > MAX_WRITE_LENGTH) {
       return;
     }
-    session.pty?.write(data);
+    const normalizedData = collapseDuplicatedTerminalWrite(data);
+    const now = Date.now();
+    const previous = this.lastWriteBySession.get(session.id);
+    if (normalizedData.length > 1 && previous?.data === normalizedData && now - previous.timestamp < DUPLICATE_PASTE_WRITE_WINDOW_MS) {
+      return;
+    }
+    this.lastWriteBySession.set(session.id, { data: normalizedData, timestamp: now });
+    session.pty?.write(normalizedData);
   }
 
   resize(webContents: WebContents, terminalId: string, size: TerminalSize): void {
@@ -149,6 +158,7 @@ export class TerminalService {
     const root = this.requireRoot(session.rootKey);
     this.disposeSession(session);
     this.sessionsById.delete(session.id);
+    this.lastWriteBySession.delete(session.id);
 
     const index = root.sessionIds.indexOf(session.id);
     if (index >= 0) {
@@ -182,6 +192,7 @@ export class TerminalService {
           if (session) {
             this.disposeSession(session);
             this.sessionsById.delete(session.id);
+            this.lastWriteBySession.delete(session.id);
           }
         }
         this.rootsByKey.delete(rootKey);
@@ -195,6 +206,7 @@ export class TerminalService {
     }
     this.sessionsById.clear();
     this.rootsByKey.clear();
+    this.lastWriteBySession.clear();
   }
 
   private ensureRoot(workspaceId: string, terminalScopeId: string): TerminalRoot {
@@ -396,6 +408,16 @@ function clampInteger(value: number | undefined, fallback: number, min: number, 
     return fallback;
   }
   return Math.min(max, Math.max(min, Math.floor(value as number)));
+}
+
+function collapseDuplicatedTerminalWrite(data: string): string {
+  if (data.length < 8 || data.length % 2 !== 0) {
+    return data;
+  }
+  const midpoint = data.length / 2;
+  const first = data.slice(0, midpoint);
+  const looksLikePastedCommand = /[\s"'`=;&|<>()[\]{}$\\/-]/.test(first);
+  return looksLikePastedCommand && first === data.slice(midpoint) ? first : data;
 }
 
 function normalizeRootKey(workspacePath: string): string {
