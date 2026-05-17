@@ -1833,7 +1833,9 @@ export default function App() {
     }
     if (view === "display-mode" && snapshot.activeView === "threads" && selectedWorkspace && selectedSession) {
       setDisplayModeInitialPinnedThreadKey(`${selectedWorkspace.id}:${selectedSession.id}`);
-      setVsCodeOpen(false);
+      if (vsCodeOpen) {
+        openVsCodeForWorkspace(selectedWorkspace.id, selectedWorkspace.path);
+      }
     } else if (view !== "display-mode") {
       setDisplayModeInitialPinnedThreadKey("");
     }
