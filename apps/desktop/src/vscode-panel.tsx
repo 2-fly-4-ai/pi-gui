@@ -7,9 +7,7 @@ interface VSCodePanelProps {
   readonly folderPath: string;
   readonly className?: string;
   readonly testId?: string;
-  readonly title?: string;
   readonly style?: CSSProperties;
-  readonly onHardClose?: () => void;
 }
 
 interface ResolvedVSCodeServer {
@@ -24,9 +22,7 @@ export function VSCodePanel({
   folderPath,
   className = "thread-vscode-panel",
   testId = "thread-vscode-panel",
-  title = "VS Code",
   style,
-  onHardClose,
 }: VSCodePanelProps) {
   const [resolvedServer, setResolvedServer] = useState<ResolvedVSCodeServer | null>(null);
   const [loading, setLoading] = useState(false);
@@ -73,18 +69,6 @@ export function VSCodePanel({
       data-vscode-port={iframePort ?? undefined}
       style={style}
     >
-      {onHardClose ? (
-        <div className="vscode-panel__header">
-          <div className="vscode-panel__title">{title}</div>
-          <button
-            type="button"
-            className="button button--ghost vscode-panel__hard-close"
-            onClick={onHardClose}
-          >
-            Hard close
-          </button>
-        </div>
-      ) : null}
       <div className="vscode-panel__body">
         {loading ? (
           <div className="display-mode-vscode__loading">

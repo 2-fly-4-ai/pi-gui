@@ -3,6 +3,7 @@ import type { AppView, DesktopAppState, SessionRecord, WorkspaceRecord, Worktree
 import type { ProjectActionRecord } from "./project-actions";
 import { DiffIcon, FolderIcon, PlusIcon, SidebarToggleIcon, TerminalIcon, VSCodeIcon } from "./icons";
 import { getDesktopShortcutLabel, type PiDesktopApi } from "./ipc";
+import { GitQuickActions } from "./git-quick-actions";
 import type { WorkspaceMenuState } from "./hooks/use-workspace-menu";
 
 interface TopbarProps {
@@ -11,6 +12,7 @@ interface TopbarProps {
   readonly selectedWorkspace: WorkspaceRecord | undefined;
   readonly selectedSession: SessionRecord | undefined;
   readonly selectedSessionTitle: string | undefined;
+  readonly selectedSessionRunningLabel: string | undefined;
   readonly selectedWorktree: WorktreeRecord | undefined;
   readonly activeWorktrees: readonly WorktreeRecord[];
   readonly workspaces: readonly WorkspaceRecord[];
@@ -37,6 +39,9 @@ interface TopbarProps {
   readonly onToggleDrawer?: () => void;
   readonly vsCodeOpen?: boolean;
   readonly onToggleVsCode?: () => void;
+  readonly onGitCommit?: () => void;
+  readonly onGitPush?: () => void;
+  readonly onGitCreatePr?: () => void;
 }
 
 export function Topbar(props: TopbarProps) {
@@ -46,6 +51,7 @@ export function Topbar(props: TopbarProps) {
     selectedWorkspace,
     selectedSession,
     selectedSessionTitle,
+    selectedSessionRunningLabel,
     selectedWorktree,
     activeWorktrees,
     workspaces,
@@ -68,6 +74,9 @@ export function Topbar(props: TopbarProps) {
     onToggleDrawer,
     vsCodeOpen,
     onToggleVsCode,
+    onGitCommit,
+    onGitPush,
+    onGitCreatePr,
   } = props;
   const terminalShortcut = getDesktopShortcutLabel(api.platform, "J");
   const diffShortcut = getDesktopShortcutLabel(api.platform, "D");
@@ -144,6 +153,12 @@ export function Topbar(props: TopbarProps) {
           <>
             <span className="topbar__separator">/</span>
             <span className="topbar__session">{selectedSessionTitle ?? selectedSession.title}</span>
+            {selectedSession.status === "running" && selectedSessionRunningLabel ? (
+              <span className="topbar__running" aria-label={selectedSessionRunningLabel}>
+                <span className="topbar__running-dot" aria-hidden="true" />
+                <span>{selectedSessionRunningLabel}</span>
+              </span>
+            ) : null}
           </>
         ) : activeView === "new-thread" && rootWorkspace ? (
           <>
@@ -235,6 +250,13 @@ export function Topbar(props: TopbarProps) {
             </span>
           </div>
         )}
+        {activeView === "threads" && selectedWorkspace && selectedSession && onGitCommit && onGitPush && onGitCreatePr ? (
+          <GitQuickActions
+            onCommit={onGitCommit}
+            onPush={onGitPush}
+            onCreatePr={onGitCreatePr}
+          />
+        ) : null}
         {onToggleVsCode !== undefined && (
           <div className="shortcut-tooltip-wrap topbar__tooltip-wrap">
             <button

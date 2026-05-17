@@ -18,7 +18,6 @@ import {
   type WorkspaceRecord,
 } from "./desktop-state";
 import type { AgentDefinitionsSnapshot, DeleteAgentDefinitionInput, ResetAgentDefinitionInput, SaveAgentDefinitionInput } from "./agent-definitions";
-import { formatRelativeTime } from "./string-utils";
 import { AddActionDialog } from "./add-action-dialog";
 import { CommandPalette } from "./command-palette";
 import type { CommandPaletteAction } from "./command-palette-model";
@@ -48,8 +47,6 @@ import { NewThreadView } from "./new-thread-view";
 import { ReviewSurface } from "./review/ReviewSurface";
 import type { ReviewSnapshot } from "./review/review-types";
 import { VSCodePanel } from "./vscode-panel";
-import { VSCodeIcon } from "./icons";
-import { GitQuickActions } from "./git-quick-actions";
 import { CommitDialog, CreatePrDialog, PushDialog, isSetUpstreamError, type ChangedFileSummaryItem } from "./git-action-dialogs";
 import { createProjectAction, loadProjectActions, saveProjectActions, type ProjectActionRecord, type ProjectActionsByWorkspace } from "./project-actions";
 import { buildThreadGroups } from "./thread-groups";
@@ -451,24 +448,6 @@ export default function App() {
   const selectedWorkspace = snapshot ? (getSelectedWorkspace(snapshot) ?? snapshot.workspaces[0]) : undefined;
   const selectedSession = snapshot ? (getSelectedSession(snapshot) ?? selectedWorkspace?.sessions[0]) : undefined;
 
-  const hardCloseCurrentVsCode = useCallback(() => {
-    const target = snapshot?.activeView === "threads" && selectedWorkspace
-      ? { workspaceId: selectedWorkspace.id, folderPath: selectedWorkspace.path }
-      : vsCodeWorkspaceId && vsCodeFolderPath
-        ? { workspaceId: vsCodeWorkspaceId, folderPath: vsCodeFolderPath }
-        : null;
-    if (!api || !target) return;
-    void api.killVSCodeServer(target.workspaceId).finally(() => {
-      setVsCodeOpen(false);
-      setVsCodeWorkspaceId(null);
-      setVsCodeFolderPath(null);
-    });
-  }, [api, selectedWorkspace, snapshot?.activeView, vsCodeFolderPath, vsCodeWorkspaceId]);
-
-  const openSelectedWorkspaceVsCode = useCallback(() => {
-    if (!selectedWorkspace) return;
-    openVsCodeForWorkspace(selectedWorkspace.id, selectedWorkspace.path);
-  }, [openVsCodeForWorkspace, selectedWorkspace]);
   const toggleSelectedWorkspaceVsCode = useCallback(() => {
     if (!selectedWorkspace) return;
     setVsCodeWorkspaceId(selectedWorkspace.id);
@@ -2866,6 +2845,7 @@ export default function App() {
           selectedWorkspace={selectedWorkspace}
           selectedSession={selectedSession}
           selectedSessionTitle={displayedSessionTitle || selectedSession?.title}
+          selectedSessionRunningLabel={selectedSession?.status === "running" ? runningLabel : undefined}
           selectedWorktree={selectedWorktree}
           activeWorktrees={activeWorktrees}
           workspaces={snapshot.workspaces}
@@ -2888,6 +2868,9 @@ export default function App() {
           onToggleDrawer={snapshot.activeView === "display-mode" ? toggleDmDrawer : undefined}
           vsCodeOpen={snapshot.activeView === "threads" || snapshot.activeView === "display-mode" ? vsCodeOpen : undefined}
           onToggleVsCode={snapshot.activeView === "threads" ? toggleSelectedWorkspaceVsCode : snapshot.activeView === "display-mode" ? toggleVsCode : undefined}
+          onGitCommit={snapshot.activeView === "threads" ? () => openGitDialog("commit") : undefined}
+          onGitPush={snapshot.activeView === "threads" ? () => openGitDialog("push") : undefined}
+          onGitCreatePr={snapshot.activeView === "threads" ? () => openGitDialog("pr") : undefined}
         />
 
         {showTerminalTakeover ? (
@@ -2987,41 +2970,6 @@ export default function App() {
           <>
             <section className="canvas canvas--thread">
               <div className="conversation conversation--thread">
-                <div className="chat-header">
-                  <div className="chat-header__eyebrow">
-                    {selectedWorkspace.kind === "worktree"
-                      ? `${rootWorkspace?.name ?? selectedWorkspace.name} · ${selectedWorktree?.name ?? selectedWorkspace.branchName ?? "Worktree"}`
-                      : `${selectedWorkspace.name} · Local`}
-                  </div>
-                  <div className="chat-header__row">
-                    <h1 className="chat-header__title">{displayedSessionTitle}</h1>
-                    <div className="chat-header__actions">
-                      <GitQuickActions
-                        onCommit={() => openGitDialog("commit")}
-                        onPush={() => openGitDialog("push")}
-                        onCreatePr={() => openGitDialog("pr")}
-                      />
-                      <button
-                        aria-label="Open VS Code for thread"
-                        className={`icon-button chat-header__vscode${vsCodeOpen && vsCodeWorkspaceId === selectedWorkspace.id ? " icon-button--active" : ""}`}
-                        title="Open VS Code for this thread's project"
-                        type="button"
-                        onClick={openSelectedWorkspaceVsCode}
-                      >
-                        <VSCodeIcon />
-                      </button>
-                      <div className={`chat-header__status${selectedSession.status === "running" ? " chat-header__status--running" : ""}`}>
-                        {selectedSession.status === "running" ? (
-                          <>
-                            <span className="chat-header__status-dot" aria-hidden="true" />
-                            <span>{runningLabel}</span>
-                          </>
-                        ) : formatRelativeTime(selectedSession.updatedAt)}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
                 <ConversationTimeline
                   transcript={activeTranscript}
                   isTranscriptLoading={isTranscriptLoading}
@@ -3215,8 +3163,6 @@ export default function App() {
             className="persistent-vscode-panel"
             testId={snapshot.activeView === "display-mode" ? "display-mode-vscode-panel" : "thread-vscode-panel"}
             style={vsCodePanelStyle}
-            onHardClose={snapshot.activeView === "threads" ? hardCloseCurrentVsCode : undefined}
-            title="VS Code"
           />
         ) : null}
         {showDiffPanel && selectedWorkspace && selectedSession ? (

@@ -101,6 +101,7 @@ test("opens Display Mode from the sidebar and renders thread command-center tile
     await window.getByRole("button", { name: "Toggle VS Code panel" }).click();
     const threadVsCodePanel = window.getByTestId("thread-vscode-panel");
     await expect(threadVsCodePanel).toBeVisible();
+    await expect(threadVsCodePanel.getByRole("button", { name: "Hard close" })).toHaveCount(0);
     await expect(threadVsCodePanel).toHaveAttribute("data-vscode-folder-path", workspacePath);
     await expect(threadVsCodePanel.locator(".display-mode-vscode__webview")).toHaveAttribute("title", "VS Code", { timeout: 45_000 });
 
@@ -115,7 +116,7 @@ test("opens Display Mode from the sidebar and renders thread command-center tile
     await expect(threadVsCodePanel.locator(".display-mode-vscode__webview")).toHaveAttribute("title", "VS Code", { timeout: 45_000 });
     await window.getByRole("button", { name: "Toggle VS Code panel" }).click();
     await expect(window.getByTestId("thread-vscode-panel")).toHaveCount(0);
-    await window.getByRole("button", { name: "Open VS Code for thread" }).click();
+    await window.getByRole("button", { name: "Toggle VS Code panel" }).click();
     await expect(window.getByTestId("thread-vscode-panel")).toBeVisible();
     await window.getByRole("button", { name: "Toggle VS Code panel" }).click();
     await expect(window.getByTestId("thread-vscode-panel")).toHaveCount(0);

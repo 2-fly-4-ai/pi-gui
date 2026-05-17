@@ -24,7 +24,9 @@ test("GitHub quick actions open commit, push, and PR dialogs", async () => {
     const window = await harness.firstWindow();
     await createNamedThread(window, "Git quick actions session");
 
-    const trigger = window.getByRole("button", { name: "GitHub actions" });
+    await expect(window.locator(".chat-header")).toHaveCount(0);
+    const topbar = window.getByTestId("topbar");
+    const trigger = topbar.getByRole("button", { name: "GitHub actions" });
     await expect(trigger).toBeVisible();
 
     await trigger.click();
