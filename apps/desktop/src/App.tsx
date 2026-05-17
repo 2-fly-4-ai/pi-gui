@@ -235,6 +235,7 @@ export default function App() {
   const [planPanelOpen, setPlanPanelOpen] = useState(false);
   const [dmDrawerOpen, setDmDrawerOpen] = useState(() => { try { return localStorage.getItem("dm:drawerOpen") !== "false"; } catch { return true; } });
   const toggleDmDrawer = useCallback(() => { setDmDrawerOpen((o) => { try { localStorage.setItem("dm:drawerOpen", String(!o)); } catch {} return !o; }); }, []);
+  const [displayModeInitialPinnedThreadKey, setDisplayModeInitialPinnedThreadKey] = useState("");
   const [vsCodeOpen, setVsCodeOpen] = useState(false);
   const [vsCodeWorkspaceId, setVsCodeWorkspaceId] = useState<string | null>(null);
   const [vsCodeFolderPath, setVsCodeFolderPath] = useState<string | null>(null);
@@ -1807,6 +1808,11 @@ export default function App() {
     if (view !== "review") {
       setReviewSnapshot(undefined);
     }
+    if (view === "display-mode" && snapshot.activeView === "threads" && selectedWorkspace && selectedSession) {
+      setDisplayModeInitialPinnedThreadKey(`${selectedWorkspace.id}:${selectedSession.id}`);
+    } else if (view !== "display-mode") {
+      setDisplayModeInitialPinnedThreadKey("");
+    }
     void updateSnapshot(api, setSnapshot, () => api.setActiveView(view));
   };
 
@@ -2823,6 +2829,7 @@ export default function App() {
             vsCodeFolderPath={vsCodeFolderPath}
             onToggleVsCode={toggleVsCode}
             onOpenVsCodeForWorkspace={openVsCodeForWorkspace}
+            initialPinnedThreadKey={displayModeInitialPinnedThreadKey}
             runtimeByWorkspace={snapshot.runtimeByWorkspace}
             sessionCommandsBySession={snapshot.sessionCommandsBySession}
             commandCompatibilityByWorkspace={snapshot.extensionCommandCompatibilityByWorkspace}

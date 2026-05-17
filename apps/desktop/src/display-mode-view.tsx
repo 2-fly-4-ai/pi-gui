@@ -43,6 +43,7 @@ interface ChangedFile {
 export function DisplayModeView({
   api, drawerOpen, onToggleDrawer,
   vsCodeOpen, vsCodeWorkspaceId, vsCodeFolderPath, onToggleVsCode, onOpenVsCodeForWorkspace,
+  initialPinnedThreadKey,
   runtimeByWorkspace, sessionCommandsBySession, commandCompatibilityByWorkspace,
   setSnapshot, openSettings, updateSnapshot,
 }: {
@@ -54,6 +55,7 @@ export function DisplayModeView({
   readonly vsCodeFolderPath: string | null;
   readonly onToggleVsCode: () => void;
   readonly onOpenVsCodeForWorkspace: (workspaceId: string, folderPath: string) => void;
+  readonly initialPinnedThreadKey: string;
   readonly runtimeByWorkspace: Readonly<Record<string, RuntimeSnapshot>>;
   readonly sessionCommandsBySession: Readonly<Record<string, readonly RuntimeCommandRecord[]>>;
   readonly commandCompatibilityByWorkspace: Readonly<Record<string, readonly ExtensionCommandCompatibilityRecord[]>>;
@@ -88,6 +90,7 @@ export function DisplayModeView({
   const sectionRef = useRef<HTMLElement | null>(null);
   const drawerWidthRef = useRef(drawerWidth);
   const vsCodeWidthRef = useRef(vsCodeWidth);
+  const appliedInitialPinnedThreadKeyRef = useRef("");
 
   // Persist preferences
   useEffect(() => { lsSet("dm:colCount", colCount); }, [colCount]);
@@ -167,8 +170,21 @@ export function DisplayModeView({
 
   const applyRecords = useCallback((records: readonly DisplayModeThreadRecord[]) => {
     setThreads(records);
-    setPinnedThreadKey((c) => c || (records[0] ? threadKey(records[0].workspace.id, records[0].session.id) : ""));
-  }, []);
+    setPinnedThreadKey((c) => c || initialPinnedThreadKey || (records[0] ? threadKey(records[0].workspace.id, records[0].session.id) : ""));
+  }, [initialPinnedThreadKey]);
+
+  useEffect(() => {
+    if (!initialPinnedThreadKey || appliedInitialPinnedThreadKeyRef.current === initialPinnedThreadKey) {
+      return;
+    }
+    const initialThreadExists = threads.some((record) => threadKey(record.workspace.id, record.session.id) === initialPinnedThreadKey);
+    if (!initialThreadExists) {
+      return;
+    }
+    appliedInitialPinnedThreadKeyRef.current = initialPinnedThreadKey;
+    setPinnedThreadKey(initialPinnedThreadKey);
+    setPinnedThreadFiles([]);
+  }, [initialPinnedThreadKey, threads]);
 
   useEffect(() => {
     let active = true;

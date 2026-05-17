@@ -120,6 +120,8 @@ test("opens Display Mode from the sidebar and renders thread command-center tile
     await window.getByRole("button", { name: "Toggle VS Code panel" }).click();
     await expect(window.getByTestId("thread-vscode-panel")).toHaveCount(0);
 
+    await selectSession(window, "Second workspace seed thread");
+
     const nav = window.locator(".sidebar__nav");
     await expect(nav.getByRole("button", { name: "Threads" })).toBeVisible();
     await nav.getByRole("button", { name: "Display Mode" }).click();
@@ -129,6 +131,7 @@ test("opens Display Mode from the sidebar and renders thread command-center tile
     await expect(window.getByRole("heading", { name: "Command center" })).toBeVisible();
     await expect(window.locator(".display-mode-drawer")).toContainText("Preview");
     await expect(window.locator(".display-mode-preview iframe")).toHaveCount(0);
+    await expect(window.locator(".display-mode-drawer__meta").first()).toContainText("Second workspace seed thread");
     await expect(window.getByTestId("display-mode-thread-tile").first()).toContainText(basename(workspacePath));
     await expect(window.getByTestId("display-mode-thread-tile").first()).toContainText("Display mode seed thread");
     const firstTile = window.getByTestId("display-mode-thread-tile").first();
