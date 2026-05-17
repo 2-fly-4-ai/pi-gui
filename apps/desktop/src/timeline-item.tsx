@@ -232,6 +232,36 @@ function formatElapsed(startedAt: string, now = Date.now()): string {
   return `${minutes}m ${remainder}s`;
 }
 
+function RunningElapsedText({ startedAt }: { readonly startedAt: string }) {
+  const elapsed = useElapsedLabel(startedAt, true);
+  return <>{elapsed}</>;
+}
+
+function RunningToolMeta({ toolName, startedAt }: { readonly toolName: string; readonly startedAt: string }) {
+  return (
+    <>
+      {toolName} · running for <RunningElapsedText startedAt={startedAt} />
+    </>
+  );
+}
+
+function CommandOutputTitle({
+  running,
+  startedAt,
+  status,
+}: {
+  readonly running: boolean;
+  readonly startedAt: string;
+  readonly status: TimelineToolCall["status"];
+}) {
+  return (
+    <>
+      {`Command output · ${running ? "running for " : statusLabel(status)}`}
+      {running ? <RunningElapsedText startedAt={startedAt} /> : null}
+    </>
+  );
+}
+
 function TimelineToolCallItem({
   item,
   expanded,
@@ -248,7 +278,6 @@ function TimelineToolCallItem({
   const hasVisibleOutput = Boolean(outputText?.trim());
   const hasDetails = item.input !== undefined || item.output !== undefined;
   const running = item.status === "running";
-  const elapsed = useElapsedLabel(item.createdAt, running);
   const diffText = isWriteTool(item.toolName) ? extractDiffFromOutput(item.output) : undefined;
   const diffStats = diffText ? countDiffStats(diffText) : undefined;
   const compactLabel = buildCompactLabel(item);
@@ -285,7 +314,7 @@ function TimelineToolCallItem({
             </span>
           ) : null}
           <span className="timeline-tool__meta-inline">
-            {running ? `${item.toolName} · running for ${elapsed}` : `${item.toolName} · ${statusLabel(item.status)}`}
+            {running ? <RunningToolMeta toolName={item.toolName} startedAt={item.createdAt} /> : `${item.toolName} · ${statusLabel(item.status)}`}
           </span>
         </button>
         {filePath && onViewFileInDiff ? (
@@ -327,11 +356,13 @@ function TimelineToolCallItem({
             <>
               <div className="timeline-tool__body-actions">
                 <span className="timeline-tool__body-title">
-                  {command
-                    ? `Command output · ${running ? `running for ${elapsed}` : statusLabel(item.status)}`
-                    : item.status === "running"
-                      ? "Live output"
-                      : "Tool output"}
+                  {command ? (
+                    <CommandOutputTitle running={running} startedAt={item.createdAt} status={item.status} />
+                  ) : item.status === "running" ? (
+                    "Live output"
+                  ) : (
+                    "Tool output"
+                  )}
                 </span>
                 <button className="icon-button timeline-tool__copy" type="button" onClick={handleCopy} aria-label="Copy">
                   <CopyIcon />
