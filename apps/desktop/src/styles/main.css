@@ -731,7 +731,7 @@
 
 .timeline-item--user {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: flex-end;
   gap: 10px;
   min-width: 0;
@@ -750,7 +750,6 @@
   width: 32px;
   height: 32px;
   flex: 0 0 auto;
-  margin-top: 2px;
   object-fit: contain;
   opacity: 0.58;
 }
