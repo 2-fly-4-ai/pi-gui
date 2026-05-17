@@ -45,6 +45,10 @@ function transcriptItemsEqual(left: TranscriptMessage, right: TranscriptMessage)
         attachmentsEqual(left.attachments, message.attachments)
       );
     }
+    case "thinking": {
+      const thinking = right as typeof left;
+      return left.text === thinking.text && left.status === thinking.status && left.createdAt === thinking.createdAt;
+    }
     case "tool": {
       const tool = right as typeof left;
       return (

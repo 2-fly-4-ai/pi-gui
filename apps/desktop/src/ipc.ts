@@ -64,6 +64,7 @@ export const desktopIpc = {
   cancelSessionRun: "pi-gui:cancel-session-run",
   setActiveView: "pi-gui:set-active-view",
   setSidebarCollapsed: "pi-gui:set-sidebar-collapsed",
+  setShowThinking: "pi-gui:set-show-thinking",
   refreshRuntime: "pi-gui:refresh-runtime",
   setModelSettingsScopeMode: "pi-gui:set-model-settings-scope-mode",
   setDefaultModel: "pi-gui:set-default-model",
@@ -277,6 +278,7 @@ export interface PiDesktopApi {
   cancelSessionRun(target: WorkspaceSessionTarget): Promise<DesktopAppState>;
   setActiveView(view: AppView): Promise<DesktopAppState>;
   setSidebarCollapsed(collapsed: boolean): Promise<DesktopAppState>;
+  setShowThinking(showThinking: boolean): Promise<DesktopAppState>;
   refreshRuntime(workspaceId?: string): Promise<DesktopAppState>;
   setModelSettingsScopeMode(mode: ModelSettingsScopeMode): Promise<DesktopAppState>;
   setDefaultModel(workspaceId: string, provider: string, modelId: string): Promise<DesktopAppState>;

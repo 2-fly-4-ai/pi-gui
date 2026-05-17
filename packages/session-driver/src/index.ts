@@ -1,5 +1,8 @@
 export type {
   AssistantDeltaEvent,
+  AssistantThinkingDeltaEvent,
+  AssistantThinkingFinishedEvent,
+  AssistantThinkingStartedEvent,
   CreateSessionOptions,
   ExtensionCompatibilityIssue,
   ExtensionCompatibilityIssueEvent,

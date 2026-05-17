@@ -166,6 +166,8 @@ contextBridge.exposeInMainWorld("piApp", {
     ipcRenderer.invoke(desktopIpc.setActiveView, view) as Promise<DesktopAppState>,
   setSidebarCollapsed: (collapsed: boolean) =>
     ipcRenderer.invoke(desktopIpc.setSidebarCollapsed, collapsed) as Promise<DesktopAppState>,
+  setShowThinking: (showThinking: boolean) =>
+    ipcRenderer.invoke(desktopIpc.setShowThinking, showThinking) as Promise<DesktopAppState>,
   refreshRuntime: (workspaceId?: string) =>
     ipcRenderer.invoke(desktopIpc.refreshRuntime, workspaceId) as Promise<DesktopAppState>,
   setModelSettingsScopeMode: (mode: "app-global" | "per-repo") =>

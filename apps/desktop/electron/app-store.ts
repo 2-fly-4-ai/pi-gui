@@ -57,7 +57,9 @@ import {
 import {
   applyTimelineEvent,
   appendAssistantDelta,
+  appendAssistantThinkingDelta,
   clearActiveAssistantMessage,
+  finishAssistantThinking,
 } from "./app-store-timeline";
 import { applySessionEventState, updateSessionRecord } from "./app-store-session-state";
 import type { AppStoreInternals, RefreshStateOptions } from "./app-store-internals";
@@ -235,6 +237,7 @@ export class DesktopAppStore implements AppStoreInternals {
       workspace: structuredClone(workspaceEntry),
       session: structuredClone(session),
       transcript: (this.sessionState.transcriptCache.get(sessionKey({ workspaceId: workspaceEntry.id, sessionId: session.id })) ?? [])
+        .filter((item) => this.state.showThinking || item.kind !== "thinking")
         .map(cloneTranscriptMessage),
     }));
   }
@@ -525,6 +528,21 @@ export class DesktopAppStore implements AppStoreInternals {
     this.state = {
       ...this.state,
       sidebarCollapsed,
+      lastError: undefined,
+      revision: this.state.revision + 1,
+    };
+    await this.persistUiState();
+    return this.emit();
+  }
+
+  async setShowThinking(showThinking: boolean): Promise<DesktopAppState> {
+    await this.initialize();
+    if (this.state.showThinking === showThinking) {
+      return structuredClone(this.state);
+    }
+    this.state = {
+      ...this.state,
+      showThinking,
       lastError: undefined,
       revision: this.state.revision + 1,
     };
@@ -848,6 +866,7 @@ export class DesktopAppStore implements AppStoreInternals {
         lastViewedAtBySession: persisted.lastViewedAtBySession ?? {},
         workspaceOrder: persisted.workspaceOrder ?? [],
         sidebarCollapsed: persisted.sidebarCollapsed ?? this.state.sidebarCollapsed,
+        showThinking: persisted.showThinking ?? this.state.showThinking,
       };
       await this.migrateLegacyPersistence(persisted);
       this.sessionState.lastViewedAtBySession.clear();
@@ -1482,7 +1501,20 @@ export class DesktopAppStore implements AppStoreInternals {
 
     switch (event.type) {
       case "assistantDelta":
+        finishAssistantThinking(
+          this.sessionState.transcriptCache,
+          this.sessionState.activeThinkingItemBySession,
+          event.sessionRef,
+        );
         appendAssistantDelta(this.sessionState.transcriptCache, this.sessionState.activeAssistantMessageBySession, event.sessionRef, event.text);
+        break;
+      case "assistantThinkingDelta":
+        appendAssistantThinkingDelta(
+          this.sessionState.transcriptCache,
+          this.sessionState.activeThinkingItemBySession,
+          event.sessionRef,
+          event.text,
+        );
         break;
       case "sessionOpened":
       case "runCompleted":
@@ -1542,6 +1574,7 @@ export class DesktopAppStore implements AppStoreInternals {
       runMetricsBySession: this.sessionState.runMetricsBySession,
       runningSinceBySession: this.sessionState.runningSinceBySession,
       activeAssistantMessageBySession: this.sessionState.activeAssistantMessageBySession,
+      activeThinkingItemBySession: this.sessionState.activeThinkingItemBySession,
       activeWorkingActivityBySession: this.sessionState.activeWorkingActivityBySession,
     });
     this.state = applySessionEventState(
@@ -1827,6 +1860,7 @@ export class DesktopAppStore implements AppStoreInternals {
       modelSettingsScopeMode: this.state.modelSettingsScopeMode,
       appGlobalModelSettings: hasStoredModelSettings(this.state.globalModelSettings) ? this.state.globalModelSettings : undefined,
       sidebarCollapsed: this.state.sidebarCollapsed || undefined,
+      showThinking: this.state.showThinking || undefined,
     };
 
     await writePersistedUiState(this.uiStateFilePath, payload);
@@ -2554,22 +2588,23 @@ function resolveSelectedWorkspaceIdFromCatalog(
 
 function shouldReplaceLegacyTranscript(
   legacyTranscript: readonly TranscriptMessage[],
-  driverTranscript: readonly TranscriptMessageRow[],
+  driverTranscript: readonly TranscriptMessage[],
 ): boolean {
   if (driverTranscript.length === 0) {
     return false;
   }
 
   const legacyMessages = legacyTranscript.filter(isTranscriptMessageRow);
-  if (driverTranscript.length > legacyMessages.length) {
+  const driverMessages = driverTranscript.filter(isTranscriptMessageRow);
+  if (driverMessages.length > legacyMessages.length) {
     return true;
   }
-  if (driverTranscript.length < legacyMessages.length) {
+  if (driverMessages.length < legacyMessages.length) {
     return false;
   }
 
-  return !sameTranscriptMessage(legacyMessages[0], driverTranscript[0]) ||
-    !sameTranscriptMessage(legacyMessages.at(-1), driverTranscript.at(-1));
+  return !sameTranscriptMessage(legacyMessages[0], driverMessages[0]) ||
+    !sameTranscriptMessage(legacyMessages.at(-1), driverMessages.at(-1));
 }
 
 function isTranscriptMessageRow(item: TranscriptMessage): item is TranscriptMessageRow {

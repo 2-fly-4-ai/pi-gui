@@ -1,4 +1,4 @@
-import type { SessionTranscriptMessage, SessionTranscriptRole } from "@pi-gui/pi-sdk-driver";
+import type { SessionTranscriptMessage, SessionTranscriptRole, SessionTranscriptThinking } from "@pi-gui/pi-sdk-driver";
 
 export type SessionRole = SessionTranscriptRole;
 export type TimelineTone = "neutral" | "success" | "warning" | "error";
@@ -38,4 +38,6 @@ export interface TimelineSummary {
   readonly presentation: TimelineSummaryPresentation;
 }
 
-export type TranscriptMessage = SessionTranscriptMessage | TimelineActivity | TimelineToolCall | TimelineSummary;
+export type TimelineThinking = SessionTranscriptThinking;
+
+export type TranscriptMessage = SessionTranscriptMessage | TimelineThinking | TimelineActivity | TimelineToolCall | TimelineSummary;

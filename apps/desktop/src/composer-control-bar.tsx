@@ -11,6 +11,7 @@ interface ComposerControlBarProps {
   readonly modeControl: ReactNode;
   readonly supervisionControl: ReactNode;
   readonly contextControl: ReactNode;
+  readonly thinkingTraceControl?: ReactNode;
   readonly sendLabel: string;
   readonly sendDisabled: boolean;
   readonly stopMode: boolean;
@@ -26,6 +27,7 @@ export function ComposerControlBar({
   modeControl,
   supervisionControl,
   contextControl,
+  thinkingTraceControl,
   sendLabel,
   sendDisabled,
   stopMode,
@@ -124,6 +126,7 @@ export function ComposerControlBar({
                 <ComposerOverflowRow label="Mode">{modeControl}</ComposerOverflowRow>
                 <ComposerOverflowRow label="Access">{supervisionControl}</ComposerOverflowRow>
                 <div className="composer-control-bar__overflow-divider" />
+                {thinkingTraceControl ? <ComposerOverflowRow label="Thinking">{thinkingTraceControl}</ComposerOverflowRow> : null}
                 <ComposerOverflowRow label="Context">{contextControl}</ComposerOverflowRow>
                 <button className="composer-control-bar__attach-row" type="button" onClick={onAttach}>
                   <span aria-hidden="true"><PlusIcon /></span>
@@ -162,6 +165,7 @@ export function ComposerControlBar({
         {supervisionControl}
       </div>
       <div className="composer-control-bar__right">
+        {thinkingTraceControl}
         {contextControl}
         <button aria-label="Attach files" className="icon-button composer__attach" type="button" onClick={onAttach}>
           <PlusIcon />

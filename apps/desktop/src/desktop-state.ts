@@ -183,6 +183,7 @@ export interface DesktopAppState {
   readonly modelSettingsScopeMode: ModelSettingsScopeMode;
   readonly globalModelSettings: ModelSettingsSnapshot;
   readonly sidebarCollapsed: boolean;
+  readonly showThinking: boolean;
   readonly reviewRequest?: CreateReviewSnapshotOptions & { readonly nonce: number };
   readonly revision: number;
   readonly lastError?: string;
@@ -227,6 +228,7 @@ export function createEmptyDesktopAppState(): DesktopAppState {
       enabledModelPatterns: [],
     },
     sidebarCollapsed: false,
+    showThinking: false,
     reviewRequest: undefined,
     revision: 0,
   };

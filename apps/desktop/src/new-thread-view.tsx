@@ -19,6 +19,7 @@ import { ReasoningSelector } from "./reasoning-selector";
 import { ToolAccessSelector } from "./tool-access-selector";
 import { ContextWindowIndicator } from "./context-window-indicator";
 import { FastModeSelector, type FastModeSelection } from "./fast-mode-selector";
+import { ThinkingTraceToggle } from "./thinking-trace-toggle";
 
 interface NewThreadViewProps {
   readonly workspaces: readonly WorkspaceRecord[];
@@ -31,6 +32,7 @@ interface NewThreadViewProps {
   readonly provider: string | undefined;
   readonly modelId: string | undefined;
   readonly thinkingLevel: string | undefined;
+  readonly showThinking: boolean;
   readonly modelOnboarding: ModelOnboardingState;
   readonly toolAccess: ToolAccessSelection;
   readonly fastMode: FastModeSelection;
@@ -53,6 +55,7 @@ interface NewThreadViewProps {
   readonly onSelectWorkspace: (workspaceId: string) => void;
   readonly onSetModel: (provider: string, modelId: string) => void;
   readonly onSetThinking: (level: string) => void;
+  readonly onToggleShowThinking: () => void;
   readonly onSetToolAccess: (selection: ToolAccessSelection) => void;
   readonly onSetFastMode: (mode: FastModeSelection) => void;
   readonly onOpenModelSettings: (section: ModelOnboardingSettingsSection) => void;
@@ -80,6 +83,7 @@ export function NewThreadView({
   provider,
   modelId,
   thinkingLevel,
+  showThinking,
   modelOnboarding,
   toolAccess,
   fastMode,
@@ -102,6 +106,7 @@ export function NewThreadView({
   onSelectWorkspace,
   onSetModel,
   onSetThinking,
+  onToggleShowThinking,
   onSetToolAccess,
   onSetFastMode,
   onOpenModelSettings,
@@ -218,6 +223,7 @@ export function NewThreadView({
                   provider={provider}
                   modelId={modelId}
                   thinkingLevel={thinkingLevel}
+                  showThinking={showThinking}
                   modelOnboarding={modelOnboarding}
                   toolAccess={toolAccess}
                   fastMode={fastMode}
@@ -227,6 +233,7 @@ export function NewThreadView({
                   onSelectEnvironment={onSelectEnvironment}
                   onSetModel={onSetModel}
                   onSetThinking={onSetThinking}
+                  onToggleShowThinking={onToggleShowThinking}
                   onSetToolAccess={onSetToolAccess}
                   onSetFastMode={onSetFastMode}
                   onAddAttachments={onAddAttachments}
@@ -248,6 +255,7 @@ interface NewThreadComposerFooterProps {
   readonly provider: string | undefined;
   readonly modelId: string | undefined;
   readonly thinkingLevel: string | undefined;
+  readonly showThinking: boolean;
   readonly modelOnboarding: ModelOnboardingState;
   readonly toolAccess: ToolAccessSelection;
   readonly fastMode: FastModeSelection;
@@ -257,6 +265,7 @@ interface NewThreadComposerFooterProps {
   readonly onSelectEnvironment: (environment: NewThreadEnvironment) => void;
   readonly onSetModel: (provider: string, modelId: string) => void;
   readonly onSetThinking: (level: string) => void;
+  readonly onToggleShowThinking: () => void;
   readonly onSetToolAccess: (selection: ToolAccessSelection) => void;
   readonly onSetFastMode: (mode: FastModeSelection) => void;
   readonly onAddAttachments: (files: File[]) => void;
@@ -269,6 +278,7 @@ function NewThreadComposerFooter({
   provider,
   modelId,
   thinkingLevel,
+  showThinking,
   modelOnboarding,
   toolAccess,
   fastMode,
@@ -278,6 +288,7 @@ function NewThreadComposerFooter({
   onSelectEnvironment,
   onSetModel,
   onSetThinking,
+  onToggleShowThinking,
   onSetToolAccess,
   onSetFastMode,
   onAddAttachments,
@@ -327,6 +338,12 @@ function NewThreadComposerFooter({
           )}
           supervisionControl={<ToolAccessSelector value={toolAccess} onChange={onSetToolAccess} />}
           contextControl={<ContextWindowIndicator compactionEnabled />}
+          thinkingTraceControl={(
+            <ThinkingTraceToggle
+              showThinking={showThinking}
+              onToggle={onToggleShowThinking}
+            />
+          )}
           sendLabel="Start thread"
           sendDisabled={!hasContent || modelOnboarding.requiresModelSelection}
           stopMode={false}

@@ -71,7 +71,7 @@ import {
   truncate,
   workspaceToRef,
 } from "./session-supervisor-utils.js";
-import type { SessionTranscriptMessage } from "./transcript.js";
+import type { SessionTranscriptEntry } from "./transcript.js";
 import { createAgentSessionRuntimeWithNpmFallback } from "./npm-package-fallback.js";
 
 export interface PiSdkDriverOptions {
@@ -272,7 +272,7 @@ export class SessionSupervisor {
     }
   }
 
-  async getTranscript(sessionRef: SessionRef): Promise<SessionTranscriptMessage[]> {
+  async getTranscript(sessionRef: SessionRef): Promise<SessionTranscriptEntry[]> {
     const record = await this.ensureRecord(sessionRef);
     return transcriptFromMessages(record.session?.messages ?? [], record.updatedAt);
   }
@@ -1336,9 +1336,12 @@ export class SessionSupervisor {
         }
         this.updatePreviewFromMessage(record, event.message);
         return [sessionUpdatedEvent(record)];
-      case "message_update":
+      case "message_update": {
         this.updatePreviewFromMessage(record, event.message);
-        if (event.message.role === "assistant" && event.assistantMessageEvent.type === "text_delta") {
+        if (event.message.role !== "assistant") {
+          return [sessionUpdatedEvent(record)];
+        }
+        if (event.assistantMessageEvent.type === "text_delta") {
           return toDriverEvents({
             type: "assistantDelta" as const,
             sessionRef: record.ref,
@@ -1346,7 +1349,31 @@ export class SessionSupervisor {
             text: event.assistantMessageEvent.delta ?? "",
           }, record);
         }
+        if (event.assistantMessageEvent.type === "thinking_start") {
+          return toDriverEvents({
+            type: "assistantThinkingStarted" as const,
+            sessionRef: record.ref,
+            timestamp,
+          }, record);
+        }
+        if (event.assistantMessageEvent.type === "thinking_delta") {
+          return toDriverEvents({
+            type: "assistantThinkingDelta" as const,
+            sessionRef: record.ref,
+            timestamp,
+            text: event.assistantMessageEvent.delta ?? "",
+          }, record);
+        }
+        if (event.assistantMessageEvent.type === "thinking_end") {
+          return toDriverEvents({
+            type: "assistantThinkingFinished" as const,
+            sessionRef: record.ref,
+            timestamp,
+            text: event.assistantMessageEvent.content,
+          }, record);
+        }
         return [sessionUpdatedEvent(record)];
+      }
       case "tool_execution_start":
         record.status = "running";
         return toDriverEvents({

@@ -6,6 +6,7 @@ import { InlineDiff, extractDiffFromOutput } from "./diff-inline";
 import { ChevronRightIcon, CopyIcon, DiffIcon, FileIcon } from "./icons";
 import { extensionToLanguage } from "./syntax-highlight";
 import userMessageIconUrl from "./assets/user-message-icon.png";
+import ninjaStarUrl from "./assets/ninja-star.svg";
 
 export const TimelineItem = memo(function TimelineItem({
   item,
@@ -21,6 +22,8 @@ export const TimelineItem = memo(function TimelineItem({
   switch (item.kind) {
     case "message":
       return <TimelineMessage item={item} />;
+    case "thinking":
+      return <TimelineThinkingItem item={item} />;
     case "activity":
       return <TimelineActivityItem item={item} />;
     case "tool":
@@ -129,6 +132,22 @@ function TimelineMessage({ item }: { readonly item: SessionTranscriptMessage }) 
   return (
     <article className="timeline-item timeline-item--assistant">
       <MessageMarkdown text={item.text} />
+    </article>
+  );
+}
+
+function TimelineThinkingItem({ item }: { readonly item: Extract<TranscriptMessage, { kind: "thinking" }> }) {
+  const running = item.status === "running";
+  const body = item.text.trim() || "Thinking…";
+  return (
+    <article className={`timeline-item timeline-item--thinking${running ? " timeline-item--thinking-running" : ""}`}>
+      <div className="timeline-thinking__header">
+        <img className="timeline-thinking__icon" src={ninjaStarUrl} alt="" aria-hidden="true" />
+        <span>{running ? "Thinking…" : "Thinking"}</span>
+      </div>
+      <div className="timeline-thinking__body">
+        <MessageMarkdown text={body} />
+      </div>
     </article>
   );
 }

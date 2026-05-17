@@ -572,6 +572,7 @@ app.whenReady().then(async () => {
   ipcMain.handle(desktopIpc.setSidebarCollapsed, (_event, collapsed: boolean) =>
     store.setSidebarCollapsed(collapsed),
   );
+  ipcMain.handle(desktopIpc.setShowThinking, (_event, showThinking: boolean) => store.setShowThinking(showThinking));
   ipcMain.handle(desktopIpc.refreshRuntime, (_event, workspaceId?: string) => store.refreshRuntime(workspaceId));
   ipcMain.handle(desktopIpc.setModelSettingsScopeMode, (_event, mode) => store.setModelSettingsScopeMode(mode));
   ipcMain.handle(desktopIpc.setSessionModel, (_event, workspaceId: string, sessionId: string, provider: string, modelId: string) =>
@@ -840,7 +841,7 @@ app.whenReady().then(async () => {
     await store.driver.sendUserMessage(sessionRef, { text: buildAgentPreReviewPrompt(snapshot) });
     await store.reloadTranscriptFromDriver(sessionRef);
     const transcript = await store.driver.getTranscript(sessionRef);
-    const assistantText = [...transcript].reverse().find((message) => message.role === "assistant")?.text ?? "";
+    const assistantText = [...transcript].reverse().find((message) => message.kind === "message" && message.role === "assistant")?.text ?? "";
     return parseAgentPreReviewComments(snapshot, assistantText);
   });
   ipcMain.handle(desktopIpc.toggleWindowMaximize, (event) => {

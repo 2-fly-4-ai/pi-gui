@@ -18,6 +18,7 @@ import { ReasoningSelector } from "./reasoning-selector";
 import { ToolAccessSelector } from "./tool-access-selector";
 import { ContextWindowIndicator } from "./context-window-indicator";
 import { FastModeSelector } from "./fast-mode-selector";
+import { ThinkingTraceToggle } from "./thinking-trace-toggle";
 
 interface ComposerPanelProps {
   readonly sessionStatus: SessionRecord["status"];
@@ -34,6 +35,8 @@ interface ComposerPanelProps {
   readonly provider: string | undefined;
   readonly modelId: string | undefined;
   readonly thinkingLevel: string | undefined;
+  readonly showThinking: boolean;
+  readonly thinkingActive: boolean;
   readonly slashSections: readonly ComposerSlashCommandSection[];
   readonly slashOptions: readonly ComposerSlashOption[];
   readonly sessionCommands: readonly RuntimeCommandRecord[];
@@ -56,6 +59,7 @@ interface ComposerPanelProps {
   readonly onSelectSlashOption: (option: ComposerSlashOption) => void;
   readonly onSetModel: (provider: string, modelId: string) => void;
   readonly onSetThinking: (level: string) => void;
+  readonly onToggleShowThinking: () => void;
   readonly onRunFastCommand: (command: string) => void;
   readonly skillProfileControl?: ReactNode;
   readonly modelOnboarding: ModelOnboardingState;
@@ -88,6 +92,8 @@ export const ComposerPanel = memo(function ComposerPanel({
   provider,
   modelId,
   thinkingLevel,
+  showThinking,
+  thinkingActive,
   slashSections,
   slashOptions,
   sessionCommands,
@@ -110,6 +116,7 @@ export const ComposerPanel = memo(function ComposerPanel({
   onSelectSlashOption,
   onSetModel,
   onSetThinking,
+  onToggleShowThinking,
   onRunFastCommand,
   skillProfileControl,
   modelOnboarding,
@@ -211,6 +218,13 @@ export const ComposerPanel = memo(function ComposerPanel({
                   />
                 )}
                 contextControl={<ContextWindowIndicator compactionEnabled />}
+                thinkingTraceControl={(
+                  <ThinkingTraceToggle
+                    showThinking={showThinking}
+                    active={thinkingActive}
+                    onToggle={onToggleShowThinking}
+                  />
+                )}
                 sendLabel={primaryActionIsStop ? "Stop run" : "Send message"}
                 sendDisabled={
                   !primaryActionIsStop &&

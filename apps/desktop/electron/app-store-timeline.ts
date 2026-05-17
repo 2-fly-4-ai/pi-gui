@@ -5,6 +5,7 @@ import {
   formatElapsedDuration,
   makeActivityItem,
   makeSummaryItem,
+  makeThinkingItem,
   makeToolItem,
   makeTranscriptMessage,
   makeTranscriptMessageWithAttachments,
@@ -21,6 +22,7 @@ interface TimelineRuntimeState {
   readonly runMetricsBySession: Map<string, RunMetrics>;
   readonly runningSinceBySession: Map<string, string>;
   readonly activeAssistantMessageBySession: Map<string, string>;
+  readonly activeThinkingItemBySession: Map<string, string>;
   readonly activeWorkingActivityBySession: Map<string, string>;
 }
 
@@ -107,6 +109,90 @@ export function clearActiveAssistantMessage(
   activeAssistantMessageBySession.delete(sessionKey(sessionRef));
 }
 
+export function appendAssistantThinkingDelta(
+  transcriptCache: Map<string, TranscriptMessage[]>,
+  activeThinkingItemBySession: Map<string, string>,
+  sessionRef: SessionRef,
+  text: string,
+): void {
+  if (!text) {
+    return;
+  }
+  const key = sessionKey(sessionRef);
+  const transcript = [...(transcriptCache.get(key) ?? [])];
+  const thinking = upsertActiveThinkingItem(transcript, activeThinkingItemBySession, key);
+  const index = transcript.findIndex((item) => item.id === thinking.id);
+  transcript[index] = {
+    ...thinking,
+    text: `${thinking.text}${text}`,
+    status: "running",
+  };
+  transcriptCache.set(key, transcript);
+}
+
+export function finishAssistantThinking(
+  transcriptCache: Map<string, TranscriptMessage[]>,
+  activeThinkingItemBySession: Map<string, string>,
+  sessionRef: SessionRef,
+  text?: string,
+): void {
+  const key = sessionKey(sessionRef);
+  const transcript = [...(transcriptCache.get(key) ?? [])];
+  markActiveThinkingDone(transcript, activeThinkingItemBySession, key, text);
+  transcriptCache.set(key, transcript);
+}
+
+function upsertActiveThinkingItem(
+  transcript: TranscriptMessage[],
+  activeThinkingItemBySession: Map<string, string>,
+  key: string,
+): Extract<TranscriptMessage, { kind: "thinking" }> {
+  const activeId = activeThinkingItemBySession.get(key);
+  const activeIndex = activeId ? transcript.findIndex((item) => item.id === activeId) : -1;
+  const active = activeIndex >= 0 ? transcript[activeIndex] : undefined;
+  if (active?.kind === "thinking") {
+    return active;
+  }
+
+  const item = makeThinkingItem("running");
+  transcript.push(item);
+  activeThinkingItemBySession.set(key, item.id);
+  return item as Extract<TranscriptMessage, { kind: "thinking" }>;
+}
+
+function markActiveThinkingDone(
+  transcript: TranscriptMessage[],
+  activeThinkingItemBySession: Map<string, string>,
+  key: string,
+  text?: string,
+): void {
+  const activeId = activeThinkingItemBySession.get(key);
+  activeThinkingItemBySession.delete(key);
+  if (!activeId) {
+    if (text?.trim()) {
+      transcript.push({
+        ...makeThinkingItem("done", text.trim()),
+      });
+    }
+    return;
+  }
+  const index = transcript.findIndex((item) => item.id === activeId);
+  const current = index >= 0 ? transcript[index] : undefined;
+  if (current?.kind !== "thinking") {
+    return;
+  }
+  const nextText = text?.trim() || current.text;
+  if (!nextText.trim()) {
+    transcript.splice(index, 1);
+    return;
+  }
+  transcript[index] = {
+    ...current,
+    text: nextText,
+    status: "done",
+  };
+}
+
 export function applyTimelineEvent(
   transcriptCache: Map<string, TranscriptMessage[]>,
   event: SessionDriverEvent,
@@ -140,10 +226,21 @@ export function applyTimelineEvent(
       break;
     case "queuedMessageStarted":
       clearActiveAssistantMessage(state.activeAssistantMessageBySession, event.sessionRef);
+      markActiveThinkingDone(transcript, state.activeThinkingItemBySession, key);
       appendQueuedUserMessage(transcriptCache, event.sessionRef, event.message);
       return;
+    case "assistantThinkingStarted":
+      upsertActiveThinkingItem(transcript, state.activeThinkingItemBySession, key);
+      break;
+    case "assistantThinkingDelta":
+      // Handled before applyTimelineEvent so thinking deltas can be batched separately later if needed.
+      break;
+    case "assistantThinkingFinished":
+      markActiveThinkingDone(transcript, state.activeThinkingItemBySession, key, event.text);
+      break;
     case "toolStarted": {
       clearActiveAssistantMessage(state.activeAssistantMessageBySession, event.sessionRef);
+      markActiveThinkingDone(transcript, state.activeThinkingItemBySession, key);
       const metrics = currentMetrics ?? {
         startedAt: event.timestamp,
         toolCount: 0,
@@ -275,6 +372,7 @@ function clearRunState(
   state: TimelineRuntimeState,
 ): void {
   clearActiveAssistantMessage(state.activeAssistantMessageBySession, sessionRef);
+  markActiveThinkingDone(transcript, state.activeThinkingItemBySession, key);
   removeWorkingActivity(transcript, state.activeWorkingActivityBySession.get(key));
   state.activeWorkingActivityBySession.delete(key);
   state.runningSinceBySession.delete(key);

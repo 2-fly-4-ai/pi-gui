@@ -11,7 +11,7 @@ import { dirname } from "node:path";
 
 const uiStateWriteQueueByPath = new Map<string, Promise<void>>();
 export interface PersistedUiState {
-  readonly version?: 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9;
+  readonly version?: 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
   readonly selectedWorkspaceId?: string;
   readonly selectedSessionId?: string;
   readonly activeView?: AppView;
@@ -25,6 +25,7 @@ export interface PersistedUiState {
   readonly modelSettingsScopeMode?: ModelSettingsScopeMode;
   readonly appGlobalModelSettings?: ModelSettingsSnapshot;
   readonly sidebarCollapsed?: boolean;
+  readonly showThinking?: boolean;
 }
 
 export interface LegacyPersistedUiState extends PersistedUiState {
@@ -38,7 +39,9 @@ export async function readPersistedUiState(uiStateFilePath: string): Promise<Leg
     const parsed = JSON.parse(raw) as LegacyPersistedUiState;
     return {
       version:
-        parsed.version === 9
+        parsed.version === 10
+          ? 10
+          : parsed.version === 9
           ? 9
           : parsed.version === 8
             ? 8
@@ -72,6 +75,7 @@ export async function readPersistedUiState(uiStateFilePath: string): Promise<Leg
           : undefined,
       appGlobalModelSettings: toPersistedModelSettingsSnapshot(parsed.appGlobalModelSettings),
       sidebarCollapsed: parsed.sidebarCollapsed === true,
+      showThinking: parsed.showThinking === true,
       composerAttachmentsBySession: parsed.composerAttachmentsBySession,
       transcripts: parsed.transcripts,
     };
@@ -88,7 +92,7 @@ export async function writePersistedUiState(
     await mkdir(dirname(uiStateFilePath), { recursive: true });
     const serialized = `${JSON.stringify(
       {
-        version: 9,
+        version: 10,
         ...payload,
       } satisfies PersistedUiState,
       null,

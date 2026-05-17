@@ -497,6 +497,16 @@ export function makeSummaryItem(
   };
 }
 
+export function makeThinkingItem(status: "running" | "done" = "running", text = ""): TranscriptMessage {
+  return {
+    kind: "thinking",
+    id: randomUUID(),
+    text,
+    status,
+    createdAt: new Date().toISOString(),
+  };
+}
+
 export function makeToolItem(
   callId: string,
   toolName: string,

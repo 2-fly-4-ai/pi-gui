@@ -685,6 +685,70 @@
   background: linear-gradient(180deg, rgba(255, 247, 226, 0.92) 0%, rgba(255, 252, 244, 0.98) 100%);
 }
 
+.timeline-item--thinking {
+  width: min(760px, 100%);
+  min-width: 0;
+  padding: 12px 14px;
+  border: 1px solid rgba(139, 141, 148, 0.22);
+  border-radius: 14px;
+  background: rgba(139, 141, 148, 0.08);
+  color: var(--muted-strong);
+}
+
+.timeline-thinking__header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 7px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.timeline-thinking__icon {
+  width: 16px;
+  height: 16px;
+  opacity: 0.68;
+}
+
+.timeline-item--thinking-running .timeline-thinking__icon,
+.thinking-trace-toggle--spinning img {
+  animation: thinking-star-spin 1.05s linear infinite;
+}
+
+.timeline-thinking__body {
+  color: var(--muted-strong);
+  font-size: 14px;
+  font-style: italic;
+  line-height: 1.55;
+}
+
+.timeline-thinking__body .message__content {
+  font-size: inherit;
+  line-height: inherit;
+}
+
+.thinking-trace-toggle img {
+  width: 15px;
+  height: 15px;
+  opacity: 0.78;
+}
+
+@keyframes thinking-star-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .timeline-item--thinking-running .timeline-thinking__icon,
+  .thinking-trace-toggle--spinning img {
+    animation: none;
+  }
+}
+
 .timeline-item__summary-eyebrow {
   margin-bottom: 8px;
   color: #8c5b0c;
@@ -4585,6 +4649,16 @@ mark.thread-find-active {
   background: linear-gradient(180deg, rgba(71, 55, 28, 0.58) 0%, rgba(46, 38, 24, 0.78) 100%);
 }
 
+:root.dark .timeline-item--thinking {
+  border-color: rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.045);
+}
+
+:root.dark .timeline-thinking__icon,
+:root.dark .thinking-trace-toggle img {
+  filter: invert(1);
+}
+
 :root.dark .timeline-item__compaction-toggle {
   border-color: rgba(210, 177, 98, 0.32);
   background: rgba(255, 255, 255, 0.08);
@@ -5710,6 +5784,7 @@ mark.thread-find-active {
 
 .display-mode-tile__transcript .timeline-item--assistant,
 .display-mode-tile__transcript .timeline-item--user,
+.display-mode-tile__transcript .timeline-item--thinking,
 .display-mode-tile__transcript .timeline-tool,
 .display-mode-tile__transcript .timeline-item--summary-card {
   max-width: 100%;

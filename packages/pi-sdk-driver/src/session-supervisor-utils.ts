@@ -10,7 +10,7 @@ import type {
   WorkspaceRef,
 } from "@pi-gui/session-driver";
 import type { SessionQueuedMessage } from "@pi-gui/session-driver/types";
-import type { SessionTranscriptAttachment, SessionTranscriptMessage } from "./transcript.js";
+import type { SessionTranscriptAttachment, SessionTranscriptEntry } from "./transcript.js";
 
 const FILE_ATTACHMENT_BLOCK_START = "<pi-gui-file-attachments>";
 const FILE_ATTACHMENT_BLOCK_END = "</pi-gui-file-attachments>";
@@ -229,8 +229,8 @@ export function injectFileAttachmentPreamble(
   return text ? `${block}\n${text}` : block;
 }
 
-export function transcriptFromMessages(messages: readonly unknown[], fallbackTimestamp = nowIso()): SessionTranscriptMessage[] {
-  const transcript: SessionTranscriptMessage[] = [];
+export function transcriptFromMessages(messages: readonly unknown[], fallbackTimestamp = nowIso()): SessionTranscriptEntry[] {
+  const transcript: SessionTranscriptEntry[] = [];
 
   for (const [index, message] of messages.entries()) {
     if (!isRecord(message)) {
@@ -239,6 +239,14 @@ export function transcriptFromMessages(messages: readonly unknown[], fallbackTim
 
     const role = message.role;
     if (role !== "user" && role !== "assistant" && role !== "branchSummary" && role !== "compactionSummary") {
+      continue;
+    }
+
+    const createdAt = typeof message.createdAt === "string" ? message.createdAt : fallbackTimestamp;
+    const id = typeof message.id === "string" ? message.id : `${role}-${index}`;
+
+    if (role === "assistant" && Array.isArray(message.content)) {
+      appendAssistantContentTranscriptItems(transcript, message.content, id, createdAt);
       continue;
     }
 
@@ -252,15 +260,69 @@ export function transcriptFromMessages(messages: readonly unknown[], fallbackTim
 
     transcript.push({
       kind: "message",
-      id: typeof message.id === "string" ? message.id : `${role}-${index}`,
+      id,
       role,
       text,
       ...(attachments.length > 0 ? { attachments } : {}),
-      createdAt: typeof message.createdAt === "string" ? message.createdAt : fallbackTimestamp,
+      createdAt,
     });
   }
 
   return transcript;
+}
+
+function appendAssistantContentTranscriptItems(
+  transcript: SessionTranscriptEntry[],
+  content: readonly unknown[],
+  messageId: string,
+  createdAt: string,
+): void {
+  let textBuffer = "";
+  let textIndex = 0;
+  let thinkingIndex = 0;
+
+  const flushText = () => {
+    const text = textBuffer.replace(/\s+/g, " ").trim();
+    if (!text) {
+      textBuffer = "";
+      return;
+    }
+    transcript.push({
+      kind: "message",
+      id: textIndex === 0 ? messageId : `${messageId}:text-${textIndex}`,
+      role: "assistant",
+      text,
+      createdAt,
+    });
+    textIndex += 1;
+    textBuffer = "";
+  };
+
+  for (const part of content) {
+    if (!isRecord(part)) {
+      continue;
+    }
+    if (part.type === "thinking" && typeof part.thinking === "string") {
+      flushText();
+      const text = part.thinking.trim();
+      if (text) {
+        transcript.push({
+          kind: "thinking",
+          id: `${messageId}:thinking-${thinkingIndex}`,
+          text,
+          createdAt,
+          status: "done",
+        });
+        thinkingIndex += 1;
+      }
+      continue;
+    }
+    if (part.type === "text" && typeof part.text === "string") {
+      textBuffer = `${textBuffer} ${stripSerializedFileAttachments(part.text, "assistant").text}`;
+    }
+  }
+
+  flushText();
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

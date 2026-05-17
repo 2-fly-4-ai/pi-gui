@@ -463,6 +463,10 @@ function estimateTimelineItemHeight(item: TranscriptMessage): number {
     const textLength = Math.max(item.text.length, 1);
     return 48 + attachmentHeight + Math.min(240, Math.ceil(textLength / 90) * 20);
   }
+  if (item.kind === "thinking") {
+    const textLength = Math.max(item.text.length, 1);
+    return 52 + Math.min(220, Math.ceil(textLength / 100) * 20);
+  }
   if (item.kind === "tool") {
     return 52;
   }

@@ -25,3 +25,13 @@ export interface SessionTranscriptMessage {
   readonly createdAt: string;
   readonly id: string;
 }
+
+export interface SessionTranscriptThinking {
+  readonly kind: "thinking";
+  readonly id: string;
+  readonly text: string;
+  readonly createdAt: string;
+  readonly status: "running" | "done";
+}
+
+export type SessionTranscriptEntry = SessionTranscriptMessage | SessionTranscriptThinking;

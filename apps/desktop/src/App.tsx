@@ -596,7 +596,7 @@ export default function App() {
   const visibleTerminalTarget = openTerminalTargets.find((target) => target.key === visibleTerminalKey);
   const isTerminalVisible = Boolean(visibleTerminalTarget);
   const isVisibleTerminalTakeover = Boolean(visibleTerminalKey) && takeoverTerminalSessionKeys.has(visibleTerminalKey);
-  const activeTranscript =
+  const rawActiveTranscript =
     selectedTranscript &&
     selectedWorkspace &&
     selectedSession &&
@@ -604,8 +604,13 @@ export default function App() {
     selectedTranscript.sessionId === selectedSession.id
       ? selectedTranscript.transcript
       : [];
+  const showThinking = snapshot?.showThinking ?? false;
+  const thinkingActive = rawActiveTranscript.some((item) => item.kind === "thinking" && item.status === "running");
+  const activeTranscript = showThinking
+    ? rawActiveTranscript
+    : rawActiveTranscript.filter((item) => item.kind !== "thinking");
   const activeTranscriptMarker = buildTranscriptChangeMarker(selectedSessionKey, activeTranscript);
-  const latestPlan = useMemo(() => detectLatestPlan(activeTranscript), [activeTranscript, activeTranscriptMarker]);
+  const latestPlan = useMemo(() => detectLatestPlan(rawActiveTranscript), [rawActiveTranscript, activeTranscriptMarker]);
   const planSurfaceAvailable = snapshot?.activeView === "threads" && Boolean(selectedWorkspace && selectedSession && latestPlan);
   const isTranscriptLoading = Boolean(selectedSession) && activeTranscript.length === 0 && (
     !selectedTranscript ||
@@ -2177,6 +2182,12 @@ export default function App() {
     );
   };
 
+  const handleToggleShowThinking = () => {
+    const nextShowThinking = !showThinking;
+    setSnapshot((current) => current ? { ...current, showThinking: nextShowThinking } : current);
+    void updateSnapshot(api, setSnapshot, () => api.setShowThinking(nextShowThinking));
+  };
+
   const handleSetSessionToolAccess = (selection: ToolAccessSelection) => {
     if (!selectedWorkspace || !selectedSession) {
       return;
@@ -2909,6 +2920,7 @@ export default function App() {
               provider={resolvedNewThreadProvider}
               modelId={resolvedNewThreadModelId}
               thinkingLevel={resolvedNewThreadThinkingLevel}
+              showThinking={showThinking}
               modelOnboarding={newThreadModelOnboarding}
               toolAccess={resolvedNewThreadToolAccess}
               fastMode={newThreadFastMode}
@@ -2938,6 +2950,7 @@ export default function App() {
               onSelectWorkspace={handleSelectNewThreadWorkspace}
               onSetModel={(provider, modelId) => { setNewThreadProvider(provider); setNewThreadModelId(modelId); }}
               onSetThinking={setNewThreadThinkingLevel}
+              onToggleShowThinking={handleToggleShowThinking}
               onSetToolAccess={setNewThreadToolAccess}
               onSetFastMode={setNewThreadFastMode}
               onOpenModelSettings={(section) => openSettings(newThreadWorkspace?.id, section)}
@@ -2999,6 +3012,8 @@ export default function App() {
               provider={resolvedSessionProvider}
               modelId={resolvedSessionModelId}
               thinkingLevel={resolvedSessionThinkingLevel}
+              showThinking={showThinking}
+              thinkingActive={thinkingActive}
               toolAccess={resolvedSessionToolAccess}
               sessionCommands={selectedSessionCommands}
               onSetToolAccess={handleSetSessionToolAccess}
@@ -3020,6 +3035,7 @@ export default function App() {
               }}
               onSetModel={handleSetSessionModel}
               onSetThinking={handleSetSessionThinking}
+              onToggleShowThinking={handleToggleShowThinking}
               onRunFastCommand={handleRunFastCommand}
               skillProfileControl={selectedRuntime ? (
                 <SkillProfileSelector
@@ -3206,6 +3222,16 @@ function buildTranscriptChangeMarker(sessionKey: string, transcript: SelectedTra
         attachmentCount,
       ].join(":");
     }
+    case "thinking":
+      return [
+        sessionKey,
+        transcript.length,
+        lastItem.id,
+        lastItem.kind,
+        lastItem.status,
+        lastItem.text.length,
+        lastItem.text.slice(-48),
+      ].join(":");
     case "tool": {
       const inputSize = estimateUnknownSize(lastItem.input);
       const outputSize = estimateUnknownSize(lastItem.output);
