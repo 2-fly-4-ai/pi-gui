@@ -74,6 +74,32 @@ import {
 } from "./composer-attachments";
 import { normalizeToolAccess } from "./tool-access";
 
+const VSCODE_SIDE_PANEL_WIDTH_KEY = "vscode:sidePanelWidth";
+const LEGACY_VSCODE_WIDTH_KEYS = ["threads:vsCodeWidth", "dm:vsCodeWidth"] as const;
+
+function getStoredVsCodeSidePanelWidth(fallback: number): number {
+  try {
+    const saved = Number(localStorage.getItem(VSCODE_SIDE_PANEL_WIDTH_KEY));
+    if (Number.isFinite(saved) && saved > 0) {
+      return saved;
+    }
+    for (const key of LEGACY_VSCODE_WIDTH_KEYS) {
+      const legacy = Number(localStorage.getItem(key));
+      if (Number.isFinite(legacy) && legacy > 0) {
+        localStorage.setItem(VSCODE_SIDE_PANEL_WIDTH_KEY, String(legacy));
+        return legacy;
+      }
+    }
+  } catch {
+    // ignore storage failures
+  }
+  return fallback;
+}
+
+function getInitialThreadVsCodeWidth(): number {
+  return getStoredVsCodeSidePanelWidth(520);
+}
+
 function useDesktopAppState() {
   const [snapshot, setSnapshot] = useState<DesktopAppState | null>(null);
   const [selectedTranscript, setSelectedTranscript] = useState<SelectedTranscriptRecord | null>(null);
@@ -239,10 +265,7 @@ export default function App() {
   const [vsCodeOpen, setVsCodeOpen] = useState(false);
   const [vsCodeWorkspaceId, setVsCodeWorkspaceId] = useState<string | null>(null);
   const [vsCodeFolderPath, setVsCodeFolderPath] = useState<string | null>(null);
-  const [threadVsCodeWidth, setThreadVsCodeWidth] = useState(() => {
-    const saved = Number(localStorage.getItem("threads:vsCodeWidth"));
-    return Number.isFinite(saved) && saved > 0 ? saved : 520;
-  });
+  const [threadVsCodeWidth, setThreadVsCodeWidth] = useState(() => getInitialThreadVsCodeWidth());
   const threadVsCodeWidthRef = useRef(threadVsCodeWidth);
   const setThreadVsCodeCssWidth = useCallback((width: number) => {
     mainRef.current?.style.setProperty("--thread-vscode-width", `${width}px`);
@@ -332,7 +355,7 @@ export default function App() {
   useEffect(() => {
     threadVsCodeWidthRef.current = threadVsCodeWidth;
     setThreadVsCodeCssWidth(threadVsCodeWidth);
-    try { localStorage.setItem("threads:vsCodeWidth", String(threadVsCodeWidth)); } catch {}
+    try { localStorage.setItem(VSCODE_SIDE_PANEL_WIDTH_KEY, String(threadVsCodeWidth)); } catch {}
   }, [setThreadVsCodeCssWidth, threadVsCodeWidth]);
 
   useEffect(() => {
@@ -1810,6 +1833,7 @@ export default function App() {
     }
     if (view === "display-mode" && snapshot.activeView === "threads" && selectedWorkspace && selectedSession) {
       setDisplayModeInitialPinnedThreadKey(`${selectedWorkspace.id}:${selectedSession.id}`);
+      setVsCodeOpen(false);
     } else if (view !== "display-mode") {
       setDisplayModeInitialPinnedThreadKey("");
     }

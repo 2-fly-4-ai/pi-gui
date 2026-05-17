@@ -34,6 +34,9 @@ type DisplayModeFilter = "all" | "running" | "waiting" | "error";
 type DrawerTab = "preview" | "logs" | "files";
 type ColumnMode = number | "auto";
 
+const VSCODE_SIDE_PANEL_WIDTH_KEY = "vscode:sidePanelWidth";
+const LEGACY_VSCODE_WIDTH_KEYS = ["threads:vsCodeWidth", "dm:vsCodeWidth"] as const;
+
 interface ChangedFile {
   readonly path: string;
   readonly status: "added" | "modified" | "deleted" | "untracked";
@@ -96,7 +99,7 @@ export function DisplayModeView({
   useEffect(() => { lsSet("dm:colCount", colCount); }, [colCount]);
   useEffect(() => { lsSet("dm:compact", compact); }, [compact]);
   useEffect(() => { lsSet("dm:drawerWidth", drawerWidth); }, [drawerWidth]);
-  useEffect(() => { lsSet("dm:vsCodeWidth", vsCodeWidth); }, [vsCodeWidth]);
+  useEffect(() => { lsSet(VSCODE_SIDE_PANEL_WIDTH_KEY, vsCodeWidth); }, [vsCodeWidth]);
   useEffect(() => {
     drawerWidthRef.current = drawerWidth;
     sectionRef.current?.style.setProperty("--display-mode-drawer-width", `${drawerWidth}px`);
@@ -1082,10 +1085,29 @@ function isHttpUrl(value: string): boolean {
 function getInitialVsCodeWidth(): number {
   const viewportWidth = typeof window === "undefined" ? 1440 : window.innerWidth;
   const target = Math.floor(viewportWidth / 3);
-  const saved = lsGetNum("dm:vsCodeWidth", target);
+  const saved = getStoredVsCodeSidePanelWidth(target);
   return saved > Math.floor(viewportWidth * 0.55)
     ? target
     : Math.max(getMinVsCodeWidth(viewportWidth), Math.min(getMaxVsCodeWidth(viewportWidth), saved));
+}
+
+function getStoredVsCodeSidePanelWidth(fallback: number): number {
+  try {
+    const saved = Number(localStorage.getItem(VSCODE_SIDE_PANEL_WIDTH_KEY));
+    if (Number.isFinite(saved) && saved > 0) {
+      return saved;
+    }
+    for (const key of LEGACY_VSCODE_WIDTH_KEYS) {
+      const legacy = Number(localStorage.getItem(key));
+      if (Number.isFinite(legacy) && legacy > 0) {
+        localStorage.setItem(VSCODE_SIDE_PANEL_WIDTH_KEY, String(legacy));
+        return legacy;
+      }
+    }
+  } catch {
+    // ignore storage failures
+  }
+  return fallback;
 }
 
 function getMinVsCodeWidth(containerWidth: number): number {
