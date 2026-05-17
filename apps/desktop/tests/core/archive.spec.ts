@@ -30,6 +30,7 @@ test("archives a hovered thread into a restorable sidebar section", async () => 
 
     await activeRow.hover();
     await archiveButton.click();
+    await activeRow.getByRole("menuitem", { name: "Archive" }).click();
     await expect(window.locator(".topbar__session")).toHaveText("Thread one");
     const archivedGroup = window.locator(".archived-thread-group");
     const archivedToggle = archivedGroup.locator(".archived-thread-group__toggle");
@@ -52,6 +53,7 @@ test("archives a hovered thread into a restorable sidebar section", async () => 
     const restoreButton = archivedRow.locator(".session-row__action");
     await archivedRow.hover();
     await restoreButton.click();
+    await archivedRow.getByRole("menuitem", { name: "Restore" }).click();
 
     await expect(window.locator(".session-list > .session-row").filter({ hasText: "Thread two" })).toHaveCount(1);
     await expect(window.locator(".archived-thread-group")).toHaveCount(0);

@@ -32,7 +32,7 @@ const NEW_THREAD_FAST_MODE_ACTIONS: readonly {
   readonly description: string;
 }[] = [
   { value: "auto", label: "Auto", description: "Use configured default" },
-  { value: "on", label: "On", description: "Enable before first prompt" },
+  { value: "on", label: "On", description: "Enable Codex Fast before the first prompt" },
   { value: "off", label: "Off", description: "Disable before first prompt" },
 ];
 

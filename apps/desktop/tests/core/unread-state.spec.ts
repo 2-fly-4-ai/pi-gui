@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test } from "@playwright/test";
@@ -16,38 +15,12 @@ type PersistedUiState = {
   lastViewedAtBySession?: Record<string, string>;
 };
 
-type PersistedTranscript = {
-  version?: number;
-  transcript?: unknown;
-} | unknown[];
-
-type PersistedTranscriptItem = {
-  kind: string;
-  id: string;
-  createdAt: string;
-  label?: string;
-  presentation?: string;
+type PersistedCatalog = {
+  sessions?: Array<{
+    sessionRef?: { workspaceId?: string; sessionId?: string };
+    updatedAt?: string;
+  }>;
 };
-
-function readTranscriptItems(parsed: PersistedTranscript): PersistedTranscriptItem[] {
-  if (Array.isArray(parsed)) {
-    return parsed as PersistedTranscriptItem[];
-  }
-  return Array.isArray(parsed.transcript) ? (parsed.transcript as PersistedTranscriptItem[]) : [];
-}
-
-function writeTranscriptPayload(
-  parsed: PersistedTranscript,
-  items: readonly PersistedTranscriptItem[],
-): PersistedTranscript {
-  if (Array.isArray(parsed)) {
-    return [...items];
-  }
-  return {
-    version: parsed.version ?? 1,
-    transcript: items,
-  };
-}
 
 test("selecting an unread thread persists read state through the latest known activity", async () => {
   test.setTimeout(90_000);
@@ -69,51 +42,41 @@ test("selecting an unread thread persists read state through the latest known ac
       workspaceId: state.selectedWorkspaceId,
       sessionId: state.selectedSessionId,
     };
+    await createNamedThread(window, "Selected reader session");
   } finally {
     await firstRun.close();
   }
 
   expect(sessionRef).toBeDefined();
-  const { rawSessionKey, transcriptPath } = persistedSessionDataPaths(userDataDir, sessionRef!);
+  const { rawSessionKey } = persistedSessionDataPaths(userDataDir, sessionRef!);
   const uiStatePath = join(userDataDir, "ui-state.json");
-  const [uiStateRaw, transcriptRaw] = await Promise.all([
+  const catalogPath = join(userDataDir, "catalogs.json");
+  const [uiStateRaw, catalogRaw] = await Promise.all([
     readFile(uiStatePath, "utf8"),
-    readFile(transcriptPath, "utf8").catch(() => JSON.stringify({ version: 1, transcript: [] })),
+    readFile(catalogPath, "utf8"),
   ]);
   const uiState = JSON.parse(uiStateRaw) as PersistedUiState;
-  const parsedTranscript = JSON.parse(transcriptRaw) as PersistedTranscript;
-  const transcriptItems = readTranscriptItems(parsedTranscript);
-  const latestCreatedAt = new Date(Date.now() + 5 * 60 * 1_000).toISOString();
-  transcriptItems.push({
-    kind: "summary",
-    id: randomUUID(),
-    createdAt: latestCreatedAt,
-    label: "Trailing persisted activity",
-    presentation: "inline",
-  });
+  const catalog = JSON.parse(catalogRaw) as PersistedCatalog;
+  const targetCatalogSession = (catalog.sessions ?? []).find(
+    (session) => session.sessionRef?.workspaceId === sessionRef!.workspaceId && session.sessionRef?.sessionId === sessionRef!.sessionId,
+  );
+  expect(targetCatalogSession?.updatedAt).toBeTruthy();
 
-  await Promise.all([
-    writeFile(
-      transcriptPath,
-      `${JSON.stringify(writeTranscriptPayload(parsedTranscript, transcriptItems), null, 2)}\n`,
-      "utf8",
-    ),
-    writeFile(
-      uiStatePath,
-      `${JSON.stringify(
-        {
-          ...uiState,
-          lastViewedAtBySession: {
-            ...(uiState.lastViewedAtBySession ?? {}),
-            [rawSessionKey]: new Date(Date.parse(latestCreatedAt) - 1_000).toISOString(),
-          },
+  await writeFile(
+    uiStatePath,
+    `${JSON.stringify(
+      {
+        ...uiState,
+        lastViewedAtBySession: {
+          ...(uiState.lastViewedAtBySession ?? {}),
+          [rawSessionKey]: new Date(Date.parse(targetCatalogSession!.updatedAt!) - 1_000).toISOString(),
         },
-        null,
-        2,
-      )}\n`,
-      "utf8",
-    ),
-  ]);
+      },
+      null,
+      2,
+    )}\n`,
+    "utf8",
+  );
 
   const secondRun = await launchDesktop(userDataDir, { testMode: "background" });
   try {

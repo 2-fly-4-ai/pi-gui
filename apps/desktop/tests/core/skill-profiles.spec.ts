@@ -16,7 +16,8 @@ test("creates and applies a global skill profile from the Skills page", async ()
     await createNamedThread(window, "Skill profile session");
     await window.getByRole("button", { name: "Skills", exact: true }).click();
 
-    await expect(window.getByText("Discovery workspace", { exact: true })).toBeVisible();
+    await expect(window.getByRole("heading", { name: "Skills" })).toBeVisible();
+    await expect(window.getByRole("button", { name: /Demo Skill/i })).toBeVisible();
     await window.getByRole("button", { name: "New profile" }).click();
     await window.getByLabel("Profile name").fill("Demo profile");
     await window.getByRole("button", { name: "Create profile" }).click();
