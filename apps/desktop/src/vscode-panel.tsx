@@ -38,7 +38,7 @@ export function VSCodePanel({
     setError(null);
     setResolvedServer(null);
 
-    void api.ensureVSCodeServer(workspaceId, folderPath)
+    void api.ensureVSCodeServer(workspaceId)
       .then((nextPort) => {
         if (!cancelled) {
           setResolvedServer({ port: nextPort, workspaceId, folderPath });

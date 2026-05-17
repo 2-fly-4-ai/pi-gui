@@ -267,8 +267,8 @@ export interface PiDesktopApi {
   syncCurrentWorkspace(): Promise<DesktopAppState>;
   selectSession(target: WorkspaceSessionTarget): Promise<DesktopAppState>;
   renameSession(target: WorkspaceSessionTarget, title: string): Promise<DesktopAppState>;
-  ensureVSCodeServer(workspaceId: string, folderPath: string): Promise<number>;
-  killVSCodeServer(workspaceId: string, folderPath: string): Promise<void>;
+  ensureVSCodeServer(workspaceId: string): Promise<number>;
+  killVSCodeServer(workspaceId: string): Promise<void>;
   archiveSession(target: WorkspaceSessionTarget): Promise<DesktopAppState>;
   unarchiveSession(target: WorkspaceSessionTarget): Promise<DesktopAppState>;
   createSession(input: CreateSessionInput): Promise<DesktopAppState>;

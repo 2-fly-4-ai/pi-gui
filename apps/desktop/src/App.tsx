@@ -394,7 +394,7 @@ export default function App() {
         ? { workspaceId: vsCodeWorkspaceId, folderPath: vsCodeFolderPath }
         : null;
     if (!api || !target) return;
-    void api.killVSCodeServer(target.workspaceId, target.folderPath).finally(() => {
+    void api.killVSCodeServer(target.workspaceId).finally(() => {
       setVsCodeOpen(false);
       setVsCodeWorkspaceId(null);
       setVsCodeFolderPath(null);

@@ -548,11 +548,19 @@ app.whenReady().then(async () => {
   ipcMain.handle(desktopIpc.renameSession, (_event, target: WorkspaceSessionTarget, title: string) =>
     store.renameSession(target, title),
   );
-  ipcMain.handle(desktopIpc.ensureVSCodeServer, (_event, workspaceId: string, folderPath: string) =>
-    ensureVSCodeServer(workspaceId, folderPath),
-  );
-  ipcMain.handle(desktopIpc.killVSCodeServer, (_event, workspaceId: string, folderPath: string) => {
-    killVSCodeServer(workspaceId, folderPath);
+  ipcMain.handle(desktopIpc.ensureVSCodeServer, (_event, workspaceId: string) => {
+    const workspacePath = store.getWorkspacePath(workspaceId);
+    if (!workspacePath) {
+      throw new Error(`Unknown workspace: ${workspaceId}`);
+    }
+    return ensureVSCodeServer(workspaceId, workspacePath);
+  });
+  ipcMain.handle(desktopIpc.killVSCodeServer, (_event, workspaceId: string) => {
+    const workspacePath = store.getWorkspacePath(workspaceId);
+    if (!workspacePath) {
+      throw new Error(`Unknown workspace: ${workspaceId}`);
+    }
+    killVSCodeServer(workspaceId, workspacePath);
   });
   ipcMain.handle(desktopIpc.archiveSession, (_event, target: WorkspaceSessionTarget) =>
     store.archiveSession(target),
