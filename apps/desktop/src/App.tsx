@@ -388,13 +388,18 @@ export default function App() {
   const selectedSession = snapshot ? (getSelectedSession(snapshot) ?? selectedWorkspace?.sessions[0]) : undefined;
 
   const hardCloseCurrentVsCode = useCallback(() => {
-    if (!api || !vsCodeWorkspaceId || !vsCodeFolderPath) return;
-    void api.killVSCodeServer(vsCodeWorkspaceId, vsCodeFolderPath).finally(() => {
+    const target = snapshot?.activeView === "threads" && selectedWorkspace
+      ? { workspaceId: selectedWorkspace.id, folderPath: selectedWorkspace.path }
+      : vsCodeWorkspaceId && vsCodeFolderPath
+        ? { workspaceId: vsCodeWorkspaceId, folderPath: vsCodeFolderPath }
+        : null;
+    if (!api || !target) return;
+    void api.killVSCodeServer(target.workspaceId, target.folderPath).finally(() => {
       setVsCodeOpen(false);
       setVsCodeWorkspaceId(null);
       setVsCodeFolderPath(null);
     });
-  }, [api, vsCodeFolderPath, vsCodeWorkspaceId]);
+  }, [api, selectedWorkspace, snapshot?.activeView, vsCodeFolderPath, vsCodeWorkspaceId]);
 
   const openSelectedWorkspaceVsCode = useCallback(() => {
     if (!selectedWorkspace) return;
