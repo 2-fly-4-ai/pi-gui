@@ -1,4 +1,5 @@
 import { existsSync } from "node:fs";
+import { basename } from "node:path";
 import { platform } from "node:os";
 import { spawn as spawnPty, type IPty } from "node-pty";
 import { createBashToolDefinition, defineTool, type BashOperations } from "@earendil-works/pi-coding-agent";
@@ -16,6 +17,11 @@ export function createPtyBashToolDefinition(cwd: string, options: PtyBashOptions
   }));
 }
 
+function isPowerShell(shell: string): boolean {
+  const executable = basename(shell).toLowerCase();
+  return executable === "powershell.exe" || executable === "powershell" || executable === "pwsh.exe" || executable === "pwsh";
+}
+
 export function createPtyBashOperations(options: PtyBashOptions = {}): BashOperations {
   return {
     exec(command, cwd, { onData, signal, timeout, env }) {
@@ -26,7 +32,7 @@ export function createPtyBashOperations(options: PtyBashOptions = {}): BashOpera
         }
 
         const shell = options.shellPath ?? process.env.SHELL ?? (platform() === "win32" ? "powershell.exe" : "/bin/bash");
-        const args = shell.endsWith("powershell.exe") ? ["-NoLogo", "-NoProfile", "-Command", command] : ["-lc", command];
+        const args = isPowerShell(shell) ? ["-NoLogo", "-NoProfile", "-Command", command] : ["-lc", command];
         let pty: IPty | undefined;
         let settled = false;
         let timedOut = false;
@@ -58,7 +64,7 @@ export function createPtyBashOperations(options: PtyBashOptions = {}): BashOpera
             cols: options.cols ?? 120,
             rows: options.rows ?? 40,
             cwd,
-            env: env ?? process.env,
+            env: { ...process.env, ...env },
           });
         } catch (error) {
           finish(() => reject(error instanceof Error ? error : new Error(String(error))));
