@@ -17,6 +17,9 @@ test("opens Display Mode from the sidebar and renders thread command-center tile
   const staleMachineSettingsDir = join(userDataDir, "vscode-serve-web", "user-data", "Machine");
   await mkdir(staleMachineSettingsDir, { recursive: true });
   await writeFile(join(staleMachineSettingsDir, "settings.json"), JSON.stringify({ "workbench.colorTheme": "" }, null, 2));
+  const staleWorkspaceSettingsDir = join(userDataDir, "vscode-serve-web", "Users", "example", "project", "User");
+  await mkdir(staleWorkspaceSettingsDir, { recursive: true });
+  await writeFile(join(staleWorkspaceSettingsDir, "settings.json"), JSON.stringify({ "workbench.colorTheme": "" }, null, 2));
   const workspacePath = await makeWorkspace("display-mode-workspace");
   const tmpDir = dirname(workspacePath);
   await writeFile(join(workspacePath, "README.md"), "first workspace readme");
@@ -182,9 +185,11 @@ test("opens Display Mode from the sidebar and renders thread command-center tile
     })).toBeGreaterThan(500);
     const settings = JSON.parse(await readFile(join(userDataDir, "vscode-serve-web", "user-data", "User", "settings.json"), "utf8")) as Record<string, unknown>;
     const machineSettings = JSON.parse(await readFile(join(userDataDir, "vscode-serve-web", "user-data", "Machine", "settings.json"), "utf8")) as Record<string, unknown>;
+    const workspaceSettings = JSON.parse(await readFile(join(staleWorkspaceSettingsDir, "settings.json"), "utf8")) as Record<string, unknown>;
     expect(settings["security.workspace.trust.enabled"]).toBe(false);
     expect(settings["workbench.colorTheme"]).toBe("Default Dark Modern");
     expect(machineSettings["workbench.colorTheme"]).toBe("Default Dark Modern");
+    expect(workspaceSettings["workbench.colorTheme"]).toBe("Default Dark Modern");
   } finally {
     await harness.close();
   }

@@ -293,14 +293,13 @@ function ensureVSCodeDefaultSettings(settingsPath: string): void {
   }
 }
 
-function ensureVSCodeProfileDefaultSettings(userDir: string): void {
-  const profilesDir = path.join(userDir, "profiles");
-  if (!fs.existsSync(profilesDir)) {
+function ensureVSCodeSettingsUnder(rootDir: string, maxDepth: number): void {
+  if (!fs.existsSync(rootDir)) {
     return;
   }
 
   const visit = (dir: string, depth: number) => {
-    if (depth > 4) return;
+    if (depth > maxDepth) return;
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
       const entryPath = path.join(dir, entry.name);
       if (entry.isDirectory()) {
@@ -311,7 +310,7 @@ function ensureVSCodeProfileDefaultSettings(userDir: string): void {
     }
   };
 
-  visit(profilesDir, 0);
+  visit(rootDir, 0);
 }
 
 function prepareVSCodeDataDirs(): VSCodeDataDirs {
@@ -334,7 +333,8 @@ function prepareVSCodeDataDirs(): VSCodeDataDirs {
   }
 
   ensureVSCodeDefaultSettings(settingsPath);
-  ensureVSCodeProfileDefaultSettings(userDir);
+  ensureVSCodeSettingsUnder(path.join(userDir, "profiles"), 4);
+  ensureVSCodeSettingsUnder(path.join(rootDir, "Users"), 10);
   if (!fs.existsSync(machineSettingsPath)) {
     fs.copyFileSync(settingsPath, machineSettingsPath);
   }
