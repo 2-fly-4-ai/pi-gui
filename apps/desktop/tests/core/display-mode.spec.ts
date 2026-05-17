@@ -128,6 +128,7 @@ test("opens Display Mode from the sidebar and renders thread command-center tile
     await expect(displayVsCodePanel).toHaveCount(0);
     await expect(window.getByRole("heading", { name: "Command center" })).toBeVisible();
     await expect(window.locator(".display-mode-drawer")).toContainText("Preview");
+    await expect(window.locator(".display-mode-preview iframe")).toHaveCount(0);
     await expect(window.getByTestId("display-mode-thread-tile").first()).toContainText(basename(workspacePath));
     await expect(window.getByTestId("display-mode-thread-tile").first()).toContainText("Display mode seed thread");
     const firstTile = window.getByTestId("display-mode-thread-tile").first();

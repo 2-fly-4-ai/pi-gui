@@ -71,7 +71,7 @@ export function DisplayModeView({
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [localTerminalKeys, setLocalTerminalKeys] = useState<ReadonlySet<string>>(() => new Set());
   const [drawerTab, setDrawerTab] = useState<DrawerTab>("preview");
-  const [previewUrl, setPreviewUrl] = useState("http://localhost:5173");
+  const [previewUrl, setPreviewUrl] = useState("");
   const [previewDevice, setPreviewDevice] = useState<"desktop" | "mobile">("desktop");
   const [pinnedThreadKey, setPinnedThreadKey] = useState<string>("");
   const [tileOrder, setTileOrder] = useState<readonly string[]>([]);
@@ -215,16 +215,30 @@ export function DisplayModeView({
   }, [expandedId, focusRecord]);
 
   const detectedUrls = useMemo(() => {
+    const appOrigin = typeof window === "undefined" ? "" : window.location.origin;
     const seen = new Set<string>();
     for (const r of threads) {
       for (const msg of r.transcript) {
         if (msg.kind !== "message") continue;
         const matches = (msg as { text: string }).text.match(/https?:\/\/localhost:\d+/g);
-        if (matches) for (const u of matches) seen.add(u);
+        if (matches) {
+          for (const url of matches) {
+            if (url !== appOrigin) {
+              seen.add(url);
+            }
+          }
+        }
       }
     }
     return [...seen];
   }, [threads]);
+
+  useEffect(() => {
+    const appOrigin = typeof window === "undefined" ? "" : window.location.origin;
+    if (previewUrl === appOrigin) {
+      setPreviewUrl("");
+    }
+  }, [previewUrl]);
 
   const toggleTerminal = (key: string) => {
     setLocalTerminalKeys((c) => {
