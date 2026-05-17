@@ -54,7 +54,7 @@ import { normalizeRuntimeCommandName, skillCommandName } from "./runtime-command
 import {
   buildSnapshot,
   createWorkspaceRef,
-  deriveSessionConfig,
+  deriveLiveSessionConfig,
   deriveWorkspaceTitle,
   mergeSessionConfigWithToolAccess,
   determineRunOutcome,
@@ -325,6 +325,7 @@ export class SessionSupervisor {
     record.config = mergeSessionConfigWithToolAccess(
       options?.initialToolAccess ? { toolAccess: options.initialToolAccess } : undefined,
       session.sessionManager.buildSessionContext(),
+      session.model,
     );
     const sessionFile = record.sessionFile ?? session.sessionManager.getSessionFile();
     if (sessionFile) {
@@ -379,7 +380,7 @@ export class SessionSupervisor {
     record.runningRunId = runId ?? record.runningRunId;
     record.status = isQueuedMessage || isExtensionCommand ? record.status : "running";
     record.updatedAt = nowIso();
-    record.config = mergeSessionConfigWithToolAccess(record.config, session.sessionManager.buildSessionContext());
+    record.config = mergeSessionConfigWithToolAccess(record.config, session.sessionManager.buildSessionContext(), session.model);
     record.preview = truncate(input.text);
     if (isQueuedMessage) {
       record.queuedMessages = [
@@ -497,7 +498,7 @@ export class SessionSupervisor {
     this.applySessionThinkingLevel(session, previousThinkingLevel);
     await this.emitModelSelection(session, model, previousModel);
     forcePersistSession(session.sessionManager);
-    record.config = mergeSessionConfigWithToolAccess(record.config, session.sessionManager.buildSessionContext());
+    record.config = mergeSessionConfigWithToolAccess(record.config, session.sessionManager.buildSessionContext(), session.model);
     await this.persistSnapshot(record);
     await this.emit(record, sessionUpdatedEvent(record));
   }
@@ -507,7 +508,7 @@ export class SessionSupervisor {
     const session = this.requireSession(record);
     this.applySessionThinkingLevel(session, thinkingLevel);
     forcePersistSession(session.sessionManager);
-    record.config = mergeSessionConfigWithToolAccess(record.config, session.sessionManager.buildSessionContext());
+    record.config = mergeSessionConfigWithToolAccess(record.config, session.sessionManager.buildSessionContext(), session.model);
     await this.persistSnapshot(record);
     await this.emit(record, sessionUpdatedEvent(record));
   }
@@ -523,6 +524,7 @@ export class SessionSupervisor {
     record.config = mergeSessionConfigWithToolAccess(
       { ...record.config, toolAccess },
       session.sessionManager.buildSessionContext(),
+      session.model,
     );
     await this.persistSnapshot(record);
     await this.emit(record, sessionUpdatedEvent(record));
@@ -552,7 +554,7 @@ export class SessionSupervisor {
     await record.session.compact(customInstructions);
     record.runningRunId = undefined;
     record.status = "idle";
-    record.config = mergeSessionConfigWithToolAccess(record.config, record.session.sessionManager.buildSessionContext());
+    record.config = mergeSessionConfigWithToolAccess(record.config, record.session.sessionManager.buildSessionContext(), record.session.model);
     record.preview = extractPreview(record.session.messages) ?? record.preview;
     await this.persistSnapshot(record);
     await this.emit(record, sessionUpdatedEvent(record));
@@ -690,7 +692,7 @@ export class SessionSupervisor {
     record.updatedAt = sessionEntry.updatedAt;
     record.archivedAt = sessionEntry.archivedAt;
     record.preview = sessionEntry.previewSnippet ?? undefined;
-    record.config = deriveSessionConfig(session.sessionManager);
+    record.config = deriveLiveSessionConfig(session);
     record.closed = false;
 
     this.records.set(key, record);
@@ -716,7 +718,7 @@ export class SessionSupervisor {
       updatedAt: nowIso(),
       archivedAt: undefined,
       preview: undefined,
-      config: deriveSessionConfig(session.sessionManager),
+      config: deriveLiveSessionConfig(session),
       runningRunId: undefined,
       queuedMessages: [],
       closed: false,
@@ -1273,7 +1275,7 @@ export class SessionSupervisor {
     record.title = session.sessionName?.trim() || record.title || deriveWorkspaceTitle(record.workspace);
     record.status = session.isStreaming ? "running" : "idle";
     record.runningRunId = session.isStreaming ? record.runningRunId ?? crypto.randomUUID() : undefined;
-    record.config = mergeSessionConfigWithToolAccess(record.config, session.sessionManager.buildSessionContext());
+    record.config = mergeSessionConfigWithToolAccess(record.config, session.sessionManager.buildSessionContext(), session.model);
     record.preview =
       session.messages.length > 0 ? extractPreview(session.messages[session.messages.length - 1]) : undefined;
     record.sessionCommands = this.collectSessionCommands(session);

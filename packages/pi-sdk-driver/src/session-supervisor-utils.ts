@@ -63,15 +63,29 @@ export function deriveSessionConfig(sessionManager: {
   return mergeSessionConfigWithToolAccess(undefined, sessionManager.buildSessionContext());
 }
 
+export function deriveLiveSessionConfig(session: {
+  readonly model: { readonly provider: string; readonly id: string } | undefined;
+  readonly sessionManager: {
+    buildSessionContext(): {
+      thinkingLevel: string;
+      model: { provider: string; modelId: string } | null;
+    };
+  };
+}): SessionConfig | undefined {
+  return mergeSessionConfigWithToolAccess(undefined, session.sessionManager.buildSessionContext(), session.model);
+}
+
 export function mergeSessionConfigWithToolAccess(
   existing: SessionConfig | undefined,
   context: {
     thinkingLevel: string;
     model: { provider: string; modelId: string } | null;
   },
+  liveModel?: { readonly provider: string; readonly id: string } | undefined,
 ): SessionConfig | undefined {
+  const model = context.model ?? (liveModel ? { provider: liveModel.provider, modelId: liveModel.id } : null);
   const config: SessionConfig = {
-    ...(context.model ? { provider: context.model.provider, modelId: context.model.modelId } : {}),
+    ...(model ? { provider: model.provider, modelId: model.modelId } : {}),
     ...(context.thinkingLevel && context.thinkingLevel !== "off" ? { thinkingLevel: context.thinkingLevel } : {}),
     ...(existing?.toolAccess ? { toolAccess: existing.toolAccess } : {}),
   };
