@@ -237,19 +237,31 @@ function findMostRecentLegacySettings(rootDir: string): string | null {
   return latestPath;
 }
 
-function ensureVSCodeDefaultSettings(settingsPath: string): void {
-  let settings: Record<string, unknown> = {};
-  if (fs.existsSync(settingsPath)) {
-    try {
-      settings = JSON.parse(fs.readFileSync(settingsPath, "utf8")) as Record<string, unknown>;
-    } catch {
-      settings = {};
-    }
+const defaultVSCodeTheme = "Default Dark Modern";
+
+function readVSCodeSettings(settingsPath: string): Record<string, unknown> {
+  if (!fs.existsSync(settingsPath)) {
+    return {};
   }
+
+  try {
+    return JSON.parse(fs.readFileSync(settingsPath, "utf8")) as Record<string, unknown>;
+  } catch {
+    return {};
+  }
+}
+
+function hasExplicitVSCodeTheme(settings: Record<string, unknown>): boolean {
+  const theme = settings["workbench.colorTheme"];
+  return typeof theme === "string" && theme.trim().length > 0;
+}
+
+function ensureVSCodeDefaultSettings(settingsPath: string): void {
+  const settings = readVSCodeSettings(settingsPath);
 
   const defaults: Record<string, unknown> = {
     "telemetry.telemetryLevel": "off",
-    "workbench.colorTheme": "Default Dark Modern",
+    "workbench.colorTheme": defaultVSCodeTheme,
     "workbench.startupEditor": "none",
     "workbench.welcomePage.walkthroughs.openOnInstall": false,
     "security.workspace.trust.enabled": false,
@@ -261,6 +273,14 @@ function ensureVSCodeDefaultSettings(settingsPath: string): void {
 
   let changed = false;
   for (const [key, value] of Object.entries(defaults)) {
+    if (key === "workbench.colorTheme") {
+      if (!hasExplicitVSCodeTheme(settings)) {
+        settings[key] = value;
+        changed = true;
+      }
+      continue;
+    }
+
     if (!(key in settings)) {
       settings[key] = value;
       changed = true;
@@ -268,8 +288,30 @@ function ensureVSCodeDefaultSettings(settingsPath: string): void {
   }
 
   if (changed || !fs.existsSync(settingsPath)) {
+    fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
     fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
   }
+}
+
+function ensureVSCodeProfileDefaultSettings(userDir: string): void {
+  const profilesDir = path.join(userDir, "profiles");
+  if (!fs.existsSync(profilesDir)) {
+    return;
+  }
+
+  const visit = (dir: string, depth: number) => {
+    if (depth > 4) return;
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const entryPath = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        visit(entryPath, depth + 1);
+      } else if (entry.name === "settings.json") {
+        ensureVSCodeDefaultSettings(entryPath);
+      }
+    }
+  };
+
+  visit(profilesDir, 0);
 }
 
 function prepareVSCodeDataDirs(): VSCodeDataDirs {
@@ -292,6 +334,7 @@ function prepareVSCodeDataDirs(): VSCodeDataDirs {
   }
 
   ensureVSCodeDefaultSettings(settingsPath);
+  ensureVSCodeProfileDefaultSettings(userDir);
   if (!fs.existsSync(machineSettingsPath)) {
     fs.copyFileSync(settingsPath, machineSettingsPath);
   }
