@@ -354,39 +354,25 @@ async function seedVSCodeBrowserSettings(port: number): Promise<void> {
   }
 
   const seed = (async () => {
-    const win = new BrowserWindow({
-      show: false,
-      width: 400,
-      height: 300,
-      webPreferences: {
-        sandbox: true,
-        contextIsolation: true,
-        nodeIntegration: false,
-      },
-    });
+    for (const host of ["localhost", "127.0.0.1"]) {
+      const win = new BrowserWindow({
+        show: false,
+        width: 400,
+        height: 300,
+        webPreferences: {
+          sandbox: true,
+          contextIsolation: true,
+          nodeIntegration: false,
+        },
+      });
 
-    try {
-      await win.loadURL(`http://127.0.0.1:${port}/?ew=true`);
-      await win.webContents.executeJavaScript(`
-        (async () => {
-          const settings = ${JSON.stringify(JSON.stringify(getVSCodeBrowserSettings(), null, 2))};
-          const db = await new Promise((resolve, reject) => {
-            const request = indexedDB.open("vscode-web-db");
-            request.onupgradeneeded = () => {
-              const database = request.result;
-              if (!database.objectStoreNames.contains("vscode-userdata-store")) {
-                database.createObjectStore("vscode-userdata-store");
-              }
-            };
-            request.onerror = () => reject(request.error);
-            request.onsuccess = () => resolve(request.result);
-          });
-
-          if (!db.objectStoreNames.contains("vscode-userdata-store")) {
-            const nextVersion = db.version + 1;
-            db.close();
-            await new Promise((resolve, reject) => {
-              const request = indexedDB.open("vscode-web-db", nextVersion);
+      try {
+        await win.loadURL(`http://${host}:${port}/?ew=true`);
+        await win.webContents.executeJavaScript(`
+          (async () => {
+            const settings = ${JSON.stringify(JSON.stringify(getVSCodeBrowserSettings(), null, 2))};
+            const db = await new Promise((resolve, reject) => {
+              const request = indexedDB.open("vscode-web-db");
               request.onupgradeneeded = () => {
                 const database = request.result;
                 if (!database.objectStoreNames.contains("vscode-userdata-store")) {
@@ -394,29 +380,45 @@ async function seedVSCodeBrowserSettings(port: number): Promise<void> {
                 }
               };
               request.onerror = () => reject(request.error);
-              request.onsuccess = () => { request.result.close(); resolve(undefined); };
+              request.onsuccess = () => resolve(request.result);
             });
-          } else {
-            db.close();
-          }
 
-          const writeDb = await new Promise((resolve, reject) => {
-            const request = indexedDB.open("vscode-web-db");
-            request.onerror = () => reject(request.error);
-            request.onsuccess = () => resolve(request.result);
-          });
-          await new Promise((resolve, reject) => {
-            const tx = writeDb.transaction("vscode-userdata-store", "readwrite");
-            tx.objectStore("vscode-userdata-store").put(settings, "/User/settings.json");
-            tx.onerror = () => reject(tx.error);
-            tx.oncomplete = () => resolve(undefined);
-          });
-          writeDb.close();
-        })();
-      `, true);
-    } finally {
-      if (!win.isDestroyed()) {
-        win.close();
+            if (!db.objectStoreNames.contains("vscode-userdata-store")) {
+              const nextVersion = db.version + 1;
+              db.close();
+              await new Promise((resolve, reject) => {
+                const request = indexedDB.open("vscode-web-db", nextVersion);
+                request.onupgradeneeded = () => {
+                  const database = request.result;
+                  if (!database.objectStoreNames.contains("vscode-userdata-store")) {
+                    database.createObjectStore("vscode-userdata-store");
+                  }
+                };
+                request.onerror = () => reject(request.error);
+                request.onsuccess = () => { request.result.close(); resolve(undefined); };
+              });
+            } else {
+              db.close();
+            }
+
+            const writeDb = await new Promise((resolve, reject) => {
+              const request = indexedDB.open("vscode-web-db");
+              request.onerror = () => reject(request.error);
+              request.onsuccess = () => resolve(request.result);
+            });
+            await new Promise((resolve, reject) => {
+              const tx = writeDb.transaction("vscode-userdata-store", "readwrite");
+              tx.objectStore("vscode-userdata-store").put(settings, "/User/settings.json");
+              tx.onerror = () => reject(tx.error);
+              tx.oncomplete = () => resolve(undefined);
+            });
+            writeDb.close();
+          })();
+        `, true);
+      } finally {
+        if (!win.isDestroyed()) {
+          win.close();
+        }
       }
     }
   })();
