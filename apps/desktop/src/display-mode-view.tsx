@@ -237,6 +237,13 @@ export function DisplayModeView({
   const runningCount = threads.filter((r) => r.session.status === "running").length;
   const errorCount = threads.filter((r) => r.session.status === "failed").length;
   const pinnedThread = threads.find((r) => threadKey(r.workspace.id, r.session.id) === pinnedThreadKey);
+  const pinThread = useCallback((record: DisplayModeThreadRecord, key: string) => {
+    setPinnedThreadKey(key);
+    setPinnedThreadFiles([]);
+    if (vsCodeOpen) {
+      onOpenVsCodeForWorkspace(record.workspace.id, record.workspace.path);
+    }
+  }, [onOpenVsCodeForWorkspace, vsCodeOpen]);
 
   const focusRecord = expandedId
     ? (orderedThreads.find((r) => threadKey(r.workspace.id, r.session.id) === expandedId) ?? null)
@@ -246,13 +253,13 @@ export function DisplayModeView({
     ? orderedThreads.filter((r) => threadKey(r.workspace.id, r.session.id) !== expandedId)
     : orderedThreads;
 
-  // Auto-select first workspace when VS Code panel opens without one already chosen
+  // Auto-select the pinned thread's workspace when VS Code opens without one already chosen.
   useEffect(() => {
     if (vsCodeOpen && !vsCodeWorkspaceId && !loading && orderedThreads.length > 0) {
-      const first = orderedThreads[0];
-      if (first) onOpenVsCodeForWorkspace(first.workspace.id, first.workspace.path);
+      const target = pinnedThread ?? orderedThreads[0];
+      if (target) onOpenVsCodeForWorkspace(target.workspace.id, target.workspace.path);
     }
-  }, [vsCodeOpen, vsCodeWorkspaceId, loading, orderedThreads, onOpenVsCodeForWorkspace]);
+  }, [vsCodeOpen, vsCodeWorkspaceId, loading, orderedThreads, pinnedThread, onOpenVsCodeForWorkspace]);
 
   // Collapse when expanded thread is filtered out
   useEffect(() => {
@@ -431,7 +438,7 @@ export function DisplayModeView({
                 onFilesUpdate={focusKey === pinnedThreadKey ? setPinnedThreadFiles : undefined}
                 onOpenThread={() => void api.selectSession({ workspaceId: focusRecord.workspace.id, sessionId: focusRecord.session.id })}
                 onOpenVSCode={() => onOpenVsCodeForWorkspace(focusRecord.workspace.id, focusRecord.workspace.path)}
-                onPinPreview={() => setPinnedThreadKey(focusKey)}
+                onPinPreview={() => pinThread(focusRecord, focusKey)}
                 onToggleTerminal={() => toggleTerminal(focusKey)}
                 onToggleExpand={() => setExpandedId(null)}
               />
@@ -461,7 +468,7 @@ export function DisplayModeView({
                         onFilesUpdate={key === pinnedThreadKey ? setPinnedThreadFiles : undefined}
                         onOpenThread={() => void api.selectSession({ workspaceId: record.workspace.id, sessionId: record.session.id })}
                         onOpenVSCode={() => onOpenVsCodeForWorkspace(record.workspace.id, record.workspace.path)}
-                        onPinPreview={() => setPinnedThreadKey(key)}
+                        onPinPreview={() => pinThread(record, key)}
                         onToggleTerminal={() => toggleTerminal(key)}
                         onToggleExpand={() => setExpandedId(key)}
                       />
@@ -501,7 +508,7 @@ export function DisplayModeView({
                       onFilesUpdate={key === pinnedThreadKey ? setPinnedThreadFiles : undefined}
                       onOpenThread={() => void api.selectSession({ workspaceId: record.workspace.id, sessionId: record.session.id })}
                       onOpenVSCode={() => onOpenVsCodeForWorkspace(record.workspace.id, record.workspace.path)}
-                      onPinPreview={() => setPinnedThreadKey(key)}
+                      onPinPreview={() => pinThread(record, key)}
                       onToggleTerminal={() => toggleTerminal(key)}
                       onToggleExpand={() => setExpandedId((c) => c === key ? null : key)}
                     />
@@ -839,7 +846,7 @@ function DisplayModeTile({
   return (
     <article
       ref={setNodeRef}
-      className={`display-mode-tile display-mode-tile--${tone}${isDragging ? " display-mode-tile--dragging" : ""}${isExpanded ? " display-mode-tile--expanded" : ""}${compact ? " display-mode-tile--compact" : ""}${terminalOpen ? " display-mode-tile--terminal-open" : ""}`}
+      className={`display-mode-tile display-mode-tile--${tone}${isPinned ? " display-mode-tile--pinned" : ""}${isDragging ? " display-mode-tile--dragging" : ""}${isExpanded ? " display-mode-tile--expanded" : ""}${compact ? " display-mode-tile--compact" : ""}${terminalOpen ? " display-mode-tile--terminal-open" : ""}`}
       style={{
         transform: CSS.Transform.toString(transform),
         transition,
@@ -913,7 +920,7 @@ function DisplayModeTile({
           )}
           <button className={`button${terminalOpen ? " display-mode-tile__action-active" : ""}`} type="button" onClick={onToggleTerminal}><TerminalIcon /> Terminal</button>
           <button className="button" type="button" onClick={onOpenVSCode}>VS Code</button>
-          <button className={`button${isPinned ? " display-mode-tile__action-active" : ""}`} type="button" onClick={onPinPreview}><MaximizeIcon /> Pin</button>
+          <button className={`button${isPinned ? " display-mode-tile__action-active" : ""}`} type="button" aria-pressed={isPinned} onClick={onPinPreview}><MaximizeIcon /> Pin</button>
         </div>
       )}
 

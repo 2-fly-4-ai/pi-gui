@@ -180,6 +180,11 @@ test("opens Display Mode from the sidebar and renders thread command-center tile
     const displayVsCodePanel = window.getByTestId("display-mode-vscode-panel");
     await expect(displayVsCodePanel).toHaveAttribute("data-vscode-folder-path", workspacePath);
     await expect(displayVsCodePanel.locator(".display-mode-vscode__webview")).toHaveAttribute("title", "VS Code");
+
+    const secondWorkspaceTile = window.getByTestId("display-mode-thread-tile").filter({ hasText: "Second workspace seed thread" });
+    await secondWorkspaceTile.getByRole("button", { name: "Pin" }).click();
+    await expect(window.locator(".display-mode-drawer__meta").first()).toContainText("Second workspace seed thread");
+    await expect(displayVsCodePanel).toHaveAttribute("data-vscode-folder-path", secondWorkspacePath);
     await expect.poll(async () => window.evaluate(() => {
       const surface = document.querySelector<HTMLElement>(".display-mode");
       const panel = document.querySelector<HTMLElement>(".display-mode-vscode");
