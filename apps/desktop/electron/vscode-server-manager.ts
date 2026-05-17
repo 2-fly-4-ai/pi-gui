@@ -328,11 +328,38 @@ function ensureVSCodeSettingsUnder(rootDir: string, maxDepth: number): void {
   visit(rootDir, 0);
 }
 
-function prepareVSCodeDataDirs(): VSCodeDataDirs {
+function getWorkspaceDataDir(rootDir: string, folderPath: string): string {
+  const resolved = path.resolve(folderPath);
+  const parsed = path.parse(resolved);
+  const relative = resolved.slice(parsed.root.length);
+  return path.join(rootDir, "Users", ...relative.split(path.sep).filter(Boolean));
+}
+
+function prepareVSCodeDataDirs(folderPath: string): VSCodeDataDirs {
   const baseDir = process.env["PI_APP_USER_DATA_DIR"] ?? path.join(os.homedir(), "Library", "Application Support", "pi");
   const rootDir = path.join(baseDir, "vscode-serve-web");
-  const serverDataDir = path.join(rootDir, "server");
-  const userDataDir = path.join(rootDir, "user-data");
+
+  // Keep global defaults for migration/tests, but do not run every embedded VS Code
+  // server against this shared profile. Multiple serve-web processes sharing one
+  // user-data-dir race over VS Code's profile/storage DBs and can reset the web
+  // workbench back to a light theme when switching pinned threads/workspaces.
+  const sharedUserDataDir = path.join(rootDir, "user-data");
+  const sharedUserDir = path.join(sharedUserDataDir, "User");
+  const sharedMachineDir = path.join(sharedUserDataDir, "Machine");
+  const sharedSettingsPath = path.join(sharedUserDir, "settings.json");
+  const sharedMachineSettingsPath = path.join(sharedMachineDir, "settings.json");
+  fs.mkdirSync(sharedUserDir, { recursive: true });
+  fs.mkdirSync(sharedMachineDir, { recursive: true });
+  ensureVSCodeDefaultSettings(sharedSettingsPath);
+  ensureVSCodeSettingsUnder(path.join(rootDir, "Users"), 10);
+  if (!fs.existsSync(sharedMachineSettingsPath)) {
+    fs.copyFileSync(sharedSettingsPath, sharedMachineSettingsPath);
+  }
+  ensureVSCodeDefaultSettings(sharedMachineSettingsPath);
+
+  const workspaceDataDir = getWorkspaceDataDir(rootDir, folderPath);
+  const serverDataDir = path.join(workspaceDataDir, "server");
+  const userDataDir = path.join(workspaceDataDir, "user-data");
   const userDir = path.join(userDataDir, "User");
   const machineDir = path.join(userDataDir, "Machine");
   const settingsPath = path.join(userDir, "settings.json");
@@ -341,15 +368,20 @@ function prepareVSCodeDataDirs(): VSCodeDataDirs {
   fs.mkdirSync(machineDir, { recursive: true });
 
   if (!fs.existsSync(settingsPath)) {
-    const legacySettingsPath = findMostRecentLegacySettings(rootDir);
-    if (legacySettingsPath && legacySettingsPath !== settingsPath) {
-      fs.copyFileSync(legacySettingsPath, settingsPath);
+    const legacyWorkspaceSettingsPath = path.join(workspaceDataDir, "User", "settings.json");
+    if (fs.existsSync(legacyWorkspaceSettingsPath)) {
+      fs.copyFileSync(legacyWorkspaceSettingsPath, settingsPath);
+    } else {
+      const legacySettingsPath = findMostRecentLegacySettings(rootDir);
+      if (legacySettingsPath && legacySettingsPath !== settingsPath) {
+        fs.copyFileSync(legacySettingsPath, settingsPath);
+      }
     }
   }
 
   ensureVSCodeDefaultSettings(settingsPath);
   ensureVSCodeSettingsUnder(path.join(userDir, "profiles"), 4);
-  ensureVSCodeSettingsUnder(path.join(rootDir, "Users"), 10);
+  ensureVSCodeSettingsUnder(path.join(workspaceDataDir, "User"), 4);
   if (!fs.existsSync(machineSettingsPath)) {
     fs.copyFileSync(settingsPath, machineSettingsPath);
   }
@@ -400,7 +432,7 @@ async function startVSCodeServer(serverKey: string, workspaceId: string, folderP
   }
 
   const port = await getVSCodePort();
-  const { serverDataDir, userDataDir } = prepareVSCodeDataDirs();
+  const { serverDataDir, userDataDir } = prepareVSCodeDataDirs(folderPath);
 
   // Launch the downloaded code-server directly. The code-tunnel serve-web
   // wrapper serves the workbench HTML but drops the remote-agent websocket
