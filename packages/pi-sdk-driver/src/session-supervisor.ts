@@ -73,6 +73,7 @@ import {
 } from "./session-supervisor-utils.js";
 import type { SessionTranscriptEntry } from "./transcript.js";
 import { createAgentSessionRuntimeWithNpmFallback } from "./npm-package-fallback.js";
+import { createPtyBashToolDefinition } from "./pty-bash-tool.js";
 
 export interface PiSdkDriverOptions {
   readonly catalogFilePath?: string;
@@ -302,6 +303,7 @@ export class SessionSupervisor {
     const createOptions: CreateAgentSessionOptions = {
       cwd: workspace.path,
       sessionManager: SessionManager.create(workspace.path),
+      customTools: [createPtyBashToolDefinition(workspace.path)],
       ...(this.modelRegistry ? { modelRegistry: this.modelRegistry } : {}),
     };
     if (initialModel) {
