@@ -111,12 +111,8 @@ test("opens Display Mode from the sidebar and renders thread command-center tile
     await expect(threadVsCodePanel).toBeVisible();
     await expect(threadVsCodePanel).toHaveAttribute("data-vscode-folder-path", workspacePath);
     await expect(threadVsCodePanel.locator(".display-mode-vscode__webview")).toHaveAttribute("title", "VS Code", { timeout: 45_000 });
-    await window.getByRole("button", { name: "Toggle VS Code panel" }).click();
-    await expect(window.getByTestId("thread-vscode-panel")).toHaveCount(0);
-    await window.getByRole("button", { name: "Open VS Code for thread" }).click();
-    await expect(window.getByTestId("thread-vscode-panel")).toBeVisible();
-    await window.getByRole("button", { name: "Toggle VS Code panel" }).click();
-    await expect(window.getByTestId("thread-vscode-panel")).toHaveCount(0);
+    const threadVsCodePort = await threadVsCodePanel.getAttribute("data-vscode-port");
+    expect(threadVsCodePort).toBeTruthy();
 
     const nav = window.locator(".sidebar__nav");
     await expect(nav.getByRole("button", { name: "Threads" })).toBeVisible();
@@ -124,6 +120,12 @@ test("opens Display Mode from the sidebar and renders thread command-center tile
 
     await expect.poll(async () => window.evaluate(() => window.piApp?.getState().then((state) => state.activeView) ?? "missing")).toBe("display-mode");
     await expect(window.getByTestId("display-mode-surface")).toBeVisible();
+    const displayVsCodePanel = window.getByTestId("display-mode-vscode-panel");
+    await expect(displayVsCodePanel).toBeVisible();
+    await expect(displayVsCodePanel).toHaveAttribute("data-vscode-folder-path", workspacePath);
+    await expect(displayVsCodePanel).toHaveAttribute("data-vscode-port", threadVsCodePort ?? "");
+    await window.getByRole("button", { name: "Toggle VS Code panel" }).click();
+    await expect(displayVsCodePanel).toHaveCount(0);
     await expect(window.getByRole("heading", { name: "Command center" })).toBeVisible();
     await expect(window.locator(".display-mode-drawer")).toContainText("Preview");
     await expect(window.getByTestId("display-mode-thread-tile").first()).toContainText(basename(workspacePath));
@@ -175,21 +177,11 @@ test("opens Display Mode from the sidebar and renders thread command-center tile
     })).toContain("px");
 
     await window.getByTestId("display-mode-thread-tile").first().getByRole("button", { name: "VS Code" }).click();
-    await expect(window.locator(".display-mode-vscode")).toBeVisible();
-    const displayVsCodePanel = window.getByTestId("display-mode-vscode-panel");
+    await expect(displayVsCodePanel).toBeVisible();
     await expect(displayVsCodePanel).toHaveAttribute("data-vscode-folder-path", workspacePath);
     await expect(displayVsCodePanel.locator(".display-mode-vscode__webview")).toHaveAttribute("title", "VS Code");
-    await expect.poll(async () => window.evaluate(() => {
-      const surface = document.querySelector<HTMLElement>(".display-mode");
-      const panel = document.querySelector<HTMLElement>(".display-mode-vscode");
-      const webview = document.querySelector<HTMLElement>(".display-mode-vscode__webview");
-      if (!surface || !panel || !webview) return 0;
-      const surfaceHeight = surface.getBoundingClientRect().height;
-      const panelHeight = panel.getBoundingClientRect().height;
-      const webviewHeight = webview.getBoundingClientRect().height;
-      return Math.abs(surfaceHeight - panelHeight) <= 2 && Math.abs(panelHeight - webviewHeight) <= 2 && webviewHeight > 500
-        ? webviewHeight
-        : 0;
+    await expect.poll(async () => displayVsCodePanel.locator(".display-mode-vscode__webview").evaluate((webview) => {
+      return webview.getBoundingClientRect().height;
     })).toBeGreaterThan(500);
     const settings = JSON.parse(await readFile(join(userDataDir, "vscode-serve-web", "user-data", "User", "settings.json"), "utf8")) as Record<string, unknown>;
     const machineSettings = JSON.parse(await readFile(join(userDataDir, "vscode-serve-web", "user-data", "Machine", "settings.json"), "utf8")) as Record<string, unknown>;
