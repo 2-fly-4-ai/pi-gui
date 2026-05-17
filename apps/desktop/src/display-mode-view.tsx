@@ -23,7 +23,6 @@ import type { DesktopAppState, DisplayModeThreadRecord, ExtensionCommandCompatib
 import { TimelineItem } from "./timeline-item";
 import { TerminalPanel } from "./terminal-panel";
 import { ComposerSurface } from "./composer-surface";
-import { VSCodePanel } from "./vscode-panel";
 import { useSlashMenu } from "./hooks/use-slash-menu";
 import { ArrowUpIcon, MaximizeIcon, MinimizeIcon, SidebarToggleIcon, StopSquareIcon, TerminalIcon } from "./icons";
 import type { PiDesktopApi } from "./ipc";
@@ -46,7 +45,7 @@ interface ChangedFile {
 export function DisplayModeView({
   api, drawerOpen, onToggleDrawer,
   vsCodeOpen, vsCodeWorkspaceId, vsCodeFolderPath, onToggleVsCode, onOpenVsCodeForWorkspace,
-  initialPinnedThreadKey,
+  initialPinnedThreadKey, vscodeSlotRef,
   runtimeByWorkspace, sessionCommandsBySession, commandCompatibilityByWorkspace,
   setSnapshot, openSettings, updateSnapshot,
 }: {
@@ -59,6 +58,7 @@ export function DisplayModeView({
   readonly onToggleVsCode: () => void;
   readonly onOpenVsCodeForWorkspace: (workspaceId: string, folderPath: string) => void;
   readonly initialPinnedThreadKey: string;
+  readonly vscodeSlotRef: (node: HTMLElement | null) => void;
   readonly runtimeByWorkspace: Readonly<Record<string, RuntimeSnapshot>>;
   readonly sessionCommandsBySession: Readonly<Record<string, readonly RuntimeCommandRecord[]>>;
   readonly commandCompatibilityByWorkspace: Readonly<Record<string, readonly ExtensionCommandCompatibilityRecord[]>>;
@@ -668,19 +668,11 @@ export function DisplayModeView({
         title="Drag to resize VS Code panel"
         style={{ pointerEvents: vsCodeOpen ? undefined : "none" }}
       />
-      <aside className={`display-mode-vscode${vsCodeOpen ? "" : " display-mode-vscode--hidden"}`}>
-        {vsCodeOpen && vsCodeWorkspaceId && vsCodeFolderPath ? (
-          <VSCodePanel
-            api={api}
-            workspaceId={vsCodeWorkspaceId}
-            folderPath={vsCodeFolderPath}
-            className="display-mode-vscode__panel"
-            testId="display-mode-vscode-panel"
-          />
-        ) : (
-          <div className="display-mode-vscode__loading">Open a workspace to start VS Code.</div>
-        )}
-      </aside>
+      <aside
+        ref={vsCodeOpen ? vscodeSlotRef : null}
+        className={`display-mode-vscode${vsCodeOpen ? "" : " display-mode-vscode--hidden"}`}
+        aria-hidden="true"
+      />
     </section>
   );
 }

@@ -1,4 +1,4 @@
-import { useLayoutEffect, useState } from "react";
+import { useLayoutEffect, useState, type CSSProperties } from "react";
 import type { PiDesktopApi } from "./ipc";
 
 interface VSCodePanelProps {
@@ -8,6 +8,7 @@ interface VSCodePanelProps {
   readonly className?: string;
   readonly testId?: string;
   readonly title?: string;
+  readonly style?: CSSProperties;
   readonly onHardClose?: () => void;
 }
 
@@ -24,6 +25,7 @@ export function VSCodePanel({
   className = "thread-vscode-panel",
   testId = "thread-vscode-panel",
   title = "VS Code",
+  style,
   onHardClose,
 }: VSCodePanelProps) {
   const [resolvedServer, setResolvedServer] = useState<ResolvedVSCodeServer | null>(null);
@@ -69,6 +71,7 @@ export function VSCodePanel({
       data-vscode-workspace-id={workspaceId}
       data-vscode-folder-path={folderPath}
       data-vscode-port={iframePort ?? undefined}
+      style={style}
     >
       {onHardClose ? (
         <div className="vscode-panel__header">

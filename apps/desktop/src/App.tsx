@@ -265,6 +265,8 @@ export default function App() {
   const [vsCodeOpen, setVsCodeOpen] = useState(false);
   const [vsCodeWorkspaceId, setVsCodeWorkspaceId] = useState<string | null>(null);
   const [vsCodeFolderPath, setVsCodeFolderPath] = useState<string | null>(null);
+  const [vsCodeSlotElement, setVsCodeSlotElement] = useState<HTMLElement | null>(null);
+  const [vsCodePanelStyle, setVsCodePanelStyle] = useState<React.CSSProperties>({ visibility: "hidden" });
   const [threadVsCodeWidth, setThreadVsCodeWidth] = useState(() => getInitialThreadVsCodeWidth());
   const threadVsCodeWidthRef = useRef(threadVsCodeWidth);
   const setThreadVsCodeCssWidth = useCallback((width: number) => {
@@ -357,6 +359,44 @@ export default function App() {
     setThreadVsCodeCssWidth(threadVsCodeWidth);
     try { localStorage.setItem(VSCODE_SIDE_PANEL_WIDTH_KEY, String(threadVsCodeWidth)); } catch {}
   }, [setThreadVsCodeCssWidth, threadVsCodeWidth]);
+
+  useLayoutEffect(() => {
+    if (!vsCodeOpen || !vsCodeSlotElement) {
+      setVsCodePanelStyle({ visibility: "hidden" });
+      return undefined;
+    }
+
+    let animationFrame = 0;
+    const updatePosition = () => {
+      const rect = vsCodeSlotElement.getBoundingClientRect();
+      setVsCodePanelStyle({
+        position: "fixed",
+        left: rect.left,
+        top: rect.top,
+        width: rect.width,
+        height: rect.height,
+        visibility: rect.width > 0 && rect.height > 0 ? "visible" : "hidden",
+      });
+    };
+    const scheduleUpdate = () => {
+      cancelAnimationFrame(animationFrame);
+      animationFrame = requestAnimationFrame(updatePosition);
+    };
+
+    updatePosition();
+    const observer = new ResizeObserver(scheduleUpdate);
+    observer.observe(vsCodeSlotElement);
+    window.addEventListener("resize", scheduleUpdate);
+    window.addEventListener("scroll", scheduleUpdate, true);
+    animationFrame = requestAnimationFrame(updatePosition);
+
+    return () => {
+      cancelAnimationFrame(animationFrame);
+      observer.disconnect();
+      window.removeEventListener("resize", scheduleUpdate);
+      window.removeEventListener("scroll", scheduleUpdate, true);
+    };
+  }, [dmDrawerOpen, snapshot?.activeView, snapshot?.sidebarCollapsed, threadVsCodeWidth, vsCodeOpen, vsCodeSlotElement]);
 
   useEffect(() => {
     const piApi = window.piApp;
@@ -1752,7 +1792,16 @@ export default function App() {
     : vsCodeWorkspaceId && vsCodeFolderPath
       ? { workspaceId: vsCodeWorkspaceId, folderPath: vsCodeFolderPath }
       : null;
-  const showThreadVsCodePanel = snapshot.activeView === "threads" && vsCodeOpen && threadVsCodeTarget !== null;
+  const displayVsCodeTarget = vsCodeWorkspaceId && vsCodeFolderPath
+    ? { workspaceId: vsCodeWorkspaceId, folderPath: vsCodeFolderPath }
+    : null;
+  const persistentVsCodeTarget = snapshot.activeView === "threads"
+    ? threadVsCodeTarget
+    : snapshot.activeView === "display-mode"
+      ? displayVsCodeTarget
+      : null;
+  const showPersistentVsCodePanel = vsCodeOpen && persistentVsCodeTarget !== null && (snapshot.activeView === "threads" || snapshot.activeView === "display-mode");
+  const showThreadVsCodePanel = snapshot.activeView === "threads" && showPersistentVsCodePanel && threadVsCodeTarget !== null;
   const showPlanPanel = planPanelOpen && planSurfaceAvailable;
   const mainClassName = [
     "main",
@@ -2856,6 +2905,7 @@ export default function App() {
             onToggleVsCode={toggleVsCode}
             onOpenVsCodeForWorkspace={openVsCodeForWorkspace}
             initialPinnedThreadKey={displayModeInitialPinnedThreadKey}
+            vscodeSlotRef={setVsCodeSlotElement}
             runtimeByWorkspace={snapshot.runtimeByWorkspace}
             sessionCommandsBySession={snapshot.sessionCommandsBySession}
             commandCompatibilityByWorkspace={snapshot.extensionCommandCompatibilityByWorkspace}
@@ -3150,14 +3200,24 @@ export default function App() {
               onKeyDown={handleThreadVsCodeResizeKeyDown}
               onPointerDown={startThreadVsCodeResize}
             />
-            <VSCodePanel
-              api={api}
-              workspaceId={threadVsCodeTarget.workspaceId}
-              folderPath={threadVsCodeTarget.folderPath}
-              onHardClose={hardCloseCurrentVsCode}
-              title="VS Code"
+            <div
+              ref={setVsCodeSlotElement}
+              className="thread-vscode-panel thread-vscode-panel--slot"
+              aria-hidden="true"
             />
           </>
+        ) : null}
+        {showPersistentVsCodePanel && persistentVsCodeTarget ? (
+          <VSCodePanel
+            api={api}
+            workspaceId={persistentVsCodeTarget.workspaceId}
+            folderPath={persistentVsCodeTarget.folderPath}
+            className="persistent-vscode-panel"
+            testId={snapshot.activeView === "display-mode" ? "display-mode-vscode-panel" : "thread-vscode-panel"}
+            style={vsCodePanelStyle}
+            onHardClose={snapshot.activeView === "threads" ? hardCloseCurrentVsCode : undefined}
+            title="VS Code"
+          />
         ) : null}
         {showDiffPanel && selectedWorkspace && selectedSession ? (
           <DiffPanel
