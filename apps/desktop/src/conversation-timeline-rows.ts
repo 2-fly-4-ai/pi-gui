@@ -58,6 +58,8 @@ function transcriptItemsEqual(left: TranscriptMessage, right: TranscriptMessage)
         left.label === tool.label &&
         left.detail === tool.detail &&
         left.metadata === tool.metadata &&
+        left.updatedAt === tool.updatedAt &&
+        left.outputText === tool.outputText &&
         shallowJsonEqual(left.input, tool.input) &&
         shallowJsonEqual(left.output, tool.output)
       );

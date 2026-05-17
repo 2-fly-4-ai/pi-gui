@@ -258,21 +258,27 @@ export function applyTimelineEvent(
       upsertToolRow(transcript, event.callId, event.toolName, "running", toolLabel(event.toolName, event.input), undefined, event.input);
       break;
     }
-    case "toolUpdated":
-      upsertToolRow(transcript, event.callId, undefined, "running", undefined, event.text ?? progressLabel(event.progress));
+    case "toolUpdated": {
+      const text = event.text ?? progressLabel(event.progress);
+      upsertToolRow(transcript, event.callId, undefined, "running", undefined, text, undefined, undefined, text, event.timestamp);
       break;
-    case "toolFinished":
+    }
+    case "toolFinished": {
+      const text = detailFromOutput(event.output);
       upsertToolRow(
         transcript,
         event.callId,
         undefined,
         event.success ? "success" : "error",
         undefined,
-        detailFromOutput(event.output),
+        text,
         undefined,
         event.output,
+        text,
+        event.timestamp,
       );
       break;
+    }
     case "runCompleted": {
       const metrics = currentMetrics;
       clearRunState(transcript, key, event.sessionRef, state);
@@ -327,6 +333,8 @@ function upsertToolRow(
   detail?: string,
   input?: unknown,
   output?: unknown,
+  outputText?: string,
+  updatedAt = new Date().toISOString(),
 ) {
   const index = transcript.findIndex((item) => item.kind === "tool" && item.callId === callId);
   const existing = index >= 0 ? transcript[index] : undefined;
@@ -341,6 +349,8 @@ function upsertToolRow(
       metadata: existingTool?.metadata,
       input: input ?? existingTool?.input,
       output: output ?? existingTool?.output,
+      outputText: outputText ?? existingTool?.outputText,
+      updatedAt,
     },
   );
 
