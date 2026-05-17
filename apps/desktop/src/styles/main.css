@@ -731,17 +731,33 @@
 
 .timeline-item--user {
   display: flex;
+  align-items: flex-start;
   justify-content: flex-end;
+  gap: 10px;
   min-width: 0;
 }
 
 .timeline-item__bubble {
-  width: min(620px, 100%);
+  width: min(620px, calc(100% - 42px));
   min-width: 0;
   padding: 13px 17px;
   border-radius: 16px;
   border: 1px solid #dfe4ee;
   background: #f5f6fa;
+}
+
+.timeline-item__user-icon {
+  width: 32px;
+  height: 32px;
+  flex: 0 0 auto;
+  margin-top: 2px;
+  object-fit: contain;
+  opacity: 0.58;
+}
+
+:root.dark .timeline-item__user-icon {
+  filter: invert(1);
+  opacity: 0.68;
 }
 
 .timeline-item__attachments {

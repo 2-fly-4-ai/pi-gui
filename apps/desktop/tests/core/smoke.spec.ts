@@ -45,6 +45,7 @@ test("boots an existing workspace and starts a new thread through the real UI", 
       }, { timeout: 15_000 })
       .toContain(promptText);
     await expect(window.getByTestId("transcript")).toContainText(promptText);
+    await expect(window.locator(".timeline-item--user .timeline-item__user-icon")).toBeVisible();
   } finally {
     await harness.close();
   }

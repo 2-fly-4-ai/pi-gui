@@ -5,6 +5,7 @@ import { MessageMarkdown } from "./message-markdown";
 import { InlineDiff, extractDiffFromOutput } from "./diff-inline";
 import { ChevronRightIcon, CopyIcon, DiffIcon, FileIcon } from "./icons";
 import { extensionToLanguage } from "./syntax-highlight";
+import userMessageIconUrl from "./assets/user-message-icon.png";
 
 export const TimelineItem = memo(function TimelineItem({
   item,
@@ -107,6 +108,7 @@ function TimelineMessage({ item }: { readonly item: SessionTranscriptMessage }) 
           ) : null}
           <MessageMarkdown text={item.text} />
         </div>
+        <img className="timeline-item__user-icon" src={userMessageIconUrl} alt="" aria-hidden="true" />
       </article>
     );
   }
