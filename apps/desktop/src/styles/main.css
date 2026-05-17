@@ -5289,10 +5289,10 @@ mark.thread-find-active {
 .display-mode-tile::before {
   content: "";
   position: absolute;
-  inset: -1px -1px auto;
+  inset: 0 0 auto;
   height: 8px;
   border-top: 3px solid var(--display-mode-tile-accent);
-  border-radius: 14px 14px 0 0;
+  border-radius: 13px 13px 0 0;
   pointer-events: none;
 }
 
@@ -5356,7 +5356,7 @@ mark.thread-find-active {
 /* Tile header */
 
 .display-mode-tile__accent + .display-mode-tile__head {
-  border-radius: 0;
+  border-radius: 13px 13px 0 0;
 }
 
 .display-mode-tile--compact .display-mode-tile__head {
