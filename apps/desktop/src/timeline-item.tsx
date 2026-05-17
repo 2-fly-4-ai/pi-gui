@@ -1,4 +1,4 @@
-import { memo, useState } from "react";
+import { memo, useEffect, useState } from "react";
 import type { SessionTranscriptMessage } from "@pi-gui/pi-sdk-driver";
 import type { TimelineActivity, TimelineToolCall, TimelineSummary, TranscriptMessage } from "./timeline-types";
 import { MessageMarkdown } from "./message-markdown";
@@ -204,6 +204,34 @@ function TimelineActivityItem({ item }: { readonly item: TimelineActivity }) {
   );
 }
 
+function useElapsedLabel(startedAt: string, active: boolean): string {
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    if (!active) {
+      return undefined;
+    }
+    const interval = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(interval);
+  }, [active]);
+
+  return formatElapsed(startedAt, now);
+}
+
+function formatElapsed(startedAt: string, now = Date.now()): string {
+  const started = Date.parse(startedAt);
+  if (!Number.isFinite(started)) {
+    return "0s";
+  }
+  const seconds = Math.max(0, Math.floor((now - started) / 1000));
+  if (seconds < 60) {
+    return `${seconds}s`;
+  }
+  const minutes = Math.floor(seconds / 60);
+  const remainder = seconds % 60;
+  return `${minutes}m ${remainder}s`;
+}
+
 function TimelineToolCallItem({
   item,
   expanded,
@@ -216,9 +244,11 @@ function TimelineToolCallItem({
   readonly onViewFileInDiff?: (path: string) => void;
 }) {
   const command = extractCommand(item.input);
-  const outputText = extractToolText(item.output) ?? item.detail;
+  const outputText = item.outputText ?? extractToolText(item.output) ?? item.detail;
   const hasVisibleOutput = Boolean(outputText?.trim());
   const hasDetails = item.input !== undefined || item.output !== undefined;
+  const running = item.status === "running";
+  const elapsed = useElapsedLabel(item.createdAt, running);
   const diffText = isWriteTool(item.toolName) ? extractDiffFromOutput(item.output) : undefined;
   const diffStats = diffText ? countDiffStats(diffText) : undefined;
   const compactLabel = buildCompactLabel(item);
@@ -254,7 +284,9 @@ function TimelineToolCallItem({
               <span className="timeline-tool__stat-del">-{diffStats.removed}</span>
             </span>
           ) : null}
-          <span className="timeline-tool__meta-inline">{`${item.toolName} \u00b7 ${statusLabel(item.status)}`}</span>
+          <span className="timeline-tool__meta-inline">
+            {running ? `${item.toolName} · running for ${elapsed}` : `${item.toolName} · ${statusLabel(item.status)}`}
+          </span>
         </button>
         {filePath && onViewFileInDiff ? (
           <button
@@ -295,7 +327,11 @@ function TimelineToolCallItem({
             <>
               <div className="timeline-tool__body-actions">
                 <span className="timeline-tool__body-title">
-                  {command ? "Command output" : item.status === "running" ? "Live output" : "Tool output"}
+                  {command
+                    ? `Command output · ${running ? `running for ${elapsed}` : statusLabel(item.status)}`
+                    : item.status === "running"
+                      ? "Live output"
+                      : "Tool output"}
                 </span>
                 <button className="icon-button timeline-tool__copy" type="button" onClick={handleCopy} aria-label="Copy">
                   <CopyIcon />
@@ -305,7 +341,10 @@ function TimelineToolCallItem({
               {hasVisibleOutput ? (
                 <pre className="timeline-tool__pre">{outputText}</pre>
               ) : item.status === "running" ? (
-                <div className="timeline-tool__waiting">Waiting for command output…</div>
+                <div className="timeline-tool__waiting">
+                  <strong>Still running.</strong>
+                  <span>No stdout/stderr emitted yet.</span>
+                </div>
               ) : (
                 <pre className="timeline-tool__pre">{formatToolContent(undefined, item.output)}</pre>
               )}

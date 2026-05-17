@@ -1085,9 +1085,20 @@
 }
 
 .timeline-tool__waiting {
+  display: grid;
+  gap: 3px;
   padding: 12px;
   color: var(--muted-soft);
   font-size: 13px;
+}
+
+.timeline-tool__waiting strong {
+  color: var(--muted-strong);
+  font-style: normal;
+  font-weight: 650;
+}
+
+.timeline-tool__waiting span {
   font-style: italic;
 }
 

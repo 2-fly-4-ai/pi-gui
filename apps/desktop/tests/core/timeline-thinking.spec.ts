@@ -103,7 +103,9 @@ test("shows running command output without foregrounding raw JSON", async () => 
     await expect(transcript.locator(".timeline-tool__spinner")).toBeVisible();
 
     await transcript.getByRole("button", { name: /Running printf/ }).click();
-    await expect(transcript).toContainText("Waiting for command output…");
+    await expect(transcript).toContainText("Still running.");
+    await expect(transcript).toContainText("No stdout/stderr emitted yet.");
+    await expect(transcript).toContainText(/bash · running for \d+s/);
     await expect(transcript).toContainText(`$ ${command}`);
     await expect(transcript).not.toContainText('"command"');
 
