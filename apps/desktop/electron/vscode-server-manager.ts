@@ -251,9 +251,9 @@ function readVSCodeSettings(settingsPath: string): Record<string, unknown> {
   }
 }
 
-function hasExplicitVSCodeTheme(settings: Record<string, unknown>): boolean {
-  const theme = settings["workbench.colorTheme"];
-  return typeof theme === "string" && theme.trim().length > 0;
+function hasExplicitStringSetting(settings: Record<string, unknown>, key: string): boolean {
+  const value = settings[key];
+  return typeof value === "string" && value.trim().length > 0;
 }
 
 function ensureVSCodeDefaultSettings(settingsPath: string): void {
@@ -261,7 +261,10 @@ function ensureVSCodeDefaultSettings(settingsPath: string): void {
 
   const defaults: Record<string, unknown> = {
     "telemetry.telemetryLevel": "off",
+    "window.autoDetectColorScheme": false,
     "workbench.colorTheme": defaultVSCodeTheme,
+    "workbench.preferredDarkColorTheme": defaultVSCodeTheme,
+    "workbench.preferredLightColorTheme": defaultVSCodeTheme,
     "workbench.startupEditor": "none",
     "workbench.welcomePage.walkthroughs.openOnInstall": false,
     "security.workspace.trust.enabled": false,
@@ -273,8 +276,20 @@ function ensureVSCodeDefaultSettings(settingsPath: string): void {
 
   let changed = false;
   for (const [key, value] of Object.entries(defaults)) {
-    if (key === "workbench.colorTheme") {
-      if (!hasExplicitVSCodeTheme(settings)) {
+    if (
+      key === "workbench.colorTheme" ||
+      key === "workbench.preferredDarkColorTheme" ||
+      key === "workbench.preferredLightColorTheme"
+    ) {
+      if (!hasExplicitStringSetting(settings, key)) {
+        settings[key] = value;
+        changed = true;
+      }
+      continue;
+    }
+
+    if (key === "window.autoDetectColorScheme") {
+      if (settings[key] !== value) {
         settings[key] = value;
         changed = true;
       }
