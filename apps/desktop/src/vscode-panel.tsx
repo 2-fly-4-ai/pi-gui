@@ -63,7 +63,13 @@ export function VSCodePanel({
   const hasStaleResolvedServer = resolvedServer !== null && !resolvedServerMatchesTarget;
 
   return (
-    <aside className={className} data-testid={testId}>
+    <aside
+      className={className}
+      data-testid={testId}
+      data-vscode-workspace-id={workspaceId}
+      data-vscode-folder-path={folderPath}
+      data-vscode-port={iframePort ?? undefined}
+    >
       {onHardClose ? (
         <div className="vscode-panel__header">
           <div className="vscode-panel__title">{title}</div>

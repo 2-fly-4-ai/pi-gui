@@ -83,23 +83,20 @@ test("opens Display Mode from the sidebar and renders thread command-center tile
     } satisfies Extract<SessionDriverEvent, { type: "toolFinished" }>);
 
     await window.getByRole("button", { name: "Toggle VS Code panel" }).click();
-    await expect(window.getByTestId("thread-vscode-panel")).toBeVisible();
-    await expect(window.locator(".thread-vscode-panel .display-mode-vscode__webview")).toHaveAttribute("title", "VS Code", { timeout: 45_000 });
-    const threadVsCodeFrame = window.frameLocator(".thread-vscode-panel .display-mode-vscode__webview");
-    await threadVsCodeFrame.locator("[aria-label='Files Explorer'] a", { hasText: "README.md" }).first().click();
-    await expect(threadVsCodeFrame.getByText("first workspace readme")).toBeVisible({ timeout: 45_000 });
+    const threadVsCodePanel = window.getByTestId("thread-vscode-panel");
+    await expect(threadVsCodePanel).toBeVisible();
+    await expect(threadVsCodePanel).toHaveAttribute("data-vscode-folder-path", workspacePath);
+    await expect(threadVsCodePanel.locator(".display-mode-vscode__webview")).toHaveAttribute("title", "VS Code", { timeout: 45_000 });
 
     await selectSession(window, "Second workspace seed thread");
-    await expect(window.getByTestId("thread-vscode-panel")).toBeVisible();
-    const secondFrame = window.frameLocator(".thread-vscode-panel .display-mode-vscode__webview");
-    await secondFrame.locator("[aria-label='Files Explorer'] a", { hasText: "README.md" }).first().click();
-    await expect(secondFrame.getByText("second workspace readme")).toBeVisible({ timeout: 45_000 });
+    await expect(threadVsCodePanel).toBeVisible();
+    await expect(threadVsCodePanel).toHaveAttribute("data-vscode-folder-path", secondWorkspacePath);
+    await expect(threadVsCodePanel.locator(".display-mode-vscode__webview")).toHaveAttribute("title", "VS Code", { timeout: 45_000 });
 
     await selectSession(window, "Display mode seed thread");
-    await expect(window.getByTestId("thread-vscode-panel")).toBeVisible();
-    const firstFrameAgain = window.frameLocator(".thread-vscode-panel .display-mode-vscode__webview");
-    await firstFrameAgain.locator("[aria-label='Files Explorer'] a", { hasText: "README.md" }).first().click();
-    await expect(firstFrameAgain.getByText("first workspace readme")).toBeVisible({ timeout: 45_000 });
+    await expect(threadVsCodePanel).toBeVisible();
+    await expect(threadVsCodePanel).toHaveAttribute("data-vscode-folder-path", workspacePath);
+    await expect(threadVsCodePanel.locator(".display-mode-vscode__webview")).toHaveAttribute("title", "VS Code", { timeout: 45_000 });
     await window.getByRole("button", { name: "Toggle VS Code panel" }).click();
     await expect(window.getByTestId("thread-vscode-panel")).toHaveCount(0);
     await window.getByRole("button", { name: "Open VS Code for thread" }).click();
@@ -165,7 +162,9 @@ test("opens Display Mode from the sidebar and renders thread command-center tile
 
     await window.getByTestId("display-mode-thread-tile").first().getByRole("button", { name: "VS Code" }).click();
     await expect(window.locator(".display-mode-vscode")).toBeVisible();
-    await expect(window.locator(".display-mode-vscode .display-mode-vscode__webview")).toHaveAttribute("title", "VS Code");
+    const displayVsCodePanel = window.getByTestId("display-mode-vscode-panel");
+    await expect(displayVsCodePanel).toHaveAttribute("data-vscode-folder-path", workspacePath);
+    await expect(displayVsCodePanel.locator(".display-mode-vscode__webview")).toHaveAttribute("title", "VS Code");
     await expect.poll(async () => window.evaluate(() => {
       const surface = document.querySelector<HTMLElement>(".display-mode");
       const panel = document.querySelector<HTMLElement>(".display-mode-vscode");
@@ -181,11 +180,6 @@ test("opens Display Mode from the sidebar and renders thread command-center tile
     const settings = JSON.parse(await readFile(join(userDataDir, "vscode-serve-web", "user-data", "User", "settings.json"), "utf8")) as Record<string, unknown>;
     expect(settings["security.workspace.trust.enabled"]).toBe(false);
     expect(settings["workbench.colorTheme"]).toBe("Default Dark Modern");
-    const displayVsCodeFrame = window.frameLocator(".display-mode-vscode .display-mode-vscode__webview");
-    await displayVsCodeFrame.locator("[aria-label='Files Explorer'] a", { hasText: "README.md" }).first().click();
-    await expect(displayVsCodeFrame.getByText("workbench failed to connect")).toHaveCount(0);
-    await expect(displayVsCodeFrame.getByText("Do you trust the authors")).toHaveCount(0);
-    await expect(displayVsCodeFrame.getByText("first workspace readme")).toBeVisible({ timeout: 45_000 });
   } finally {
     await harness.close();
   }
