@@ -237,7 +237,8 @@ function findMostRecentLegacySettings(rootDir: string): string | null {
   return latestPath;
 }
 
-const defaultVSCodeTheme = "Default Dark Modern";
+const defaultVSCodeTheme = "Dark Modern";
+const legacyVSCodeThemeIds = new Set(["Default Dark Modern"]);
 
 function readVSCodeSettings(settingsPath: string): Record<string, unknown> {
   if (!fs.existsSync(settingsPath)) {
@@ -254,6 +255,11 @@ function readVSCodeSettings(settingsPath: string): Record<string, unknown> {
 function hasExplicitStringSetting(settings: Record<string, unknown>, key: string): boolean {
   const value = settings[key];
   return typeof value === "string" && value.trim().length > 0;
+}
+
+function shouldRewriteThemeSetting(settings: Record<string, unknown>, key: string): boolean {
+  const value = settings[key];
+  return !hasExplicitStringSetting(settings, key) || (typeof value === "string" && legacyVSCodeThemeIds.has(value));
 }
 
 function ensureVSCodeDefaultSettings(settingsPath: string): void {
@@ -281,7 +287,7 @@ function ensureVSCodeDefaultSettings(settingsPath: string): void {
       key === "workbench.preferredDarkColorTheme" ||
       key === "workbench.preferredLightColorTheme"
     ) {
-      if (!hasExplicitStringSetting(settings, key)) {
+      if (shouldRewriteThemeSetting(settings, key)) {
         settings[key] = value;
         changed = true;
       }
