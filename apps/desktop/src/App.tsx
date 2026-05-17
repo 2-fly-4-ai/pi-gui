@@ -1,5 +1,6 @@
 import type * as React from "react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type Dispatch, type DragEvent, type KeyboardEvent, type SetStateAction } from "react";
+import { flushSync } from "react-dom";
 import { DEFAULT_TOOL_ACCESS, type ToolAccessSelection } from "@pi-gui/session-driver";
 import type { SessionTreeSnapshot } from "@pi-gui/session-driver/types";
 import type { RuntimeSkillProfileRecord, RuntimeSnapshot } from "@pi-gui/session-driver/runtime-types";
@@ -385,14 +386,6 @@ export default function App() {
 
   const selectedWorkspace = snapshot ? (getSelectedWorkspace(snapshot) ?? snapshot.workspaces[0]) : undefined;
   const selectedSession = snapshot ? (getSelectedSession(snapshot) ?? selectedWorkspace?.sessions[0]) : undefined;
-
-  useEffect(() => {
-    if (!vsCodeOpen || !selectedWorkspace || snapshot?.activeView !== "threads") {
-      return;
-    }
-    setVsCodeWorkspaceId(selectedWorkspace.id);
-    setVsCodeFolderPath(selectedWorkspace.path);
-  }, [selectedWorkspace?.id, selectedWorkspace?.path, snapshot?.activeView, vsCodeOpen]);
 
   const hardCloseCurrentVsCode = useCallback(() => {
     if (!api || !vsCodeWorkspaceId || !vsCodeFolderPath) return;
@@ -1725,7 +1718,12 @@ export default function App() {
   }
 
   const showTerminalTakeover = isTerminalVisible && isVisibleTerminalTakeover && Boolean(visibleTerminalTarget);
-  const showThreadVsCodePanel = snapshot.activeView === "threads" && vsCodeOpen && Boolean(vsCodeWorkspaceId && vsCodeFolderPath);
+  const threadVsCodeTarget = selectedWorkspace
+    ? { workspaceId: selectedWorkspace.id, folderPath: selectedWorkspace.path }
+    : vsCodeWorkspaceId && vsCodeFolderPath
+      ? { workspaceId: vsCodeWorkspaceId, folderPath: vsCodeFolderPath }
+      : null;
+  const showThreadVsCodePanel = snapshot.activeView === "threads" && vsCodeOpen && threadVsCodeTarget !== null;
   const showPlanPanel = planPanelOpen && planSurfaceAvailable;
   const mainClassName = [
     "main",
@@ -2360,6 +2358,16 @@ export default function App() {
   };
 
   const handleSelectSession = (target: { workspaceId: string; sessionId: string }) => {
+    if (vsCodeOpen) {
+      const targetWorkspace = snapshot.workspaces.find((workspace) => workspace.id === target.workspaceId);
+      if (targetWorkspace) {
+        flushSync(() => {
+          setVsCodeWorkspaceId(targetWorkspace.id);
+          setVsCodeFolderPath(targetWorkspace.path);
+        });
+      }
+    }
+
     void updateSnapshot(api, setSnapshot, () => api.selectSession(target)).then(() => {
       focusComposer();
     });
@@ -3090,7 +3098,7 @@ export default function App() {
         {terminalPanel}
           </>
         )}
-        {showThreadVsCodePanel && vsCodeWorkspaceId && vsCodeFolderPath ? (
+        {showThreadVsCodePanel && threadVsCodeTarget ? (
           <>
             <div
               className="thread-vscode-resize-handle"
@@ -3106,8 +3114,8 @@ export default function App() {
             />
             <VSCodePanel
               api={api}
-              workspaceId={vsCodeWorkspaceId}
-              folderPath={vsCodeFolderPath}
+              workspaceId={threadVsCodeTarget.workspaceId}
+              folderPath={threadVsCodeTarget.folderPath}
               onHardClose={hardCloseCurrentVsCode}
               title="VS Code"
             />

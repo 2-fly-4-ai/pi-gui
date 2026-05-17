@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useLayoutEffect, useState } from "react";
 import type { PiDesktopApi } from "./ipc";
 
 interface VSCodePanelProps {
@@ -11,6 +11,12 @@ interface VSCodePanelProps {
   readonly onHardClose?: () => void;
 }
 
+interface ResolvedVSCodeServer {
+  readonly port: number;
+  readonly workspaceId: string;
+  readonly folderPath: string;
+}
+
 export function VSCodePanel({
   api,
   workspaceId,
@@ -20,22 +26,22 @@ export function VSCodePanel({
   title = "VS Code",
   onHardClose,
 }: VSCodePanelProps) {
-  const [port, setPort] = useState<number | null>(null);
+  const [resolvedServer, setResolvedServer] = useState<ResolvedVSCodeServer | null>(null);
   const [loading, setLoading] = useState(false);
   const [frameLoaded, setFrameLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     let cancelled = false;
     setLoading(true);
     setFrameLoaded(false);
     setError(null);
-    setPort(null);
+    setResolvedServer(null);
 
     void api.ensureVSCodeServer(workspaceId, folderPath)
       .then((nextPort) => {
         if (!cancelled) {
-          setPort(nextPort);
+          setResolvedServer({ port: nextPort, workspaceId, folderPath });
           setLoading(false);
         }
       })
@@ -50,6 +56,11 @@ export function VSCodePanel({
       cancelled = true;
     };
   }, [api, workspaceId, folderPath]);
+
+  const resolvedServerMatchesTarget =
+    resolvedServer?.workspaceId === workspaceId && resolvedServer.folderPath === folderPath;
+  const iframePort = resolvedServerMatchesTarget ? resolvedServer.port : null;
+  const hasStaleResolvedServer = resolvedServer !== null && !resolvedServerMatchesTarget;
 
   return (
     <aside className={className} data-testid={testId}>
@@ -76,7 +87,12 @@ export function VSCodePanel({
             <strong>Could not start VS Code</strong>
             <p>{error}</p>
           </div>
-        ) : port !== null ? (
+        ) : hasStaleResolvedServer ? (
+          <div className="display-mode-vscode__loading">
+            <span className="display-mode-vscode__spinner" aria-hidden="true" />
+            Starting VS Code…
+          </div>
+        ) : iframePort !== null ? (
           <>
             {!frameLoaded ? (
               <div className="display-mode-vscode__loading">
@@ -86,7 +102,7 @@ export function VSCodePanel({
             ) : null}
             <iframe
               className="display-mode-vscode__webview"
-              src={`http://localhost:${port}/`}
+              src={`http://localhost:${iframePort}/`}
               title="VS Code"
               allow="clipboard-read; clipboard-write"
               style={frameLoaded ? undefined : { opacity: 0 }}

@@ -278,8 +278,11 @@ function prepareVSCodeDataDirs(): VSCodeDataDirs {
   const serverDataDir = path.join(rootDir, "server");
   const userDataDir = path.join(rootDir, "user-data");
   const userDir = path.join(userDataDir, "User");
+  const machineDir = path.join(userDataDir, "Machine");
   const settingsPath = path.join(userDir, "settings.json");
+  const machineSettingsPath = path.join(machineDir, "settings.json");
   fs.mkdirSync(userDir, { recursive: true });
+  fs.mkdirSync(machineDir, { recursive: true });
 
   if (!fs.existsSync(settingsPath)) {
     const legacySettingsPath = findMostRecentLegacySettings(rootDir);
@@ -289,6 +292,10 @@ function prepareVSCodeDataDirs(): VSCodeDataDirs {
   }
 
   ensureVSCodeDefaultSettings(settingsPath);
+  if (!fs.existsSync(machineSettingsPath)) {
+    fs.copyFileSync(settingsPath, machineSettingsPath);
+  }
+  ensureVSCodeDefaultSettings(machineSettingsPath);
   return { serverDataDir, userDataDir };
 }
 
@@ -345,6 +352,7 @@ async function startVSCodeServer(serverKey: string, workspaceId: string, folderP
     "--host", "127.0.0.1",
     "--without-connection-token",
     "--accept-server-license-terms",
+    "--disable-workspace-trust",
     "--server-data-dir", serverDataDir,
     "--user-data-dir", userDataDir,
     "--default-folder", folderPath,
