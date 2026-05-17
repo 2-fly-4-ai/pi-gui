@@ -1,4 +1,4 @@
-import { BrainIcon } from "./icons";
+import { Brain } from "lucide-react";
 
 interface ThinkingTraceToggleProps {
   readonly showThinking: boolean;
@@ -11,13 +11,13 @@ export function ThinkingTraceToggle({ showThinking, active = false, onToggle }: 
     <button
       aria-label={showThinking ? "Hide thinking" : "Show thinking"}
       aria-pressed={showThinking}
-      className={`icon-button thinking-trace-toggle${showThinking ? " icon-button--active thinking-trace-toggle--active" : ""}${active ? " thinking-trace-toggle--spinning" : ""}`}
+      className={`icon-button thinking-trace-toggle${showThinking ? " icon-button--active thinking-trace-toggle--active" : ""}${active ? " thinking-trace-toggle--active-thinking" : ""}`}
       data-testid="thinking-trace-toggle"
       title={showThinking ? "Hide thinking" : "Show thinking"}
       type="button"
       onClick={onToggle}
     >
-      <BrainIcon />
+      <Brain aria-hidden="true" strokeWidth={1.8} />
     </button>
   );
 }

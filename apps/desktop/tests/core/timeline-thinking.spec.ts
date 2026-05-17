@@ -45,6 +45,7 @@ test("toggles assistant thinking blocks in the chat", async () => {
     await expect.poll(async () => (await getDesktopState(window)).showThinking).toBe(true);
     await expect(toggle).toHaveAttribute("aria-pressed", "true");
     await expect(toggle.locator("svg")).toBeVisible();
+    await expect(toggle.locator("svg.lucide-brain")).toBeVisible();
     await expect(toggle.locator("img")).toHaveCount(0);
     await expect(window.getByTestId("transcript")).toContainText(thinkingText);
     await expect(window.locator(".timeline-item--thinking-running .timeline-thinking__icon")).toBeVisible();
