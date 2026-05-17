@@ -25,7 +25,8 @@ interface VSCodeDataDirs {
 const servers = new Map<string, ServerEntry>();
 const serverStartups = new Map<string, Promise<number>>();
 const browserSettingsSeeds = new Map<number, Promise<void>>();
-const preferredPort = 19538;
+const stableWorkspacePortStart = 19_538;
+const stableWorkspacePortCount = 4_000;
 let startupQueue: Promise<void> = Promise.resolve();
 
 function getServerKey(workspaceId: string, folderPath: string): string {
@@ -67,9 +68,23 @@ function canListenOnPort(port: number): Promise<boolean> {
   });
 }
 
-async function getVSCodePort(): Promise<number> {
-  if (await canListenOnPort(preferredPort)) {
-    return preferredPort;
+function stablePortOffset(input: string): number {
+  let hash = 2166136261;
+  for (let index = 0; index < input.length; index += 1) {
+    hash ^= input.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0) % stableWorkspacePortCount;
+}
+
+async function getVSCodePort(folderPath: string): Promise<number> {
+  const resolvedFolderPath = path.resolve(folderPath);
+  const startOffset = stablePortOffset(resolvedFolderPath);
+  for (let attempt = 0; attempt < stableWorkspacePortCount; attempt += 1) {
+    const port = stableWorkspacePortStart + ((startOffset + attempt) % stableWorkspacePortCount);
+    if (await canListenOnPort(port)) {
+      return port;
+    }
   }
 
   return new Promise((resolve, reject) => {
@@ -109,16 +124,6 @@ function stopServer(entry: ServerEntry): void {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-async function waitForPortRelease(port: number, timeoutMs: number): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    if (await canListenOnPort(port)) {
-      return;
-    }
-    await sleep(100);
-  }
 }
 
 function probeVSCodeWeb(port: number): Promise<boolean> {
@@ -554,16 +559,12 @@ async function startVSCodeServer(serverKey: string, workspaceId: string, folderP
     servers.delete(serverKey);
   }
 
-  if (await canListenOnPort(preferredPort)) {
-    await waitForPortRelease(preferredPort, 2_000);
-  }
-
   const install = findVSCodeServerInstall();
   if (!install) {
     throw new Error("VS Code web server binary not found. Open VS Code's serve-web once so it can install its server runtime.");
   }
 
-  const port = await getVSCodePort();
+  const port = await getVSCodePort(folderPath);
   const { serverDataDir, userDataDir } = prepareVSCodeDataDirs(folderPath);
 
   // Launch the downloaded code-server directly. The code-tunnel serve-web
