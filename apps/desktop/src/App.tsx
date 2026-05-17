@@ -239,7 +239,7 @@ export default function App() {
   const [vsCodeWorkspaceId, setVsCodeWorkspaceId] = useState<string | null>(null);
   const [vsCodeFolderPath, setVsCodeFolderPath] = useState<string | null>(null);
   const [threadVsCodeWidth, setThreadVsCodeWidth] = useState(() => {
-    const saved = Number(localStorage.getItem("vscode:sidePanelWidth") ?? localStorage.getItem("threads:vsCodeWidth") ?? localStorage.getItem("dm:vsCodeWidth"));
+    const saved = Number(localStorage.getItem("threads:vsCodeWidth"));
     return Number.isFinite(saved) && saved > 0 ? saved : 520;
   });
   const threadVsCodeWidthRef = useRef(threadVsCodeWidth);
@@ -331,7 +331,7 @@ export default function App() {
   useEffect(() => {
     threadVsCodeWidthRef.current = threadVsCodeWidth;
     setThreadVsCodeCssWidth(threadVsCodeWidth);
-    try { localStorage.setItem("vscode:sidePanelWidth", String(threadVsCodeWidth)); } catch {}
+    try { localStorage.setItem("threads:vsCodeWidth", String(threadVsCodeWidth)); } catch {}
   }, [setThreadVsCodeCssWidth, threadVsCodeWidth]);
 
   useEffect(() => {
@@ -1723,17 +1723,17 @@ export default function App() {
   }
 
   const showTerminalTakeover = isTerminalVisible && isVisibleTerminalTakeover && Boolean(visibleTerminalTarget);
-  const appVsCodeTarget = snapshot.activeView === "threads" && selectedWorkspace
+  const threadVsCodeTarget = selectedWorkspace
     ? { workspaceId: selectedWorkspace.id, folderPath: selectedWorkspace.path }
     : vsCodeWorkspaceId && vsCodeFolderPath
       ? { workspaceId: vsCodeWorkspaceId, folderPath: vsCodeFolderPath }
       : null;
-  const showAppVsCodePanel = (snapshot.activeView === "threads" || snapshot.activeView === "display-mode") && vsCodeOpen && appVsCodeTarget !== null;
+  const showThreadVsCodePanel = snapshot.activeView === "threads" && vsCodeOpen && threadVsCodeTarget !== null;
   const showPlanPanel = planPanelOpen && planSurfaceAvailable;
   const mainClassName = [
     "main",
     showDiffPanel ? "main--with-diff" : "",
-    showAppVsCodePanel ? "main--with-vscode" : "",
+    showThreadVsCodePanel ? "main--with-vscode" : "",
     showPlanPanel ? "main--with-plan" : "",
     isTerminalVisible ? "main--with-terminal" : "",
     showTerminalTakeover ? "main--terminal-takeover" : "",
@@ -2820,6 +2820,8 @@ export default function App() {
             onToggleDrawer={toggleDmDrawer}
             vsCodeOpen={vsCodeOpen}
             vsCodeWorkspaceId={vsCodeWorkspaceId}
+            vsCodeFolderPath={vsCodeFolderPath}
+            onToggleVsCode={toggleVsCode}
             onOpenVsCodeForWorkspace={openVsCodeForWorkspace}
             runtimeByWorkspace={snapshot.runtimeByWorkspace}
             sessionCommandsBySession={snapshot.sessionCommandsBySession}
@@ -3101,7 +3103,7 @@ export default function App() {
         {terminalPanel}
           </>
         )}
-        {showAppVsCodePanel && appVsCodeTarget ? (
+        {showThreadVsCodePanel && threadVsCodeTarget ? (
           <>
             <div
               className="thread-vscode-resize-handle"
@@ -3117,9 +3119,8 @@ export default function App() {
             />
             <VSCodePanel
               api={api}
-              workspaceId={appVsCodeTarget.workspaceId}
-              folderPath={appVsCodeTarget.folderPath}
-              testId={snapshot.activeView === "display-mode" ? "display-mode-vscode-panel" : "thread-vscode-panel"}
+              workspaceId={threadVsCodeTarget.workspaceId}
+              folderPath={threadVsCodeTarget.folderPath}
               onHardClose={hardCloseCurrentVsCode}
               title="VS Code"
             />

@@ -23,6 +23,7 @@ import type { DesktopAppState, DisplayModeThreadRecord, ExtensionCommandCompatib
 import { TimelineItem } from "./timeline-item";
 import { TerminalPanel } from "./terminal-panel";
 import { ComposerSurface } from "./composer-surface";
+import { VSCodePanel } from "./vscode-panel";
 import { useSlashMenu } from "./hooks/use-slash-menu";
 import { ArrowUpIcon, MaximizeIcon, MinimizeIcon, SidebarToggleIcon, StopSquareIcon, TerminalIcon } from "./icons";
 import type { PiDesktopApi } from "./ipc";
@@ -41,7 +42,7 @@ interface ChangedFile {
 
 export function DisplayModeView({
   api, drawerOpen, onToggleDrawer,
-  vsCodeOpen, vsCodeWorkspaceId, onOpenVsCodeForWorkspace,
+  vsCodeOpen, vsCodeWorkspaceId, vsCodeFolderPath, onToggleVsCode, onOpenVsCodeForWorkspace,
   runtimeByWorkspace, sessionCommandsBySession, commandCompatibilityByWorkspace,
   setSnapshot, openSettings, updateSnapshot,
 }: {
@@ -50,6 +51,8 @@ export function DisplayModeView({
   readonly onToggleDrawer: () => void;
   readonly vsCodeOpen: boolean;
   readonly vsCodeWorkspaceId: string | null;
+  readonly vsCodeFolderPath: string | null;
+  readonly onToggleVsCode: () => void;
   readonly onOpenVsCodeForWorkspace: (workspaceId: string, folderPath: string) => void;
   readonly runtimeByWorkspace: Readonly<Record<string, RuntimeSnapshot>>;
   readonly sessionCommandsBySession: Readonly<Record<string, readonly RuntimeCommandRecord[]>>;
@@ -79,19 +82,35 @@ export function DisplayModeView({
   const [draggingId, setDraggingId] = useState<string | null>(null);
 
   const [drawerWidth, setDrawerWidth] = useState<number>(() => lsGetNum("dm:drawerWidth", 320));
+  const [vsCodeWidth, setVsCodeWidth] = useState<number>(() => getInitialVsCodeWidth());
   const lastFetchAt = useRef<number>(0);
   const pendingRefresh = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const sectionRef = useRef<HTMLElement | null>(null);
   const drawerWidthRef = useRef(drawerWidth);
+  const vsCodeWidthRef = useRef(vsCodeWidth);
 
   // Persist preferences
   useEffect(() => { lsSet("dm:colCount", colCount); }, [colCount]);
   useEffect(() => { lsSet("dm:compact", compact); }, [compact]);
   useEffect(() => { lsSet("dm:drawerWidth", drawerWidth); }, [drawerWidth]);
+  useEffect(() => { lsSet("dm:vsCodeWidth", vsCodeWidth); }, [vsCodeWidth]);
   useEffect(() => {
     drawerWidthRef.current = drawerWidth;
     sectionRef.current?.style.setProperty("--display-mode-drawer-width", `${drawerWidth}px`);
   }, [drawerWidth]);
+  useEffect(() => {
+    vsCodeWidthRef.current = vsCodeWidth;
+    sectionRef.current?.style.setProperty("--display-mode-vscode-width", `${vsCodeWidth}px`);
+  }, [vsCodeWidth]);
+  useEffect(() => {
+    if (!vsCodeOpen) return;
+    const section = sectionRef.current;
+    if (!section) return;
+    const maxWidth = getMaxVsCodeWidth(section.offsetWidth);
+    if (vsCodeWidth > maxWidth) {
+      setVsCodeWidth(maxWidth);
+    }
+  }, [vsCodeOpen, vsCodeWidth]);
   const startDrawerResize = (e: React.PointerEvent<HTMLDivElement>) => {
     e.preventDefault();
     e.currentTarget.setPointerCapture(e.pointerId);
@@ -115,6 +134,32 @@ export function DisplayModeView({
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
       setDrawerWidth(drawerWidthRef.current);
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+  };
+
+  const startVsCodeResize = (e: React.PointerEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.currentTarget.setPointerCapture(e.pointerId);
+    const startX = e.clientX;
+    const startWidth = vsCodeWidthRef.current;
+    const section = sectionRef.current;
+    if (!section) return;
+    section.classList.add("display-mode--resizing");
+
+    const onMove = (mv: PointerEvent) => {
+      const delta = startX - mv.clientX;
+      const sectionWidth = section.offsetWidth;
+      const next = Math.max(getMinVsCodeWidth(sectionWidth), Math.min(getMaxVsCodeWidth(sectionWidth), startWidth + delta));
+      vsCodeWidthRef.current = next;
+      section.style.setProperty("--display-mode-vscode-width", `${next}px`);
+    };
+    const onUp = () => {
+      section.classList.remove("display-mode--resizing");
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      setVsCodeWidth(vsCodeWidthRef.current);
     };
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
@@ -283,8 +328,9 @@ export function DisplayModeView({
       className="display-mode"
       style={{ gridTemplateColumns: [
         "minmax(0, 1fr)",
+        vsCodeOpen ? "5px var(--display-mode-vscode-width)" : "0 0",
         drawerOpen ? "5px var(--display-mode-drawer-width)" : "0 0",
-      ].join(" "), "--display-mode-drawer-width": `${drawerWidth}px` } as CSSProperties}
+      ].join(" "), "--display-mode-drawer-width": `${drawerWidth}px`, "--display-mode-vscode-width": `${vsCodeWidth}px` } as CSSProperties}
       data-testid="display-mode-surface"
     >
       <div className={`display-mode__main${expandedId ? " display-mode__main--split" : ""}`}>
@@ -584,6 +630,29 @@ export function DisplayModeView({
               </div>
             )}
           </div>
+        )}
+      </aside>
+
+      {/* VS Code panel — resize handle always in DOM to keep grid column count constant */}
+      <div
+        className="display-mode-drawer__resize display-mode-vscode__resize"
+        onPointerDown={vsCodeOpen ? startVsCodeResize : undefined}
+        role="separator"
+        aria-label="Resize VS Code panel"
+        title="Drag to resize VS Code panel"
+        style={{ pointerEvents: vsCodeOpen ? undefined : "none" }}
+      />
+      <aside className={`display-mode-vscode${vsCodeOpen ? "" : " display-mode-vscode--hidden"}`}>
+        {vsCodeOpen && vsCodeWorkspaceId && vsCodeFolderPath ? (
+          <VSCodePanel
+            api={api}
+            workspaceId={vsCodeWorkspaceId}
+            folderPath={vsCodeFolderPath}
+            className="display-mode-vscode__panel"
+            testId="display-mode-vscode-panel"
+          />
+        ) : (
+          <div className="display-mode-vscode__loading">Open a workspace to start VS Code.</div>
         )}
       </aside>
     </section>
@@ -985,6 +1054,23 @@ function isHttpUrl(value: string): boolean {
     const p = new URL(value);
     return p.protocol === "http:" || p.protocol === "https:";
   } catch { return false; }
+}
+
+function getInitialVsCodeWidth(): number {
+  const viewportWidth = typeof window === "undefined" ? 1440 : window.innerWidth;
+  const target = Math.floor(viewportWidth / 3);
+  const saved = lsGetNum("dm:vsCodeWidth", target);
+  return saved > Math.floor(viewportWidth * 0.55)
+    ? target
+    : Math.max(getMinVsCodeWidth(viewportWidth), Math.min(getMaxVsCodeWidth(viewportWidth), saved));
+}
+
+function getMinVsCodeWidth(containerWidth: number): number {
+  return Math.min(360, Math.max(280, Math.floor(containerWidth * 0.3)));
+}
+
+function getMaxVsCodeWidth(containerWidth: number): number {
+  return Math.max(getMinVsCodeWidth(containerWidth), Math.floor(containerWidth * 0.7));
 }
 
 function gridTemplateColumnsForMode(mode: ColumnMode): string {
