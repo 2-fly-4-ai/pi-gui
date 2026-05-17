@@ -1360,10 +1360,12 @@ export class SessionSupervisor {
           }, record);
         }
         if (event.assistantMessageEvent.type === "thinking_delta") {
-          traceSessionStreamEvent("thinking_delta", {
-            sessionId: record.ref.sessionId,
-            bytes: Buffer.byteLength(event.assistantMessageEvent.delta ?? ""),
-          });
+          if (shouldTraceSessionStreamEvents()) {
+            traceSessionStreamEvent("thinking_delta", {
+              sessionId: record.ref.sessionId,
+              bytes: Buffer.byteLength(event.assistantMessageEvent.delta ?? ""),
+            });
+          }
           return toDriverEvents({
             type: "assistantThinkingDelta" as const,
             sessionRef: record.ref,
@@ -1393,12 +1395,14 @@ export class SessionSupervisor {
         }, record);
       case "tool_execution_update": {
         const text = extractToolResultText(event.partialResult);
-        traceSessionStreamEvent("tool_execution_update", {
-          sessionId: record.ref.sessionId,
-          callId: event.toolCallId,
-          textBytes: text ? Buffer.byteLength(text) : 0,
-          progress: typeof event.partialResult === "number" ? event.partialResult : undefined,
-        });
+        if (shouldTraceSessionStreamEvents()) {
+          traceSessionStreamEvent("tool_execution_update", {
+            sessionId: record.ref.sessionId,
+            callId: event.toolCallId,
+            textBytes: text ? Buffer.byteLength(text) : 0,
+            progress: typeof event.partialResult === "number" ? event.partialResult : undefined,
+          });
+        }
         return toDriverEvents({
           type: "toolUpdated" as const,
           sessionRef: record.ref,
@@ -2028,8 +2032,12 @@ function reconcileQueuedMessagesForStartedUserMessage(
   return undefined;
 }
 
+function shouldTraceSessionStreamEvents(): boolean {
+  return process.env.PI_GUI_SESSION_EVENT_TRACE === "1";
+}
+
 function traceSessionStreamEvent(label: string, payload: Record<string, unknown>): void {
-  if (process.env.PI_GUI_SESSION_EVENT_TRACE !== "1") {
+  if (!shouldTraceSessionStreamEvents()) {
     return;
   }
   const printable = Object.fromEntries(
