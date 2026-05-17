@@ -605,6 +605,8 @@ export default function App() {
       ? selectedTranscript.transcript
       : [];
   const showThinking = snapshot?.showThinking ?? false;
+  const showThinkingRequestRef = useRef(showThinking);
+  showThinkingRequestRef.current = showThinking;
   const thinkingActive = rawActiveTranscript.some((item) => item.kind === "thinking" && item.status === "running");
   const activeTranscript = showThinking
     ? rawActiveTranscript
@@ -2183,9 +2185,14 @@ export default function App() {
   };
 
   const handleToggleShowThinking = () => {
-    const nextShowThinking = !showThinking;
+    const nextShowThinking = !showThinkingRequestRef.current;
+    showThinkingRequestRef.current = nextShowThinking;
     setSnapshot((current) => current ? { ...current, showThinking: nextShowThinking } : current);
-    void updateSnapshot(api, setSnapshot, () => api.setShowThinking(nextShowThinking));
+    void api.setShowThinking(nextShowThinking).then((state) => {
+      if (showThinkingRequestRef.current === nextShowThinking) {
+        setSnapshot(state);
+      }
+    });
   };
 
   const handleSetSessionToolAccess = (selection: ToolAccessSelection) => {

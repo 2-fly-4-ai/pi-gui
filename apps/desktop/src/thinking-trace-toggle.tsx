@@ -1,4 +1,4 @@
-import ninjaStarUrl from "./assets/ninja-star.svg";
+import { BrainIcon } from "./icons";
 
 interface ThinkingTraceToggleProps {
   readonly showThinking: boolean;
@@ -17,7 +17,7 @@ export function ThinkingTraceToggle({ showThinking, active = false, onToggle }: 
       type="button"
       onClick={onToggle}
     >
-      <img src={ninjaStarUrl} alt="" aria-hidden="true" />
+      <BrainIcon />
     </button>
   );
 }

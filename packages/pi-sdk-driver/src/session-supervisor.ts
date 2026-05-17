@@ -1384,15 +1384,17 @@ export class SessionSupervisor {
           callId: event.toolCallId,
           input: event.args,
         }, record);
-      case "tool_execution_update":
+      case "tool_execution_update": {
+        const text = extractToolResultText(event.partialResult);
         return toDriverEvents({
           type: "toolUpdated" as const,
           sessionRef: record.ref,
           timestamp,
           callId: event.toolCallId,
-          ...(typeof event.partialResult === "string" ? { text: event.partialResult } : {}),
+          ...(text ? { text } : {}),
           ...(typeof event.partialResult === "number" ? { progress: event.partialResult } : {}),
         }, record);
+      }
       case "tool_execution_end":
         return toDriverEvents({
           type: "toolFinished" as const,
@@ -2011,6 +2013,26 @@ function reconcileQueuedMessagesForStartedUserMessage(
   }
 
   return undefined;
+}
+
+function extractToolResultText(result: unknown): string | undefined {
+  if (typeof result === "string") {
+    return result;
+  }
+  if (!isUnknownRecord(result) || !Array.isArray(result.content)) {
+    return undefined;
+  }
+  const text = result.content
+    .map((part: unknown) =>
+      isUnknownRecord(part) && part.type === "text" && typeof part.text === "string" ? part.text : "",
+    )
+    .join("\n")
+    .trim();
+  return text || undefined;
+}
+
+function isUnknownRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
 }
 
 function sessionUpdatedEvent(record: ManagedSessionRecord): SessionDriverEvent {
