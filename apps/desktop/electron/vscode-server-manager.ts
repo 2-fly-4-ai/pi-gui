@@ -1,3 +1,4 @@
+import { BrowserWindow } from "electron";
 import { spawn, type ChildProcess } from "node:child_process";
 import * as http from "node:http";
 import * as net from "node:net";
@@ -23,6 +24,7 @@ interface VSCodeDataDirs {
 
 const servers = new Map<string, ServerEntry>();
 const serverStartups = new Map<string, Promise<number>>();
+const browserSettingsSeeds = new Map<number, Promise<void>>();
 const preferredPort = 19538;
 let startupQueue: Promise<void> = Promise.resolve();
 
@@ -262,10 +264,8 @@ function shouldRewriteThemeSetting(settings: Record<string, unknown>, key: strin
   return !hasExplicitStringSetting(settings, key) || (typeof value === "string" && legacyVSCodeThemeIds.has(value));
 }
 
-function ensureVSCodeDefaultSettings(settingsPath: string): void {
-  const settings = readVSCodeSettings(settingsPath);
-
-  const defaults: Record<string, unknown> = {
+function getVSCodeBrowserSettings(): Record<string, unknown> {
+  return {
     "telemetry.telemetryLevel": "off",
     "window.autoDetectColorScheme": false,
     "workbench.colorTheme": defaultVSCodeTheme,
@@ -279,6 +279,12 @@ function ensureVSCodeDefaultSettings(settingsPath: string): void {
     "security.workspace.trust.emptyWindow": false,
     "security.workspace.trust.untrustedFiles": "open",
   };
+}
+
+function ensureVSCodeDefaultSettings(settingsPath: string): void {
+  const settings = readVSCodeSettings(settingsPath);
+
+  const defaults = getVSCodeBrowserSettings();
 
   let changed = false;
   for (const [key, value] of Object.entries(defaults)) {
@@ -339,6 +345,90 @@ function getWorkspaceDataDir(rootDir: string, folderPath: string): string {
   const parsed = path.parse(resolved);
   const relative = resolved.slice(parsed.root.length);
   return path.join(rootDir, "Users", ...relative.split(path.sep).filter(Boolean));
+}
+
+async function seedVSCodeBrowserSettings(port: number): Promise<void> {
+  const existingSeed = browserSettingsSeeds.get(port);
+  if (existingSeed) {
+    return existingSeed;
+  }
+
+  const seed = (async () => {
+    const win = new BrowserWindow({
+      show: false,
+      width: 400,
+      height: 300,
+      webPreferences: {
+        sandbox: true,
+        contextIsolation: true,
+        nodeIntegration: false,
+      },
+    });
+
+    try {
+      await win.loadURL(`http://127.0.0.1:${port}/?ew=true`);
+      await win.webContents.executeJavaScript(`
+        (async () => {
+          const settings = ${JSON.stringify(JSON.stringify(getVSCodeBrowserSettings(), null, 2))};
+          const db = await new Promise((resolve, reject) => {
+            const request = indexedDB.open("vscode-web-db");
+            request.onupgradeneeded = () => {
+              const database = request.result;
+              if (!database.objectStoreNames.contains("vscode-userdata-store")) {
+                database.createObjectStore("vscode-userdata-store");
+              }
+            };
+            request.onerror = () => reject(request.error);
+            request.onsuccess = () => resolve(request.result);
+          });
+
+          if (!db.objectStoreNames.contains("vscode-userdata-store")) {
+            const nextVersion = db.version + 1;
+            db.close();
+            await new Promise((resolve, reject) => {
+              const request = indexedDB.open("vscode-web-db", nextVersion);
+              request.onupgradeneeded = () => {
+                const database = request.result;
+                if (!database.objectStoreNames.contains("vscode-userdata-store")) {
+                  database.createObjectStore("vscode-userdata-store");
+                }
+              };
+              request.onerror = () => reject(request.error);
+              request.onsuccess = () => { request.result.close(); resolve(undefined); };
+            });
+          } else {
+            db.close();
+          }
+
+          const writeDb = await new Promise((resolve, reject) => {
+            const request = indexedDB.open("vscode-web-db");
+            request.onerror = () => reject(request.error);
+            request.onsuccess = () => resolve(request.result);
+          });
+          await new Promise((resolve, reject) => {
+            const tx = writeDb.transaction("vscode-userdata-store", "readwrite");
+            tx.objectStore("vscode-userdata-store").put(settings, "/User/settings.json");
+            tx.onerror = () => reject(tx.error);
+            tx.oncomplete = () => resolve(undefined);
+          });
+          writeDb.close();
+        })();
+      `, true);
+    } finally {
+      if (!win.isDestroyed()) {
+        win.close();
+      }
+    }
+  })();
+
+  browserSettingsSeeds.set(port, seed);
+  try {
+    await seed;
+  } finally {
+    if (browserSettingsSeeds.get(port) === seed) {
+      browserSettingsSeeds.delete(port);
+    }
+  }
 }
 
 function prepareVSCodeDataDirs(folderPath: string): VSCodeDataDirs {
@@ -471,6 +561,7 @@ async function startVSCodeServer(serverKey: string, workspaceId: string, folderP
     // listener appears earlier and can make the workbench fail its backend socket.
     await waitForVSCodeServerReadySignal(proc);
     await waitForVSCodeWebReady(port, 15_000);
+    await seedVSCodeBrowserSettings(port);
     await sleep(500);
   } catch (err) {
     const current = servers.get(serverKey);
