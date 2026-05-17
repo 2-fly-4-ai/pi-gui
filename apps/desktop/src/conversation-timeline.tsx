@@ -8,6 +8,17 @@ const OVERSCAN_PX = 720;
 const ROW_GAP_PX = 14;
 export const VIRTUALIZATION_THRESHOLD = 80;
 
+function isCommandTool(item: TranscriptMessage): item is Extract<TranscriptMessage, { kind: "tool" }> {
+  if (item.kind !== "tool") {
+    return false;
+  }
+  const toolName = item.toolName.toLowerCase();
+  if (toolName !== "bash" && !toolName.endsWith(".bash")) {
+    return false;
+  }
+  return typeof item.input === "object" && item.input !== null && typeof (item.input as Record<string, unknown>).command === "string";
+}
+
 interface ThreadSearchModel {
   readonly isOpen: boolean;
   readonly query: string;
@@ -60,6 +71,7 @@ export function ConversationTimeline({
     !disableVirtualization &&
     !hasUnreliableVirtualizedHeights;
   const [expandedToolCallIds, setExpandedToolCallIds] = useState<Set<string>>(() => new Set());
+  const userCollapsedRunningToolIdsRef = useRef(new Set<string>());
   const measuredHeightsRef = useRef(new Map<string, number>());
   const [measurementVersion, setMeasurementVersion] = useState(0);
 
@@ -69,6 +81,13 @@ export function ConversationTimeline({
         .filter((item): item is Extract<TranscriptMessage, { kind: "tool" }> => item.kind === "tool")
         .map((item) => item.callId),
     );
+
+    for (const callId of [...userCollapsedRunningToolIdsRef.current]) {
+      if (!availableToolCallIds.has(callId)) {
+        userCollapsedRunningToolIdsRef.current.delete(callId);
+      }
+    }
+
     setExpandedToolCallIds((current) => {
       if (current.size === 0) {
         return current;
@@ -81,6 +100,30 @@ export function ConversationTimeline({
           continue;
         }
         next.add(callId);
+      }
+      return changed ? next : current;
+    });
+  }, [stableTranscript]);
+
+  useLayoutEffect(() => {
+    const runningCommandToolIds = stableTranscript
+      .filter(isCommandTool)
+      .filter((item) => item.status === "running")
+      .map((item) => item.callId);
+
+    if (runningCommandToolIds.length === 0) {
+      return;
+    }
+
+    setExpandedToolCallIds((current) => {
+      let changed = false;
+      const next = new Set(current);
+      for (const callId of runningCommandToolIds) {
+        if (userCollapsedRunningToolIdsRef.current.has(callId) || next.has(callId)) {
+          continue;
+        }
+        next.add(callId);
+        changed = true;
       }
       return changed ? next : current;
     });
@@ -133,8 +176,10 @@ export function ConversationTimeline({
       const next = new Set(current);
       if (next.has(callId)) {
         next.delete(callId);
+        userCollapsedRunningToolIdsRef.current.add(callId);
       } else {
         next.add(callId);
+        userCollapsedRunningToolIdsRef.current.delete(callId);
       }
       return next;
     });

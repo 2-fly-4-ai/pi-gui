@@ -102,23 +102,34 @@ test("shows running command output without foregrounding raw JSON", async () => 
     await expect(transcript).toContainText("Running printf");
     await expect(transcript.locator(".timeline-tool__spinner")).toBeVisible();
 
-    await transcript.getByRole("button", { name: /Running printf/ }).click();
     await expect(transcript).toContainText("Still running.");
     await expect(transcript).toContainText("No stdout/stderr emitted yet.");
     await expect(transcript).toContainText(/bash · running for \d+s/);
     await expect(transcript).toContainText(`$ ${command}`);
     await expect(transcript).not.toContainText('"command"');
 
+    const runningToolButton = transcript.getByRole("button", { name: /Running printf/ });
+    await expect(runningToolButton).toHaveAttribute("aria-expanded", "true");
+
+    await runningToolButton.click();
+    await expect(runningToolButton).toHaveAttribute("aria-expanded", "false");
+    await expect(transcript).not.toContainText(`$ ${command}`);
+
     await emitTestSessionEvent(harness, {
       type: "toolUpdated",
       sessionRef,
       timestamp: new Date().toISOString(),
       callId: "bash-live-output-1",
-      text: "first line\nsecond line",
+      text: "live output one\nlive output two",
     } satisfies Extract<SessionDriverEvent, { type: "toolUpdated" }>);
 
-    await expect(transcript).toContainText("first line");
-    await expect(transcript).toContainText("second line");
+    await expect(runningToolButton).toHaveAttribute("aria-expanded", "false");
+    await expect(transcript).not.toContainText("live output one");
+
+    await runningToolButton.click();
+    await expect(runningToolButton).toHaveAttribute("aria-expanded", "true");
+    await expect(transcript).toContainText("live output one");
+    await expect(transcript).toContainText("live output two");
     await expect(transcript).not.toContainText('"command"');
   } finally {
     await harness.close();
