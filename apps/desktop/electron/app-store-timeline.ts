@@ -260,21 +260,32 @@ export function applyTimelineEvent(
     }
     case "toolUpdated": {
       const text = event.text ?? progressLabel(event.progress);
-      upsertToolRow(transcript, event.callId, undefined, "running", undefined, text, undefined, undefined, text, event.timestamp);
+      upsertToolRow(
+        transcript,
+        event.callId,
+        undefined,
+        "running",
+        undefined,
+        text ? truncate(text) : undefined,
+        undefined,
+        undefined,
+        text,
+        event.timestamp,
+      );
       break;
     }
     case "toolFinished": {
-      const text = detailFromOutput(event.output);
+      const outputText = textFromToolOutput(event.output);
       upsertToolRow(
         transcript,
         event.callId,
         undefined,
         event.success ? "success" : "error",
         undefined,
-        text,
+        detailFromOutput(event.output),
         undefined,
         event.output,
-        text,
+        outputText,
         event.timestamp,
       );
       break;
@@ -413,23 +424,26 @@ function progressLabel(progress: number | undefined): string | undefined {
   return String(progress);
 }
 
-function detailFromOutput(output: unknown): string | undefined {
+function textFromToolOutput(output: unknown): string | undefined {
   if (isRecord(output) && Array.isArray(output.content)) {
     const text = output.content
       .map((part) => (isRecord(part) && part.type === "text" && typeof part.text === "string" ? part.text : ""))
-      .join(" ")
+      .join("\n")
       .trim();
-    if (text) {
-      return truncate(text);
-    }
+    return text || undefined;
   }
   if (typeof output === "string") {
-    return truncate(output);
+    return output;
   }
   if (output === undefined || output === null) {
     return undefined;
   }
-  return truncate(JSON.stringify(output));
+  return JSON.stringify(output);
+}
+
+function detailFromOutput(output: unknown): string | undefined {
+  const text = textFromToolOutput(output);
+  return text ? truncate(text) : undefined;
 }
 
 function looksLikeSearch(toolName: string, input: unknown): boolean {
