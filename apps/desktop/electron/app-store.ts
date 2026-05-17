@@ -100,6 +100,7 @@ import * as worktree from "./app-store-worktree";
 import * as composer from "./app-store-composer";
 import { isSessionActivelyViewed } from "./session-visibility";
 import { AssistantDeltaBatcher } from "./assistant-delta-batcher";
+import type { MemoryMonitorStoreSnapshot } from "./memory-monitor";
 
 type StateListener = (state: DesktopAppState) => void;
 type SelectedTranscriptListener = (payload: SelectedTranscriptRecord | null) => void;
@@ -114,6 +115,88 @@ interface PersistedTranscriptRecord {
 }
 
 type PersistedTranscriptStoreValue = PersistedTranscriptRecord | readonly TranscriptMessage[];
+
+function buildTranscriptMemoryStats(
+  transcript: readonly TranscriptMessage[] | undefined,
+  loaded: boolean,
+): NonNullable<MemoryMonitorStoreSnapshot["selectedTranscript"]> {
+  if (!transcript) {
+    return {
+      loaded,
+      itemCount: 0,
+      approximateBytes: 0,
+      largestItemBytes: 0,
+      toolItemCount: 0,
+      messageItemCount: 0,
+      thinkingItemCount: 0,
+    };
+  }
+
+  let approximateBytes = 0;
+  let largestItemBytes = 0;
+  let largestItemKind: string | undefined;
+  let toolItemCount = 0;
+  let messageItemCount = 0;
+  let thinkingItemCount = 0;
+
+  for (const item of transcript) {
+    const itemBytes = approximateObjectBytes(item);
+    approximateBytes += itemBytes;
+    if (itemBytes > largestItemBytes) {
+      largestItemBytes = itemBytes;
+      largestItemKind = item.kind;
+    }
+    if (item.kind === "tool") {
+      toolItemCount += 1;
+    } else if (item.kind === "message") {
+      messageItemCount += 1;
+    } else if (item.kind === "thinking") {
+      thinkingItemCount += 1;
+    }
+  }
+
+  return {
+    loaded,
+    itemCount: transcript.length,
+    approximateBytes,
+    largestItemBytes,
+    ...(largestItemKind ? { largestItemKind } : {}),
+    toolItemCount,
+    messageItemCount,
+    thinkingItemCount,
+  };
+}
+
+function approximateObjectBytes(value: unknown, seen = new WeakSet<object>()): number {
+  if (typeof value === "string") {
+    return Buffer.byteLength(value, "utf8");
+  }
+  if (typeof value === "number") {
+    return 8;
+  }
+  if (typeof value === "boolean") {
+    return 4;
+  }
+  if (value === null || value === undefined) {
+    return 0;
+  }
+  if (typeof value !== "object") {
+    return Buffer.byteLength(String(value), "utf8");
+  }
+  if (seen.has(value)) {
+    return 0;
+  }
+  seen.add(value);
+
+  if (Array.isArray(value)) {
+    return value.reduce((total, item) => total + approximateObjectBytes(item, seen), 0);
+  }
+
+  return Object.entries(value).reduce(
+    (total, [key, nestedValue]) => total + Buffer.byteLength(key, "utf8") + approximateObjectBytes(nestedValue, seen),
+    0,
+  );
+}
 
 function isPersistedTranscriptRecord(value: PersistedTranscriptStoreValue): value is PersistedTranscriptRecord {
   if (Array.isArray(value)) {
@@ -274,6 +357,29 @@ export class DesktopAppStore implements AppStoreInternals {
     readonly assistantDeltaFlushCount: number;
   } {
     return { ...this.diagnostics };
+  }
+
+  getMemoryMonitorSnapshot(): MemoryMonitorStoreSnapshot {
+    const sessionRef = this.selectedSessionRef();
+    const key = sessionRef ? sessionKey(sessionRef) : undefined;
+    const transcript = key ? this.sessionState.transcriptCache.get(key) : undefined;
+    const selectedSession = sessionRef ? this.sessionFromState(sessionRef) : undefined;
+
+    return {
+      activeView: this.state.activeView,
+      revision: this.state.revision,
+      selectedWorkspaceId: this.state.selectedWorkspaceId,
+      selectedSessionId: this.state.selectedSessionId,
+      selectedSessionStatus: selectedSession?.status,
+      ...(key
+        ? {
+            selectedTranscript: buildTranscriptMemoryStats(
+              transcript,
+              this.sessionState.loadedTranscriptKeys.has(key),
+            ),
+          }
+        : {}),
+    };
   }
 
   subscribe(listener: StateListener): () => void {

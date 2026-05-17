@@ -32,6 +32,7 @@ import {
 import { checkForUpdate, initUpdateChecker } from "./update-checker";
 import { ThemeManager } from "./theme-manager";
 import { TerminalService } from "./terminal-service";
+import { startMemoryMonitor } from "./memory-monitor";
 import {
   attachWindowDiagnostics,
   configureDesktopDiagnostics,
@@ -72,6 +73,7 @@ let stopTrackingWindowActivation: (() => void) | undefined;
 let stopNotifications: (() => void) | undefined;
 let stopUpdateChecker: (() => void) | undefined;
 let stopPruningTerminals: (() => void) | undefined;
+let stopMemoryMonitor: (() => void) | undefined;
 let retainedTerminalWorkspacePathSignature = "";
 const terminalFocusedWebContentsIds = new Set<number>();
 let quittingAfterStoreFlush = false;
@@ -870,6 +872,11 @@ app.whenReady().then(async () => {
   });
 
   mainWindow = createWindow();
+  stopMemoryMonitor = startMemoryMonitor({
+    userDataDir: configuredUserDataDir,
+    getWindow: () => mainWindow,
+    getStoreSnapshot: () => store.getMemoryMonitorSnapshot(),
+  });
   notificationManager.trackWindow(mainWindow);
   notificationPermissionService.trackWindow(mainWindow);
   themeManager.setWindow(mainWindow);
@@ -901,6 +908,8 @@ app.on("window-all-closed", () => {
     stopUpdateChecker = undefined;
     stopPruningTerminals?.();
     stopPruningTerminals = undefined;
+    stopMemoryMonitor?.();
+    stopMemoryMonitor = undefined;
     terminalService?.dispose();
     terminalService = undefined;
     app.quit();
@@ -918,6 +927,8 @@ app.on("before-quit", (event) => {
   stopUpdateChecker = undefined;
   stopPruningTerminals?.();
   stopPruningTerminals = undefined;
+  stopMemoryMonitor?.();
+  stopMemoryMonitor = undefined;
   terminalService?.dispose();
   terminalService = undefined;
   if (quittingAfterStoreFlush || !store) {
