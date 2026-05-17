@@ -512,6 +512,7 @@ async function startVSCodeServer(serverKey: string, workspaceId: string, folderP
     if (isProcessAlive(existing)) {
       try {
         await waitForVSCodeWebReady(existing.port, 10_000);
+        await seedVSCodeBrowserSettings(existing.port);
         return existing.port;
       } catch {
         stopServer(existing);
