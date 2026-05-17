@@ -65,6 +65,8 @@ test("keeps assistant markdown from widening the chat surface", async () => {
           return {
             documentOverflows: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
             paneOverflows: pane.scrollWidth > pane.clientWidth + 1,
+            scrollbarLivesOutsideTranscript: paneRect.right - transcriptRect.right > 24,
+            transcriptNarrowerThanPane: transcriptRect.width < paneRect.width - 24,
             transcriptWithinPane: transcriptRect.right <= paneRect.right + 1,
             messagesWithinMain: widestMessageRight <= mainRect.right + 1,
           };
@@ -73,6 +75,8 @@ test("keeps assistant markdown from widening the chat surface", async () => {
       .toEqual({
         documentOverflows: false,
         paneOverflows: false,
+        scrollbarLivesOutsideTranscript: true,
+        transcriptNarrowerThanPane: true,
         transcriptWithinPane: true,
         messagesWithinMain: true,
       });

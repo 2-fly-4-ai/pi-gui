@@ -403,6 +403,7 @@
 .conversation--thread {
   display: flex;
   flex: 1 1 auto;
+  width: 100%;
   min-height: 0;
   min-width: 0;
   flex-direction: column;
@@ -595,7 +596,8 @@
   display: grid;
   gap: 14px;
   min-width: 0;
-  width: 100%;
+  width: min(920px, 100%);
+  margin: 0 auto;
 }
 
 .timeline--virtualized {
@@ -626,6 +628,14 @@
   flex: 1 1 auto;
   min-height: 0;
   max-height: none;
+  padding: 0 28px;
+  scroll-padding-inline: 28px;
+}
+
+.main:not(.main--with-diff):not(.main--with-vscode):not(.main--with-plan) .timeline-pane--thread {
+  margin-left: calc(50% - 50vw + 28px);
+  margin-right: calc(50% - 50vw + 28px);
+  width: calc(100vw - 56px);
 }
 
 .timeline-empty {
