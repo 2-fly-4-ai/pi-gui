@@ -17,11 +17,6 @@ interface ResolvedVSCodeServer {
   readonly folderPath: string;
 }
 
-function getVSCodeWorkbenchUrl(port: number, folderPath: string): string {
-  const params = new URLSearchParams({ folder: folderPath });
-  return `http://localhost:${port}/?${params.toString()}`;
-}
-
 export function VSCodePanel({
   api,
   workspaceId,
@@ -113,7 +108,7 @@ export function VSCodePanel({
             ) : null}
             <iframe
               className="display-mode-vscode__webview"
-              src={getVSCodeWorkbenchUrl(iframePort, folderPath)}
+              src={`http://localhost:${iframePort}/`}
               title="VS Code"
               allow="clipboard-read; clipboard-write"
               style={frameLoaded ? undefined : { opacity: 0 }}

@@ -26,13 +26,8 @@ const serverStartups = new Map<string, Promise<number>>();
 const preferredPort = 19538;
 let startupQueue: Promise<void> = Promise.resolve();
 
-function getServerKey(_workspaceId: string, _folderPath: string): string {
-  // VS Code Web stores application-level settings such as color theme in the
-  // browser origin. If every workspace gets a different localhost port, every
-  // workspace gets a fresh browser-side profile and can fall back to light mode.
-  // Keep one stable embedded VS Code origin and switch folders through the
-  // workbench URL instead.
-  return "stable-vscode-web-origin";
+function getServerKey(workspaceId: string, folderPath: string): string {
+  return `${workspaceId}:${path.resolve(folderPath)}`;
 }
 
 function findVSCodeServerInstall(): VSCodeServerInstall | null {
