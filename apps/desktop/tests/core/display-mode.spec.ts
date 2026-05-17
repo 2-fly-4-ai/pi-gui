@@ -1,5 +1,5 @@
-import { readFile } from "node:fs/promises";
-import { basename, join } from "node:path";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { basename, dirname, join } from "node:path";
 import { expect, test } from "@playwright/test";
 import type { SessionDriverEvent } from "@pi-gui/session-driver";
 import {
@@ -8,12 +8,19 @@ import {
   makeUserDataDir,
   makeWorkspace,
   seedTranscriptMessages,
+  selectSession,
   waitForWorkspaceByPath,
 } from "../helpers/electron-app";
 
 test("opens Display Mode from the sidebar and renders thread command-center tiles", async () => {
   const userDataDir = await makeUserDataDir();
   const workspacePath = await makeWorkspace("display-mode-workspace");
+  const tmpDir = dirname(workspacePath);
+  await writeFile(join(workspacePath, "README.md"), "first workspace readme");
+  const secondWorkspacePath = join(tmpDir, "second-workspace");
+  await mkdir(secondWorkspacePath, { recursive: true });
+  await writeFile(join(secondWorkspacePath, "README.md"), "second workspace readme");
+
   const harness = await launchDesktop(userDataDir, {
     initialWorkspaces: [workspacePath],
     testMode: "background",
@@ -23,18 +30,30 @@ test("opens Display Mode from the sidebar and renders thread command-center tile
     const window = await harness.firstWindow();
 
     await waitForWorkspaceByPath(window, workspacePath);
-    await window.evaluate(async ({ targetPath, title }) => {
+    await window.evaluate((workspacePath) => window.piApp?.addWorkspacePath(workspacePath), secondWorkspacePath);
+    await waitForWorkspaceByPath(window, secondWorkspacePath);
+    await window.evaluate(async ({ firstPath, secondPath, firstTitle, secondTitle }) => {
       const app = window.piApp;
       if (!app) {
         throw new Error("piApp IPC bridge is unavailable");
       }
       const state = await app.getState();
-      const workspace = state.workspaces.find((entry) => entry.path === targetPath);
-      if (!workspace) {
-        throw new Error(`Workspace not found: ${targetPath}`);
+      const firstWorkspace = state.workspaces.find((entry) => entry.path === firstPath);
+      const secondWorkspace = state.workspaces.find((entry) => entry.path === secondPath);
+      if (!firstWorkspace) {
+        throw new Error(`Workspace not found: ${firstPath}`);
       }
-      await app.createSession({ workspaceId: workspace.id, title });
-    }, { targetPath: workspacePath, title: "Display mode seed thread" });
+      if (!secondWorkspace) {
+        throw new Error(`Workspace not found: ${secondPath}`);
+      }
+      await app.createSession({ workspaceId: secondWorkspace.id, title: secondTitle });
+      await app.createSession({ workspaceId: firstWorkspace.id, title: firstTitle });
+    }, {
+      firstPath: workspacePath,
+      secondPath: secondWorkspacePath,
+      firstTitle: "Display mode seed thread",
+      secondTitle: "Second workspace seed thread",
+    });
     await expect.poll(async () => {
       return window.evaluate(({ targetPath, title }) => window.piApp?.getState().then((state) => {
         const workspace = state.workspaces.find((entry) => entry.path === targetPath);
@@ -67,7 +86,20 @@ test("opens Display Mode from the sidebar and renders thread command-center tile
     await expect(window.getByTestId("thread-vscode-panel")).toBeVisible();
     await expect(window.locator(".thread-vscode-panel .display-mode-vscode__webview")).toHaveAttribute("title", "VS Code", { timeout: 45_000 });
     const threadVsCodeFrame = window.frameLocator(".thread-vscode-panel .display-mode-vscode__webview");
-    await expect(threadVsCodeFrame.getByText("README.md")).toBeVisible({ timeout: 45_000 });
+    await threadVsCodeFrame.locator("[aria-label='Files Explorer'] a", { hasText: "README.md" }).first().click();
+    await expect(threadVsCodeFrame.getByText("first workspace readme")).toBeVisible({ timeout: 45_000 });
+
+    await selectSession(window, "Second workspace seed thread");
+    await expect(window.getByTestId("thread-vscode-panel")).toBeVisible();
+    const secondFrame = window.frameLocator(".thread-vscode-panel .display-mode-vscode__webview");
+    await secondFrame.locator("[aria-label='Files Explorer'] a", { hasText: "README.md" }).first().click();
+    await expect(secondFrame.getByText("second workspace readme")).toBeVisible({ timeout: 45_000 });
+
+    await selectSession(window, "Display mode seed thread");
+    await expect(window.getByTestId("thread-vscode-panel")).toBeVisible();
+    const firstFrameAgain = window.frameLocator(".thread-vscode-panel .display-mode-vscode__webview");
+    await firstFrameAgain.locator("[aria-label='Files Explorer'] a", { hasText: "README.md" }).first().click();
+    await expect(firstFrameAgain.getByText("first workspace readme")).toBeVisible({ timeout: 45_000 });
     await window.getByRole("button", { name: "Toggle VS Code panel" }).click();
     await expect(window.getByTestId("thread-vscode-panel")).toHaveCount(0);
     await window.getByRole("button", { name: "Open VS Code for thread" }).click();
@@ -133,7 +165,7 @@ test("opens Display Mode from the sidebar and renders thread command-center tile
 
     await window.getByTestId("display-mode-thread-tile").first().getByRole("button", { name: "VS Code" }).click();
     await expect(window.locator(".display-mode-vscode")).toBeVisible();
-    await expect(window.locator(".display-mode-vscode__webview")).toHaveAttribute("title", "VS Code");
+    await expect(window.locator(".display-mode-vscode .display-mode-vscode__webview")).toHaveAttribute("title", "VS Code");
     await expect.poll(async () => window.evaluate(() => {
       const surface = document.querySelector<HTMLElement>(".display-mode");
       const panel = document.querySelector<HTMLElement>(".display-mode-vscode");
@@ -149,10 +181,11 @@ test("opens Display Mode from the sidebar and renders thread command-center tile
     const settings = JSON.parse(await readFile(join(userDataDir, "vscode-serve-web", "user-data", "User", "settings.json"), "utf8")) as Record<string, unknown>;
     expect(settings["security.workspace.trust.enabled"]).toBe(false);
     expect(settings["workbench.colorTheme"]).toBe("Default Dark Modern");
-    const displayVsCodeFrame = window.frameLocator(".display-mode-vscode__webview");
+    const displayVsCodeFrame = window.frameLocator(".display-mode-vscode .display-mode-vscode__webview");
+    await displayVsCodeFrame.locator("[aria-label='Files Explorer'] a", { hasText: "README.md" }).first().click();
     await expect(displayVsCodeFrame.getByText("workbench failed to connect")).toHaveCount(0);
     await expect(displayVsCodeFrame.getByText("Do you trust the authors")).toHaveCount(0);
-    await expect(displayVsCodeFrame.getByText("README.md")).toBeVisible({ timeout: 45_000 });
+    await expect(displayVsCodeFrame.getByText("first workspace readme")).toBeVisible({ timeout: 45_000 });
   } finally {
     await harness.close();
   }
