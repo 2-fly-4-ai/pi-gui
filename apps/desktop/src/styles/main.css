@@ -393,6 +393,8 @@
   min-height: 0;
   min-width: 0;
   overflow: hidden;
+  padding: 20px 0 0;
+  scrollbar-gutter: auto;
 }
 
 .conversation {
@@ -632,11 +634,6 @@
   scroll-padding-inline: 28px;
 }
 
-.main:not(.main--with-diff):not(.main--with-vscode):not(.main--with-plan) .timeline-pane--thread {
-  margin-left: calc(50% - 50vw + 28px);
-  margin-right: calc(50% - 50vw + 28px);
-  width: calc(100vw - 56px);
-}
 
 .timeline-empty {
   color: var(--muted);
