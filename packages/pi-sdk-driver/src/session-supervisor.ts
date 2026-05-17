@@ -1352,6 +1352,7 @@ export class SessionSupervisor {
           }, record);
         }
         if (event.assistantMessageEvent.type === "thinking_start") {
+          traceSessionStreamEvent("thinking_start", { sessionId: record.ref.sessionId });
           return toDriverEvents({
             type: "assistantThinkingStarted" as const,
             sessionRef: record.ref,
@@ -1359,6 +1360,10 @@ export class SessionSupervisor {
           }, record);
         }
         if (event.assistantMessageEvent.type === "thinking_delta") {
+          traceSessionStreamEvent("thinking_delta", {
+            sessionId: record.ref.sessionId,
+            bytes: Buffer.byteLength(event.assistantMessageEvent.delta ?? ""),
+          });
           return toDriverEvents({
             type: "assistantThinkingDelta" as const,
             sessionRef: record.ref,
@@ -1388,6 +1393,12 @@ export class SessionSupervisor {
         }, record);
       case "tool_execution_update": {
         const text = extractToolResultText(event.partialResult);
+        traceSessionStreamEvent("tool_execution_update", {
+          sessionId: record.ref.sessionId,
+          callId: event.toolCallId,
+          textBytes: text ? Buffer.byteLength(text) : 0,
+          progress: typeof event.partialResult === "number" ? event.partialResult : undefined,
+        });
         return toDriverEvents({
           type: "toolUpdated" as const,
           sessionRef: record.ref,
@@ -2015,6 +2026,19 @@ function reconcileQueuedMessagesForStartedUserMessage(
   }
 
   return undefined;
+}
+
+function traceSessionStreamEvent(label: string, payload: Record<string, unknown>): void {
+  if (process.env.PI_GUI_SESSION_EVENT_TRACE !== "1") {
+    return;
+  }
+  const printable = Object.fromEntries(
+    Object.entries(payload).map(([key, value]) => [
+      key,
+      typeof value === "string" && value.length > 500 ? `${value.slice(0, 500)}…` : value,
+    ]),
+  );
+  console.debug(`[pi-gui session-stream] ${label}`, printable);
 }
 
 function extractToolResultText(result: unknown): string | undefined {
