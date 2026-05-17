@@ -233,7 +233,7 @@ export default function App() {
   const [showJumpToLatest, setShowJumpToLatest] = useState(false);
   const [showDiffPanel, setShowDiffPanel] = useState(false);
   const [planPanelOpen, setPlanPanelOpen] = useState(false);
-  const [dmDrawerOpen, setDmDrawerOpen] = useState(() => { try { return localStorage.getItem("dm:drawerOpen") !== "false"; } catch { return true; } });
+  const [dmDrawerOpen, setDmDrawerOpen] = useState(() => { try { return localStorage.getItem("dm:drawerOpen") === "true"; } catch { return false; } });
   const toggleDmDrawer = useCallback(() => { setDmDrawerOpen((o) => { try { localStorage.setItem("dm:drawerOpen", String(!o)); } catch {} return !o; }); }, []);
   const [vsCodeOpen, setVsCodeOpen] = useState(false);
   const [vsCodeWorkspaceId, setVsCodeWorkspaceId] = useState<string | null>(null);
