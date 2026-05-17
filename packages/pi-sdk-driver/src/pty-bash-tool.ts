@@ -13,7 +13,7 @@ interface PtyBashOptions {
 export function createPtyBashToolDefinition(cwd: string, options: PtyBashOptions = {}) {
   return defineTool(createBashToolDefinition(cwd, {
     operations: createPtyBashOperations(options),
-    shellPath: options.shellPath,
+    ...(options.shellPath !== undefined ? { shellPath: options.shellPath } : {}),
   }));
 }
 
