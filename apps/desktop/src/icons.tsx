@@ -16,6 +16,14 @@ export function PlusIcon() {
   );
 }
 
+export function EllipsisIcon() {
+  return (
+    <Icon>
+      <path d="M5.4 10h.1M10 10h.1M14.6 10h.1" stroke="currentColor" strokeLinecap="round" strokeWidth="2.2" />
+    </Icon>
+  );
+}
+
 export function TerminalIcon() {
   return (
     <Icon>

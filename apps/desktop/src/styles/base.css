@@ -229,16 +229,18 @@ svg {
 }
 
 .button--cta-icon {
-  width: 64px;
-  min-width: 64px;
+  width: 36px;
+  min-width: 36px;
+  min-height: 36px;
   padding: 0;
   display: inline-grid;
   place-items: center;
+  border-radius: 12px;
 }
 
 .button--cta-icon svg {
-  width: 18px;
-  height: 18px;
+  width: 17px;
+  height: 17px;
 }
 
 .meta-chip {

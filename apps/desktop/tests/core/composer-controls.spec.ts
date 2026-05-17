@@ -185,6 +185,71 @@ test("supports keyboard shortcuts, slash menus, and topbar controls through the 
   }
 });
 
+test("composer keeps narrow widths friendly by collapsing secondary controls", async () => {
+  test.setTimeout(60_000);
+  const userDataDir = await makeUserDataDir();
+  const agentDir = join(userDataDir, "agent");
+  const workspacePath = await makeWorkspace("compact-composer-workspace");
+  await seedAgentDir(agentDir);
+  const harness = await launchDesktop(userDataDir, {
+    agentDir,
+    initialWorkspaces: [workspacePath],
+    testMode: "background",
+  });
+
+  try {
+    const window = await harness.firstWindow();
+    await createNamedThread(window, "Compact composer session");
+
+    await harness.electronApp.evaluate(({ BrowserWindow }) => {
+      const browserWindow = BrowserWindow.getAllWindows()[0];
+      browserWindow?.setMinimumSize(520, 640);
+      browserWindow?.setBounds({ width: 560, height: 760 });
+    });
+
+    await expect
+      .poll(() =>
+        window.evaluate(() =>
+          document.querySelector(".composer-control-bar")?.classList.contains("composer-control-bar--compact") ?? false,
+        ),
+      )
+      .toBe(true);
+
+    const compactMetrics = await window.evaluate(() => {
+      const bar = document.querySelector<HTMLElement>(".composer-control-bar");
+      const send = document.querySelector<HTMLElement>("[data-testid='send']");
+      if (!bar || !send) {
+        throw new Error("Compact composer controls were not rendered");
+      }
+      const sendBox = send.getBoundingClientRect();
+      const sendStyles = getComputedStyle(send);
+      return {
+        barClientWidth: Math.ceil(bar.clientWidth),
+        barScrollWidth: Math.ceil(bar.scrollWidth),
+        sendHeight: Math.round(sendBox.height),
+        sendRadius: Number.parseFloat(sendStyles.borderTopLeftRadius),
+        sendWidth: Math.round(sendBox.width),
+      };
+    });
+
+    expect(compactMetrics.barScrollWidth).toBeLessThanOrEqual(compactMetrics.barClientWidth + 1);
+    expect(compactMetrics.sendWidth).toBe(36);
+    expect(compactMetrics.sendHeight).toBe(36);
+    expect(compactMetrics.sendRadius).toBeGreaterThanOrEqual(10);
+
+    await window.getByTestId("composer-more-controls").click();
+    const compactMenu = window.getByTestId("composer-control-menu");
+    await expect(compactMenu).toBeVisible();
+    await expect(compactMenu).toContainText("Reasoning");
+    await expect(compactMenu).toContainText("Fast Mode");
+    await expect(compactMenu).toContainText("Mode");
+    await expect(compactMenu).toContainText("Access");
+    await expect(compactMenu).toContainText("Attach files");
+  } finally {
+    await harness.close();
+  }
+});
+
 test("dark mode keeps the send button visible before and after typing", async () => {
   test.setTimeout(60_000);
   const userDataDir = await makeUserDataDir();
