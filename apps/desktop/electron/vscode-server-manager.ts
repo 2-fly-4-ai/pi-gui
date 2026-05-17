@@ -281,6 +281,36 @@ function getVSCodeBrowserSettings(): Record<string, unknown> {
   };
 }
 
+function getVSCodeDarkSplash(): Record<string, unknown> {
+  return {
+    baseTheme: "vs-dark",
+    colorInfo: {
+      foreground: "#cccccc",
+      background: "#1f1f1f",
+      editorBackground: "#1f1f1f",
+      titleBarBackground: "#181818",
+      titleBarBorder: "#2b2b2b",
+      activityBarBackground: "#181818",
+      activityBarBorder: "#2b2b2b",
+      sideBarBackground: "#181818",
+      sideBarBorder: "#2b2b2b",
+      statusBarBackground: "#181818",
+      statusBarBorder: "#2b2b2b",
+      statusBarNoFolderBackground: "#181818",
+    },
+    layoutInfo: {
+      sideBarSide: "left",
+      editorPartMinWidth: 220,
+      titleBarHeight: 35,
+      activityBarWidth: 48,
+      sideBarWidth: 200,
+      auxiliaryBarWidth: 200,
+      statusBarHeight: 22,
+      windowBorder: false,
+    },
+  };
+}
+
 function ensureVSCodeDefaultSettings(settingsPath: string): void {
   const settings = readVSCodeSettings(settingsPath);
 
@@ -359,6 +389,7 @@ async function seedVSCodeBrowserSettings(port: number): Promise<void> {
         show: false,
         width: 400,
         height: 300,
+        backgroundColor: "#1f1f1f",
         webPreferences: {
           sandbox: true,
           contextIsolation: true,
@@ -371,6 +402,8 @@ async function seedVSCodeBrowserSettings(port: number): Promise<void> {
         await win.webContents.executeJavaScript(`
           (async () => {
             const settings = ${JSON.stringify(JSON.stringify(getVSCodeBrowserSettings(), null, 2))};
+            const splash = ${JSON.stringify(JSON.stringify(getVSCodeDarkSplash()))};
+            localStorage.setItem("monaco-parts-splash", splash);
             const db = await new Promise((resolve, reject) => {
               const request = indexedDB.open("vscode-web-db");
               request.onupgradeneeded = () => {
