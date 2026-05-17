@@ -139,11 +139,13 @@ function TimelineMessage({ item }: { readonly item: SessionTranscriptMessage }) 
 function TimelineThinkingItem({ item }: { readonly item: Extract<TranscriptMessage, { kind: "thinking" }> }) {
   const running = item.status === "running";
   const body = item.text.trim() || "Thinking…";
+  const elapsed = useElapsedLabel(item.createdAt, running);
   return (
     <article className={`timeline-item timeline-item--thinking${running ? " timeline-item--thinking-running" : ""}`}>
       <div className="timeline-thinking__header">
         <img className="timeline-thinking__icon" src={ninjaStarUrl} alt="" aria-hidden="true" />
         <span>{running ? "Thinking…" : "Thinking"}</span>
+        {running ? <span className="timeline-thinking__elapsed">{elapsed}</span> : null}
       </div>
       <div className="timeline-thinking__body">
         <MessageMarkdown text={body} />

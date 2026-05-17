@@ -68,6 +68,52 @@ test("toggles assistant thinking blocks in the chat", async () => {
   }
 });
 
+test("shows thinking immediately before thinking text arrives", async () => {
+  const userDataDir = await makeUserDataDir();
+  const workspacePath = await makeWorkspace("timeline-thinking-start-workspace");
+  const harness = await launchDesktop(userDataDir, {
+    initialWorkspaces: [workspacePath],
+    testMode: "background",
+  });
+
+  try {
+    const window = await harness.firstWindow();
+    await waitForWorkspaceByPath(window, workspacePath);
+    await createSessionViaIpc(window, workspacePath, "Thinking starts immediately");
+
+    const toggle = window.getByTestId("thinking-trace-toggle");
+    await toggle.click();
+    await expect(toggle).toHaveAttribute("aria-pressed", "true");
+
+    const state = await getDesktopState(window);
+    const sessionRef = {
+      workspaceId: state.selectedWorkspaceId,
+      sessionId: state.selectedSessionId,
+    };
+
+    await emitTestSessionEvent(harness, {
+      type: "assistantThinkingStarted",
+      sessionRef,
+      timestamp: new Date().toISOString(),
+    } satisfies Extract<SessionDriverEvent, { type: "assistantThinkingStarted" }>);
+
+    const transcript = window.getByTestId("transcript");
+    await expect(transcript).toContainText("Thinking…");
+    await expect(transcript.locator(".timeline-thinking__elapsed")).toContainText(/\d+s/);
+
+    await emitTestSessionEvent(harness, {
+      type: "assistantThinkingDelta",
+      sessionRef,
+      timestamp: new Date().toISOString(),
+      text: "Checking deployment state before choosing a command.",
+    } satisfies Extract<SessionDriverEvent, { type: "assistantThinkingDelta" }>);
+
+    await expect(transcript).toContainText("Checking deployment state before choosing a command.");
+  } finally {
+    await harness.close();
+  }
+});
+
 test("shows running command output without foregrounding raw JSON", async () => {
   const userDataDir = await makeUserDataDir();
   const workspacePath = await makeWorkspace("timeline-tool-output-workspace");
