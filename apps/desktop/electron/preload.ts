@@ -4,6 +4,7 @@ import {
   desktopIpc,
   type DesktopNotificationPermissionStatus,
   type PiDesktopCommand,
+  type RendererDiagnosticPayload,
   type TerminalDataEvent,
   type TerminalErrorEvent,
   type TerminalExitEvent,
@@ -66,6 +67,9 @@ function subscribeIpc<T>(channel: string, listener: (payload: T) => void): () =>
 contextBridge.exposeInMainWorld("piApp", {
   platform: process.platform,
   versions: process.versions,
+  reportRendererDiagnostic: (payload: RendererDiagnosticPayload) => {
+    ipcRenderer.send(desktopIpc.rendererDiagnostic, payload);
+  },
   ping: () => ipcRenderer.invoke(desktopIpc.ping) as Promise<string>,
   getState: () => ipcRenderer.invoke(desktopIpc.stateRequest) as Promise<DesktopAppState>,
   onStateChanged: (listener: (state: DesktopAppState) => void) => {

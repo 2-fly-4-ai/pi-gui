@@ -31,6 +31,7 @@ export type DesktopNotificationPermissionStatus =
   | "unknown";
 
 export const desktopIpc = {
+  rendererDiagnostic: "pi-gui:renderer-diagnostic",
   stateRequest: "pi-gui:state-request",
   stateChanged: "pi-gui:state-changed",
   selectedTranscriptRequest: "pi-gui:selected-transcript-request",
@@ -155,6 +156,19 @@ export type PiDesktopStateListener = (state: DesktopAppState) => void;
 export type PiDesktopSelectedTranscriptListener = (payload: SelectedTranscriptRecord | null) => void;
 export type PiDesktopCommand = (typeof desktopCommands)[keyof typeof desktopCommands];
 
+export interface RendererDiagnosticPayload {
+  readonly kind: string;
+  readonly message?: string;
+  readonly stack?: string;
+  readonly componentStack?: string;
+  readonly filename?: string;
+  readonly lineno?: number;
+  readonly colno?: number;
+  readonly href?: string;
+  readonly userAgent?: string;
+  readonly timestamp?: string;
+}
+
 export interface TerminalSize {
   readonly cols: number;
   readonly rows: number;
@@ -243,6 +257,7 @@ export function getDesktopCommandFromShortcut(input: DesktopShortcutInput): PiDe
 export interface PiDesktopApi {
   platform: NodeJS.Platform;
   versions: NodeJS.ProcessVersions;
+  reportRendererDiagnostic(payload: RendererDiagnosticPayload): void;
   ping(): Promise<string>;
   getState(): Promise<DesktopAppState>;
   onStateChanged(listener: PiDesktopStateListener): () => void;

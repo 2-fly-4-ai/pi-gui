@@ -32,6 +32,12 @@ import {
 import { checkForUpdate, initUpdateChecker } from "./update-checker";
 import { ThemeManager } from "./theme-manager";
 import { TerminalService } from "./terminal-service";
+import {
+  attachWindowDiagnostics,
+  configureDesktopDiagnostics,
+  registerProcessDiagnostics,
+  reportRendererDiagnostic,
+} from "./diagnostics";
 import type { DesktopAppState, ThemeMode } from "../src/desktop-state";
 import { desktopIpc, getDesktopCommandFromShortcut } from "../src/ipc";
 import { SUPPORTED_COMPOSER_IMAGE_TYPES } from "../src/composer-attachments";
@@ -155,6 +161,8 @@ function createWindow(): BrowserWindow {
       backgroundThrottling: !backgroundTestMode,
     },
   });
+
+  attachWindowDiagnostics(window);
 
   window.once("ready-to-show", () => {
     if (!backgroundTestMode) {
@@ -395,6 +403,7 @@ app.setName("pi");
 
 const configuredUserDataDir = process.env.PI_APP_USER_DATA_DIR?.trim() || app.getPath("userData");
 app.setPath("userData", configuredUserDataDir);
+configureDesktopDiagnostics({ userDataDir: configuredUserDataDir });
 
 const hasSingleInstanceLock = app.requestSingleInstanceLock();
 if (!hasSingleInstanceLock) {
@@ -423,6 +432,7 @@ app.whenReady().then(async () => {
   if (process.platform === "darwin" && !app.isPackaged) {
     app.dock?.setIcon(appIcon);
   }
+  registerProcessDiagnostics();
 
   let generateThreadTitleOverride:
     | ((workspace: WorkspaceRef, options: GenerateThreadTitleOptions) => Promise<string | null | undefined>)
@@ -494,6 +504,7 @@ app.whenReady().then(async () => {
     stopUpdateChecker = initUpdateChecker();
   }
 
+  ipcMain.on(desktopIpc.rendererDiagnostic, reportRendererDiagnostic);
   ipcMain.handle(desktopIpc.ping, () =>
     devReloadMarkersEnabled ? `pi desktop ready:${MAIN_DEV_RELOAD_MARKER}` : "pi desktop ready",
   );
