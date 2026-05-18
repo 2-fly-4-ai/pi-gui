@@ -16,8 +16,10 @@ import {
   type StartThreadInput,
   type WorktreeRecord,
   type WorkspaceRecord,
+  type WorkspaceSessionTarget,
 } from "./desktop-state";
 import type { AgentDefinitionsSnapshot, DeleteAgentDefinitionInput, ResetAgentDefinitionInput, SaveAgentDefinitionInput } from "./agent-definitions";
+import type { RunSubagentWorkflowInput, SubagentRunRecord } from "./subagent-workflows";
 import { AddActionDialog } from "./add-action-dialog";
 import { CommandPalette } from "./command-palette";
 import type { CommandPaletteAction } from "./command-palette-model";
@@ -215,6 +217,9 @@ export default function App() {
   const [agentDefinitions, setAgentDefinitions] = useState<AgentDefinitionsSnapshot | undefined>();
   const [agentDefinitionsPending, setAgentDefinitionsPending] = useState(false);
   const [agentDefinitionsError, setAgentDefinitionsError] = useState<string | undefined>();
+  const [subagentRuns, setSubagentRuns] = useState<readonly SubagentRunRecord[]>([]);
+  const [subagentRunsPending, setSubagentRunsPending] = useState(false);
+  const [subagentRunsError, setSubagentRunsError] = useState<string | undefined>();
   const [addActionDialogOpen, setAddActionDialogOpen] = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [settingsSection, setSettingsSection] = useState<SettingsSection>("general");
@@ -561,11 +566,27 @@ export default function App() {
     }).finally(() => setAgentDefinitionsPending(false));
   }, [api]);
 
+  const loadSubagentRuns = useCallback((workspaceId?: string) => {
+    if (!api || !workspaceId) {
+      setSubagentRuns([]);
+      setSubagentRunsError(undefined);
+      setSubagentRunsPending(false);
+      return;
+    }
+    setSubagentRunsPending(true);
+    setSubagentRunsError(undefined);
+    void api.listSubagentRuns(workspaceId).then(setSubagentRuns).catch((error) => {
+      setSubagentRunsError(error instanceof Error ? error.message : String(error));
+      console.warn("Failed to load subagent runs", error);
+    }).finally(() => setSubagentRunsPending(false));
+  }, [api]);
+
   useEffect(() => {
     if (snapshot?.activeView === "settings" && settingsSection === "agents") {
       loadAgentDefinitions(settingsWorkspace?.id);
+      loadSubagentRuns(settingsWorkspace?.id);
     }
-  }, [loadAgentDefinitions, settingsSection, settingsWorkspace?.id, snapshot?.activeView]);
+  }, [loadAgentDefinitions, loadSubagentRuns, settingsSection, settingsWorkspace?.id, snapshot?.activeView]);
 
   const skillsRuntime = skillsWorkspace ? snapshot?.runtimeByWorkspace[skillsWorkspace.id] : undefined;
   const extensionsRuntime = extensionsWorkspace ? snapshot?.runtimeByWorkspace[extensionsWorkspace.id] : undefined;
@@ -2385,6 +2406,33 @@ export default function App() {
     }
   };
 
+  const handleRunSubagentWorkflow = async (input: RunSubagentWorkflowInput) => {
+    if (!api || !settingsWorkspace) {
+      return;
+    }
+    setSubagentRunsPending(true);
+    setSubagentRunsError(undefined);
+    try {
+      setSubagentRuns(await api.runSubagentWorkflow(settingsWorkspace.id, input));
+    } catch (error) {
+      setSubagentRunsError(error instanceof Error ? error.message : String(error));
+      console.warn("Failed to run subagent workflow", error);
+      throw error;
+    } finally {
+      setSubagentRunsPending(false);
+    }
+  };
+
+  const handleOpenSubagentRunTarget = (target: WorkspaceSessionTarget) => {
+    if (!api) {
+      return;
+    }
+    void updateSnapshot(api, setSnapshot, async () => {
+      await api.selectSession(target);
+      return api.setActiveView("threads");
+    }).then(() => focusComposer());
+  };
+
   const handleSetModelSettingsScopeMode = (mode: "app-global" | "per-repo") => {
     if (!api) {
       return;
@@ -2788,6 +2836,10 @@ export default function App() {
           agentDefinitions={agentDefinitions}
           agentDefinitionsPending={agentDefinitionsPending}
           agentDefinitionsError={agentDefinitionsError}
+          selectedSessionId={selectedWorkspace?.id === settingsWorkspace?.id ? selectedSession?.id : undefined}
+          subagentRuns={subagentRuns}
+          subagentRunsPending={subagentRunsPending}
+          subagentRunsError={subagentRunsError}
           notificationPermissionStatus={notificationPermissionStatus}
           notificationPermissionPending={notificationPermissionPending}
           modelSettingsScopeMode={snapshot.modelSettingsScopeMode}
@@ -2810,6 +2862,8 @@ export default function App() {
           onSaveAgentDefinition={handleSaveAgentDefinition}
           onResetAgentDefinition={handleResetAgentDefinition}
           onDeleteAgentDefinition={handleDeleteAgentDefinition}
+          onRunWorkflow={handleRunSubagentWorkflow}
+          onOpenRunTarget={handleOpenSubagentRunTarget}
           onOpenAgentsSettings={() => setSettingsSection("agents")}
         />
         </SecondarySurface>

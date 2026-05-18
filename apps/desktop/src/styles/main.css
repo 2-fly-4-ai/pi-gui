@@ -6574,6 +6574,38 @@ mark.thread-find-active {
 }
 
 
+.settings-tabs {
+  display: flex;
+  gap: 8px;
+  margin: 0 0 16px;
+}
+
+.subagent-workflow-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
+}
+
+.subagent-workflow-card {
+  display: grid;
+  gap: 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  padding: 14px;
+  background: var(--surface-muted);
+}
+
+.subagent-workflow-card h3 {
+  margin: 0;
+  color: var(--text-strong);
+}
+
+.subagent-workflow-card p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
 .agent-definitions-list {
   display: grid;
   gap: 10px;

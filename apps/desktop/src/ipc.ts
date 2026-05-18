@@ -22,6 +22,7 @@ import type {
 } from "./desktop-state";
 import type { AgentDefinitionsSnapshot, DeleteAgentDefinitionInput, ResetAgentDefinitionInput, SaveAgentDefinitionInput } from "./agent-definitions";
 import type { CreateReviewSnapshotOptions, ReviewSnapshot } from "./review/review-types";
+import type { RunSubagentWorkflowInput, SubagentRunRecord } from "./subagent-workflows";
 
 export type DesktopNotificationPermissionStatus =
   | "granted"
@@ -88,6 +89,8 @@ export const desktopIpc = {
   saveAgentDefinition: "pi-gui:save-agent-definition",
   resetAgentDefinition: "pi-gui:reset-agent-definition",
   deleteAgentDefinition: "pi-gui:delete-agent-definition",
+  listSubagentRuns: "pi-gui:list-subagent-runs",
+  runSubagentWorkflow: "pi-gui:run-subagent-workflow",
   respondToHostUiRequest: "pi-gui:respond-to-host-ui-request",
   setNotificationPreferences: "pi-gui:set-notification-preferences",
   setIntegratedTerminalShell: "pi-gui:set-integrated-terminal-shell",
@@ -332,6 +335,8 @@ export interface PiDesktopApi {
   saveAgentDefinition(workspaceId: string, input: SaveAgentDefinitionInput): Promise<AgentDefinitionsSnapshot>;
   resetAgentDefinition(workspaceId: string, input: ResetAgentDefinitionInput): Promise<AgentDefinitionsSnapshot>;
   deleteAgentDefinition(workspaceId: string, input: DeleteAgentDefinitionInput): Promise<AgentDefinitionsSnapshot>;
+  listSubagentRuns(workspaceId: string): Promise<readonly SubagentRunRecord[]>;
+  runSubagentWorkflow(workspaceId: string, input: RunSubagentWorkflowInput): Promise<readonly SubagentRunRecord[]>;
   respondToHostUiRequest(
     workspaceId: string,
     sessionId: string,

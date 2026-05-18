@@ -459,3 +459,41 @@ This file should not partially parse.
     await harness.close();
   }
 });
+
+test("settings subagents submits a built-in workflow and shows a run record", async () => {
+  test.setTimeout(60_000);
+  const userDataDir = await makeUserDataDir();
+  const agentDir = join(userDataDir, "agent");
+  const workspacePath = await makeWorkspace("subagent-workflow-workspace");
+  await seedAgentDir(agentDir, { enabledModels: ["openai/gpt-5"] });
+
+  const harness = await launchDesktop(userDataDir, {
+    agentDir,
+    initialWorkspaces: [workspacePath],
+    testMode: "background",
+  });
+
+  try {
+    const window = await harness.firstWindow();
+    await createNamedThread(window, "Workflow target session");
+    await window.getByRole("button", { name: "Settings", exact: true }).click();
+    await window.getByRole("button", { name: "Subagents", exact: true }).click();
+    await window.getByRole("tab", { name: "Workflows" }).click();
+
+    const card = window.getByTestId("subagent-workflow-scout-then-plan");
+    await expect(card).toContainText("Scout then plan");
+    await card.getByRole("button", { name: "Run workflow" }).click();
+
+    await window.getByRole("tab", { name: "Runs" }).click();
+    const run = window.getByTestId("subagent-run-row").first();
+    await expect(run).toContainText("Scout then plan");
+    await expect(run).toContainText("submitted");
+    await expect(run).toContainText("scout → planner");
+    await expect(run.getByRole("button", { name: "Open transcript" })).toBeVisible();
+
+    await window.getByRole("button", { name: "Back to app", exact: true }).click();
+    await expect(window.locator(".timeline")).toContainText("SUBAGENT_WORKFLOW_RUN");
+  } finally {
+    await harness.close();
+  }
+});

@@ -2,6 +2,7 @@ import type { RuntimeSettingsSnapshot, RuntimeSnapshot } from "@pi-gui/session-d
 import type { AgentDefinitionsSnapshot, DeleteAgentDefinitionInput, ResetAgentDefinitionInput, SaveAgentDefinitionInput } from "./agent-definitions";
 import type { ModelSettingsScopeMode, NotificationPreferences, WorkspaceRecord } from "./desktop-state";
 import type { DesktopNotificationPermissionStatus } from "./ipc";
+import type { RunSubagentWorkflowInput, SubagentRunRecord } from "./subagent-workflows";
 import { SettingsAgentsSection } from "./settings-agents-section";
 import { SettingsAppearanceSection } from "./settings-appearance-section";
 import { SettingsGeneralSection } from "./settings-general-section";
@@ -22,6 +23,10 @@ interface SettingsViewProps {
   readonly agentDefinitions?: AgentDefinitionsSnapshot;
   readonly agentDefinitionsPending: boolean;
   readonly agentDefinitionsError?: string;
+  readonly selectedSessionId?: string;
+  readonly subagentRuns: readonly SubagentRunRecord[];
+  readonly subagentRunsPending: boolean;
+  readonly subagentRunsError?: string;
   readonly modelSettingsScopeMode: ModelSettingsScopeMode;
   readonly integratedTerminalShell: string;
   readonly themeMode: "system" | "light" | "dark";
@@ -42,6 +47,8 @@ interface SettingsViewProps {
   readonly onSaveAgentDefinition: (input: SaveAgentDefinitionInput) => Promise<void>;
   readonly onResetAgentDefinition: (input: ResetAgentDefinitionInput) => Promise<void>;
   readonly onDeleteAgentDefinition: (input: DeleteAgentDefinitionInput) => Promise<void>;
+  readonly onRunWorkflow: (input: RunSubagentWorkflowInput) => Promise<void>;
+  readonly onOpenRunTarget: (target: SubagentRunRecord["target"]) => void;
   readonly onOpenAgentsSettings: () => void;
 }
 
@@ -55,6 +62,10 @@ export function SettingsView({
   agentDefinitions,
   agentDefinitionsPending,
   agentDefinitionsError,
+  selectedSessionId,
+  subagentRuns,
+  subagentRunsPending,
+  subagentRunsError,
   modelSettingsScopeMode,
   integratedTerminalShell,
   themeMode,
@@ -75,6 +86,8 @@ export function SettingsView({
   onSaveAgentDefinition,
   onResetAgentDefinition,
   onDeleteAgentDefinition,
+  onRunWorkflow,
+  onOpenRunTarget,
   onOpenAgentsSettings,
 }: SettingsViewProps) {
   if (!workspace && section !== "general" && section !== "notifications" && section !== "appearance") {
@@ -147,9 +160,16 @@ export function SettingsView({
               snapshot={agentDefinitions}
               pending={agentDefinitionsPending}
               error={agentDefinitionsError}
+              workspaceId={workspace?.id}
+              selectedSessionId={selectedSessionId}
+              subagentRuns={subagentRuns}
+              subagentRunsPending={subagentRunsPending}
+              subagentRunsError={subagentRunsError}
               onSave={onSaveAgentDefinition}
               onReset={onResetAgentDefinition}
               onDelete={onDeleteAgentDefinition}
+              onRunWorkflow={onRunWorkflow}
+              onOpenRunTarget={onOpenRunTarget}
             />
           ) : null}
 
