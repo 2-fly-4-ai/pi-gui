@@ -192,7 +192,11 @@ function parseAgentDefinition(name: string, raw: string): AgentDefinitionConfig 
     Object.entries(frontmatter).filter(([key]) => !KNOWN_FRONTMATTER_KEYS.has(key)),
   );
   const extraFrontmatterLines = collectUnknownFrontmatterLines(frontmatterSource);
+  const contextMode = parseContextMode(frontmatter.context_mode);
+  const output = parseOutputMode(frontmatter.output);
+  const defaultProgress = parseProgressMode(frontmatter.default_progress);
   const maxSubagentDepth = parseOptionalMaxSubagentDepth(frontmatter.max_subagent_depth);
+  const maxTurns = parsePositiveInteger(frontmatter.max_turns);
 
   return {
     name,
@@ -210,24 +214,20 @@ function parseAgentDefinition(name: string, raw: string): AgentDefinitionConfig 
     ...(frontmatter.system_prompt_mode === "append" || frontmatter.system_prompt_mode === "replace"
       ? { systemPromptMode: frontmatter.system_prompt_mode }
       : {}),
-    ...(parseContextMode(frontmatter.context_mode) ? { contextMode: parseContextMode(frontmatter.context_mode) } : {}),
+    ...(contextMode ? { contextMode } : {}),
     ...(typeof frontmatter.inherit_project_context === "boolean"
       ? { inheritProjectContext: frontmatter.inherit_project_context }
       : {}),
     ...(typeof frontmatter.fallback_models === "string"
       ? { fallbackModels: parseModelList(frontmatter.fallback_models) }
       : {}),
-    ...(parseOutputMode(frontmatter.output) ? { output: parseOutputMode(frontmatter.output) } : {}),
+    ...(output ? { output } : {}),
     ...(typeof frontmatter.default_reads === "string"
       ? { defaultReads: parseStringList(frontmatter.default_reads) }
       : {}),
-    ...(parseProgressMode(frontmatter.default_progress)
-      ? { defaultProgress: parseProgressMode(frontmatter.default_progress) }
-      : {}),
+    ...(defaultProgress ? { defaultProgress } : {}),
     ...(maxSubagentDepth !== undefined ? { maxSubagentDepth } : {}),
-    ...(parsePositiveInteger(frontmatter.max_turns) !== undefined
-      ? { maxTurns: parsePositiveInteger(frontmatter.max_turns) }
-      : {}),
+    ...(maxTurns !== undefined ? { maxTurns } : {}),
     ...(typeof frontmatter.inherit_context === "boolean" ? { inheritContext: frontmatter.inherit_context } : {}),
     ...(typeof frontmatter.run_in_background === "boolean" ? { runInBackground: frontmatter.run_in_background } : {}),
     ...(typeof frontmatter.isolated === "boolean" ? { isolated: frontmatter.isolated } : {}),

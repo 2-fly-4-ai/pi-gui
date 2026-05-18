@@ -40,7 +40,7 @@ interface SettingsAgentsSectionProps {
 }
 
 type EditorState =
-  | { readonly mode: "create"; readonly config: AgentDefinitionConfig; readonly scope: "global" | "project"; readonly builtin: false }
+  | { readonly mode: "create"; readonly config: AgentDefinitionConfig; readonly scope: "global" | "project" }
   | { readonly mode: "edit"; readonly record: AgentDefinitionRecord }
   | undefined;
 
@@ -65,8 +65,8 @@ export function SettingsAgentsSection({
   const [tab, setTab] = useState<"roles" | "workflows" | "runs">("roles");
   const agents = snapshot?.agents ?? [];
 
-  const openNew = () => setEditor({ mode: "create", config: createDefaultCustomAgentConfig(), scope: "global", builtin: false });
-  const openDuplicate = (agent: AgentDefinitionRecord) => setEditor({ mode: "create", config: duplicateAgentConfig(agent.config), scope: agent.scope ?? "global", builtin: false });
+  const openNew = () => setEditor({ mode: "create", config: createDefaultCustomAgentConfig(), scope: "global" });
+  const openDuplicate = (agent: AgentDefinitionRecord) => setEditor({ mode: "create", config: duplicateAgentConfig(agent.config), scope: agent.scope ?? "global" });
 
   return (
     <div data-testid="settings-agents-section">
