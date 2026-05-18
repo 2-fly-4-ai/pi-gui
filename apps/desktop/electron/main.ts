@@ -39,7 +39,7 @@ import {
   registerProcessDiagnostics,
   reportRendererDiagnostic,
 } from "./diagnostics";
-import type { DesktopAppState, ThemeMode } from "../src/desktop-state";
+import type { DesktopAppState, SelectedTranscriptRecord, ThemeMode } from "../src/desktop-state";
 import { desktopIpc, getDesktopCommandFromShortcut } from "../src/ipc";
 import { SUPPORTED_COMPOSER_IMAGE_TYPES } from "../src/composer-attachments";
 import type {
@@ -226,33 +226,105 @@ function attachStatePublisher(window: BrowserWindow): void {
   const webContentsId = window.webContents.id;
   stopPublishingState?.();
   stopPublishingSelectedTranscript?.();
-  stopPublishingState = store.subscribe((state) => {
-    if (canPublishToWindow(window)) {
-      window.webContents.send(desktopIpc.stateChanged, state);
-    }
+
+  const statePublisher = createCoalescedIpcPublisher<DesktopAppState>(
+    window,
+    desktopIpc.stateChanged,
+    250,
+    shouldPublishStateImmediately,
+  );
+  const transcriptPublisher = createCoalescedIpcPublisher<SelectedTranscriptRecord | null>(
+    window,
+    desktopIpc.selectedTranscriptChanged,
+    250,
+  );
+
+  const unsubscribeState = store.subscribe((state) => {
+    statePublisher.publish(state);
   });
-  stopPublishingSelectedTranscript = store.subscribeToSelectedTranscript((payload) => {
-    if (canPublishToWindow(window)) {
-      window.webContents.send(desktopIpc.selectedTranscriptChanged, payload);
-    }
+  const unsubscribeTranscript = store.subscribeToSelectedTranscript((payload) => {
+    transcriptPublisher.publish(payload);
   });
-  window.webContents.once("render-process-gone", () => {
+
+  stopPublishingState = () => {
+    unsubscribeState();
+    statePublisher.dispose();
+  };
+  stopPublishingSelectedTranscript = () => {
+    unsubscribeTranscript();
+    transcriptPublisher.dispose();
+  };
+
+  const stopPublishers = () => {
     stopPublishingState?.();
     stopPublishingState = undefined;
     stopPublishingSelectedTranscript?.();
     stopPublishingSelectedTranscript = undefined;
-  });
+  };
+
+  window.webContents.once("render-process-gone", stopPublishers);
   window.once("closed", () => {
-    stopPublishingState?.();
-    stopPublishingState = undefined;
-    stopPublishingSelectedTranscript?.();
-    stopPublishingSelectedTranscript = undefined;
+    stopPublishers();
     if (mainWindow === window) {
       mainWindow = null;
     }
     terminalFocusedWebContentsIds.delete(webContentsId);
     terminalService?.dispose();
   });
+}
+
+function shouldPublishStateImmediately(state: DesktopAppState): boolean {
+  return state.composerDraftSyncSource !== "persist" && state.composerDraftSyncSource !== "state";
+}
+
+function createCoalescedIpcPublisher<T>(
+  window: BrowserWindow,
+  channel: string,
+  intervalMs: number,
+  shouldPublishImmediately?: (payload: T) => boolean,
+): { publish(payload: T): void; dispose(): void } {
+  let latestPayload: T | undefined;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+
+  const flush = () => {
+    timer = undefined;
+    if (latestPayload === undefined) {
+      return;
+    }
+    const payload = latestPayload;
+    latestPayload = undefined;
+    if (!canPublishToWindow(window)) {
+      return;
+    }
+    window.webContents.send(channel, payload);
+  };
+
+  return {
+    publish(payload) {
+      latestPayload = payload;
+      if (shouldPublishImmediately?.(payload)) {
+        if (timer) {
+          clearTimeout(timer);
+          timer = undefined;
+        }
+        flush();
+        return;
+      }
+      if (timer) {
+        return;
+      }
+      timer = setTimeout(flush, intervalMs);
+      timer.unref?.();
+    },
+    dispose() {
+      latestPayload = undefined;
+      if (!timer) {
+        return;
+      }
+      clearTimeout(timer);
+      timer = undefined;
+    },
+  };
 }
 
 function attachViewedSessionTracking(window: BrowserWindow): void {

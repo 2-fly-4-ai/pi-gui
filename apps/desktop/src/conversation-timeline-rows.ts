@@ -60,8 +60,8 @@ function transcriptItemsEqual(left: TranscriptMessage, right: TranscriptMessage)
         left.metadata === tool.metadata &&
         left.updatedAt === tool.updatedAt &&
         left.outputText === tool.outputText &&
-        shallowJsonEqual(left.input, tool.input) &&
-        shallowJsonEqual(left.output, tool.output)
+        unknownValuesLikelyEqual(left.input, tool.input) &&
+        unknownValuesLikelyEqual(left.output, tool.output)
       );
     }
     case "activity": {
@@ -95,16 +95,41 @@ function attachmentsEqual(
   if (left.length !== right.length) return false;
   return left.every((item, index) => {
     const other = right[index];
-    return other !== undefined && shallowJsonEqual(item, other);
+    if (!other || item.kind !== other.kind || item.name !== other.name || item.mimeType !== other.mimeType) {
+      return false;
+    }
+    if (item.kind === "image" || other.kind === "image") {
+      return item.kind === "image" && other.kind === "image" && item.data.length === other.data.length;
+    }
+    return item.fsPath === other.fsPath && item.sizeBytes === other.sizeBytes;
   });
 }
 
-function shallowJsonEqual(left: unknown, right: unknown): boolean {
+function unknownValuesLikelyEqual(left: unknown, right: unknown): boolean {
   if (left === right) return true;
-  if (left === undefined || right === undefined) return left === right;
-  try {
-    return JSON.stringify(left) === JSON.stringify(right);
-  } catch {
-    return false;
+  if (left === undefined || right === undefined || left === null || right === null) return left === right;
+  if (typeof left !== typeof right) return false;
+  if (typeof left === "string" && typeof right === "string") {
+    return left.length === right.length && left.slice(0, 256) === right.slice(0, 256) && left.slice(-256) === right.slice(-256);
   }
+  if (typeof left === "number" || typeof left === "boolean") return left === right;
+  if (Array.isArray(left) || Array.isArray(right)) {
+    return Array.isArray(left) && Array.isArray(right) && left.length === right.length;
+  }
+  if (typeof left !== "object" || typeof right !== "object") return false;
+
+  const leftRecord = left as Record<string, unknown>;
+  const rightRecord = right as Record<string, unknown>;
+  const leftKeys = Object.keys(leftRecord);
+  const rightKeys = Object.keys(rightRecord);
+  if (leftKeys.length !== rightKeys.length) return false;
+  return leftKeys.every((key) => key in rightRecord && shallowScalarEqual(leftRecord[key], rightRecord[key]));
+}
+
+function shallowScalarEqual(left: unknown, right: unknown): boolean {
+  if (left === right) return true;
+  if (typeof left === "string" && typeof right === "string") return left.length === right.length;
+  if (Array.isArray(left) && Array.isArray(right)) return left.length === right.length;
+  if (typeof left === "object" && typeof right === "object") return Boolean(left) === Boolean(right);
+  return false;
 }

@@ -167,6 +167,45 @@ function buildTranscriptMemoryStats(
   };
 }
 
+function transcriptPublishMarker(transcript: readonly TranscriptMessage[] | undefined): string {
+  if (!transcript || transcript.length === 0) {
+    return "0:empty";
+  }
+  return transcript.map(transcriptItemPublishMarker).join("|");
+}
+
+function transcriptItemPublishMarker(item: TranscriptMessage): string {
+  switch (item.kind) {
+    case "message":
+      return [
+        item.id,
+        item.kind,
+        item.role,
+        item.text.length,
+        item.text.slice(-64),
+        item.attachments?.length ?? 0,
+      ].join(":");
+    case "thinking":
+      return [item.id, item.kind, item.status, item.text.length, item.text.slice(-64)].join(":");
+    case "tool":
+      return [
+        item.id,
+        item.kind,
+        item.callId,
+        item.status,
+        item.updatedAt ?? "",
+        item.label,
+        item.detail ?? "",
+        item.outputText?.length ?? 0,
+        item.outputText?.slice(-64) ?? "",
+      ].join(":");
+    case "activity":
+      return [item.id, item.kind, item.label, item.detail ?? "", item.metadata ?? "", item.tone ?? ""].join(":");
+    case "summary":
+      return [item.id, item.kind, item.presentation, item.label, item.metadata ?? ""].join(":");
+  }
+}
+
 function approximateObjectBytes(value: unknown, seen = new WeakSet<object>()): number {
   if (typeof value === "string") {
     return Buffer.byteLength(value, "utf8");
@@ -1605,6 +1644,8 @@ export class DesktopAppStore implements AppStoreInternals {
       }
     }
 
+    const transcriptMarkerBefore = transcriptPublishMarker(this.sessionState.transcriptCache.get(key));
+
     switch (event.type) {
       case "assistantDelta":
         finishAssistantThinking(
@@ -1707,7 +1748,9 @@ export class DesktopAppStore implements AppStoreInternals {
       this.schedulePersistUiState();
     }
     const snapshot = this.emit();
-    this.publishSelectedTranscriptFor(event.sessionRef);
+    if (transcriptMarkerBefore !== transcriptPublishMarker(this.sessionState.transcriptCache.get(key))) {
+      this.publishSelectedTranscriptFor(event.sessionRef);
+    }
     await this.emitSessionEvent(event, snapshot);
   }
 

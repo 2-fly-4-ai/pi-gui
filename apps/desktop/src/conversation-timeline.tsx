@@ -60,16 +60,12 @@ export function ConversationTimeline({
   onViewFileInDiff,
 }: ConversationTimelineProps) {
   const stableTranscript = useStableTranscriptRows(transcript);
-  // Giant prose blocks and attachment-heavy rows routinely blow past the estimator,
-  // so keep those transcripts on the exact DOM path instead of restoring to a fake bottom.
-  const hasUnreliableVirtualizedHeights = stableTranscript.some(
-    (item) => item.kind === "message" && Boolean(item.attachments?.length),
-  );
+  // Attachment-heavy rows can make estimated restore positions imperfect, but rendering
+  // every historical row is much worse for long active transcripts.
   const shouldVirtualize =
     !threadSearch.isOpen &&
     stableTranscript.length > VIRTUALIZATION_THRESHOLD &&
-    !disableVirtualization &&
-    !hasUnreliableVirtualizedHeights;
+    !disableVirtualization;
   const [expandedToolCallIds, setExpandedToolCallIds] = useState<Set<string>>(() => new Set());
   const userCollapsedRunningToolIdsRef = useRef(new Set<string>());
   const measuredHeightsRef = useRef(new Map<string, number>());
