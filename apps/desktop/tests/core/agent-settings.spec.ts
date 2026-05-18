@@ -492,7 +492,7 @@ test("settings subagents submits a built-in workflow and shows a run record", as
     await expect(run.getByRole("button", { name: "Open transcript" })).toBeVisible();
 
     await window.getByRole("button", { name: "Back to app", exact: true }).click();
-    await expect(window.locator(".timeline")).toContainText("SUBAGENT_WORKFLOW_RUN");
+    await expect(window.getByTestId("subagent-timeline-card")).toContainText("Scout then plan");
   } finally {
     await harness.close();
   }

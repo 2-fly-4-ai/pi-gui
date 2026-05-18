@@ -4,6 +4,7 @@ import type { TimelineActivity, TimelineToolCall, TimelineSummary, TranscriptMes
 import { MessageMarkdown } from "./message-markdown";
 import { InlineDiff, extractDiffFromOutput } from "./diff-inline";
 import { ChevronRightIcon, CopyIcon, DiffIcon, FileIcon } from "./icons";
+import { parseSubagentWorkflowMarker } from "./subagent-timeline-card";
 import { extensionToLanguage } from "./syntax-highlight";
 import userMessageIconUrl from "./assets/user-message-icon.png";
 import ninjaStarUrl from "./assets/ninja-star.svg";
@@ -78,6 +79,22 @@ function TimelineMessage({ item }: { readonly item: SessionTranscriptMessage }) 
   const wrappedCompactionSummary = extractWrappedCompactionSummary(item.text);
   if (wrappedCompactionSummary) {
     return <TimelineCompactionSummary item={{ ...item, role: "compactionSummary", text: wrappedCompactionSummary }} />;
+  }
+
+  const subagentCard = item.role === "user" ? parseSubagentWorkflowMarker(item.text) : undefined;
+  if (subagentCard) {
+    return (
+      <article className="subagent-timeline-card" data-testid="subagent-timeline-card">
+        <div className="subagent-timeline-card__eyebrow">Subagent workflow submitted</div>
+        <h3>{subagentCard.workflow}</h3>
+        {subagentCard.roles.length ? <p>{subagentCard.roles.join(" → ")}</p> : null}
+        {subagentCard.artifacts.length ? (
+          <div className="subagent-timeline-card__artifacts">
+            {subagentCard.artifacts.map((artifact) => <span key={artifact}>{artifact}</span>)}
+          </div>
+        ) : null}
+      </article>
+    );
   }
 
   if (item.role === "user") {
