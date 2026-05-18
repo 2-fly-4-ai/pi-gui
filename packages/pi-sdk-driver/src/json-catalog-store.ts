@@ -1,4 +1,4 @@
-import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { homedir } from "node:os";
 import type {
@@ -258,13 +258,8 @@ export class JsonCatalogStore implements SessionFileCatalogStorage {
       const tmpPath = `${this.filePath}.${process.pid}.${Date.now()}.tmp`;
       const payload = `${JSON.stringify(state, null, 2)}\n`;
       await writeFile(tmpPath, payload, "utf8");
-      try {
-        await unlink(this.filePath);
-      } catch (error) {
-        if (!isMissingFileError(error)) {
-          throw error;
-        }
-      }
+      // On POSIX, rename atomically replaces the destination. Do not unlink first:
+      // a process crash between unlink and rename can leave users with no catalog.
       await rename(tmpPath, this.filePath);
     });
 
