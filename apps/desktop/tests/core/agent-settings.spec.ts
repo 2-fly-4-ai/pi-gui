@@ -70,10 +70,10 @@ test("settings agents page creates a custom subagent with model, tools, prompt, 
     await window.getByRole("button", { name: "Settings", exact: true }).click();
     await window.getByRole("button", { name: "Subagents", exact: true }).click();
 
-    await window.getByRole("button", { name: "New agent" }).click();
+    await window.getByRole("button", { name: "New role" }).click();
     const dialog = window.getByTestId("agent-definition-editor");
-    await expect(dialog).toHaveAccessibleName("New agent");
-    await dialog.getByLabel("Agent name").fill("security-reviewer");
+    await expect(dialog).toHaveAccessibleName("New role");
+    await dialog.getByLabel("Role name").fill("security-reviewer");
     await dialog.getByLabel("Display name").fill("Security Reviewer");
     await dialog.getByLabel("Description").fill("Reviews code for security-sensitive mistakes");
     await dialog.getByLabel("Scope").selectOption("project");
@@ -90,7 +90,7 @@ test("settings agents page creates a custom subagent with model, tools, prompt, 
     await dialog.getByLabel("Run in background").check();
     await dialog.getByLabel("Isolated").check();
     await dialog.getByLabel("Isolation").selectOption("worktree");
-    await dialog.getByRole("button", { name: "Create agent" }).click();
+    await dialog.getByRole("button", { name: "Create role" }).click();
 
     const row = window.getByTestId("agent-definition-row-security-reviewer");
     await expect(row).toContainText("Security Reviewer");
@@ -151,7 +151,7 @@ You are a cleanup test agent.
     const row = window.getByTestId("agent-definition-row-cleanup-agent");
     await expect(row).toBeVisible();
     await row.getByRole("button", { name: "Delete" }).click();
-    await window.getByRole("button", { name: "Delete agent" }).click();
+    await window.getByRole("button", { name: "Delete role" }).click();
     await expect(row).toHaveCount(0);
     await expect(readFile(join(workspacePath, ".pi", "agents", "cleanup-agent.md"), "utf8")).rejects.toThrow();
   } finally {
@@ -180,10 +180,10 @@ test("settings agents page duplicates a built-in agent into a custom agent", asy
 
     await window.getByTestId("agent-definition-row-Explore").getByRole("button", { name: "Duplicate" }).click();
     const dialog = window.getByTestId("agent-definition-editor");
-    await expect(dialog).toHaveAccessibleName("New agent");
-    await dialog.getByLabel("Agent name").fill("explore-local");
+    await expect(dialog).toHaveAccessibleName("New role");
+    await dialog.getByLabel("Role name").fill("explore-local");
     await dialog.getByLabel("Display name").fill("Explore Local");
-    await dialog.getByRole("button", { name: "Create agent" }).click();
+    await dialog.getByRole("button", { name: "Create role" }).click();
 
     await expect(window.getByTestId("agent-definition-row-explore-local")).toContainText("Explore Local");
     const saved = await readFile(join(agentDir, "agents", "explore-local.md"), "utf8");

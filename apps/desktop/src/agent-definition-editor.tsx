@@ -23,7 +23,7 @@ interface AgentDefinitionEditorProps {
 }
 
 export function AgentDefinitionEditor({ mode, config, runtime, defaultScope, builtin, pending = false, onClose, onSave }: AgentDefinitionEditorProps) {
-  const title = mode === "create" ? "New agent" : `Edit ${config.name}`;
+  const title = mode === "create" ? "New role" : `Edit ${config.name}`;
   const titleId = `agent-definition-editor-title-${mode}-${config.name || "new"}`;
   const [form, setForm] = useState<AgentDefinitionFormState>(() => createAgentDefinitionFormState({ mode, config, scope: defaultScope, builtin }));
   const [attemptedSave, setAttemptedSave] = useState(false);
@@ -46,7 +46,7 @@ export function AgentDefinitionEditor({ mode, config, runtime, defaultScope, bui
         <header className="agent-definition-editor__header">
           <div>
             <h2 id={titleId}>{title}</h2>
-            <p>Create and tune pi-subagents definitions without editing markdown by hand.</p>
+            <p>Create and tune subagent role definitions without editing markdown by hand.</p>
           </div>
           <label className="agent-definition-editor__enabled">
             <input aria-label="Enabled" checked={form.enabled} type="checkbox" onChange={(event) => update("enabled", event.target.checked)} />
@@ -62,8 +62,8 @@ export function AgentDefinitionEditor({ mode, config, runtime, defaultScope, bui
 
         <div className="agent-definition-editor__grid">
           <label className="action-dialog__field">
-            <span>Agent name</span>
-            <input aria-label="Agent name" disabled={mode === "edit"} value={form.name} onChange={(event) => update("name", event.target.value)} />
+            <span>Role name</span>
+            <input aria-label="Role name" disabled={mode === "edit"} value={form.name} onChange={(event) => update("name", event.target.value)} />
           </label>
           <label className="action-dialog__field">
             <span>Display name</span>
@@ -166,7 +166,7 @@ export function AgentDefinitionEditor({ mode, config, runtime, defaultScope, bui
 
         <div className="action-dialog__actions">
           <button className="button button--secondary" disabled={pending} type="button" onClick={onClose}>Cancel</button>
-          <button className="button button--primary" disabled={pending} type="button" onClick={save}>{mode === "create" ? "Create agent" : "Save"}</button>
+          <button className="button button--primary" disabled={pending} type="button" onClick={save}>{mode === "create" ? "Create role" : "Save"}</button>
         </div>
       </section>
     </div>

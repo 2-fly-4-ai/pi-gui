@@ -90,12 +90,12 @@ export function SettingsAgentsSection({ runtime, snapshot, pending, error, onSav
       ) : null}
       {deleteTarget?.scope ? (
         <div className="action-dialog-backdrop" role="presentation">
-          <section aria-label="Delete agent" aria-modal="true" className="action-dialog" role="dialog">
-            <h2>Delete {deleteTarget.name}?</h2>
-            <p>This removes the {deleteTarget.scope} markdown definition file. This cannot delete built-in fallback agents.</p>
+          <section aria-label="Delete role" aria-modal="true" className="action-dialog" role="dialog">
+            <h2>Delete role</h2>
+            <p>This removes the {deleteTarget.scope} markdown role definition file. This cannot delete built-in fallback roles.</p>
             <div className="action-dialog__actions">
               <button className="button button--secondary" type="button" onClick={() => setDeleteTarget(undefined)}>Cancel</button>
-              <button className="button button--danger" type="button" onClick={async () => { await onDelete({ scope: deleteTarget.scope!, name: deleteTarget.name }); setDeleteTarget(undefined); }}>Delete agent</button>
+              <button className="button button--danger" type="button" onClick={async () => { await onDelete({ scope: deleteTarget.scope!, name: deleteTarget.name }); setDeleteTarget(undefined); }}>Delete role</button>
             </div>
           </section>
         </div>
