@@ -340,3 +340,122 @@ test("settings models points subagent model selection to Subagents", async () =>
     await harness.close();
   }
 });
+
+test("settings subagents preserves unknown frontmatter while saving nico-lite fields", async () => {
+  test.setTimeout(60_000);
+  const userDataDir = await makeUserDataDir();
+  const agentDir = join(userDataDir, "agent");
+  const workspacePath = await makeWorkspace("subagent-frontmatter-preserve-workspace");
+  await seedAgentDir(agentDir, { enabledModels: ["openai/gpt-5"] });
+  await mkdir(join(agentDir, "agents"), { recursive: true });
+  await writeFile(
+    join(agentDir, "agents", "legacy-rich.md"),
+    `---
+description: Rich imported agent
+role: reviewer
+system_prompt_mode: replace
+context_mode: project
+inherit_project_context: false
+default_reads: README.md, AGENTS.md
+default_progress: summary
+default_context: repo-map
+unknown_flag: true
+unknown_number: 7
+unknown_list: scout, planner
+unknown_nested:
+  - scout
+  - planner
+fallback_models: openai/gpt-5, anthropic/claude-sonnet-4-5
+max_subagent_depth: 2
+---
+
+Review imported plans.
+`,
+    "utf8",
+  );
+
+  const harness = await launchDesktop(userDataDir, {
+    agentDir,
+    initialWorkspaces: [workspacePath],
+    testMode: "background",
+  });
+
+  try {
+    const window = await harness.firstWindow();
+    await createNamedThread(window, "Frontmatter preserve session");
+    await window.getByRole("button", { name: "Settings", exact: true }).click();
+    await window.getByRole("button", { name: "Subagents", exact: true }).click();
+
+    const row = window.getByTestId("agent-definition-row-legacy-rich");
+    await expect(row).toContainText("Role: reviewer");
+    await expect(row).toContainText("Context: project");
+    await expect(row).toContainText("Progress: summary");
+    await expect(row).toContainText("Max depth: 2");
+    await row.getByRole("button", { name: "Edit" }).click();
+    const dialog = window.getByTestId("agent-definition-editor");
+    await dialog.getByLabel("Description").fill("Rich imported reviewer");
+    await dialog.getByLabel("System prompt mode").selectOption("append");
+    await dialog.getByLabel("Output").selectOption("both");
+    await dialog.getByRole("button", { name: "Save" }).click();
+    await expect(row).toContainText("Output: both");
+
+    const saved = await readFile(join(agentDir, "agents", "legacy-rich.md"), "utf8");
+    expect(saved).toContain('description: "Rich imported reviewer"');
+    expect(saved).toContain("role: reviewer");
+    expect(saved).toContain("system_prompt_mode: append");
+    expect(saved).toContain("context_mode: project");
+    expect(saved).toContain("inherit_project_context: false");
+    expect(saved).toContain("default_reads: README.md, AGENTS.md");
+    expect(saved).toContain("default_progress: summary");
+    expect(saved).toContain("output: both");
+    expect(saved).toContain("default_context: repo-map");
+    expect(saved).toContain("unknown_flag: true");
+    expect(saved).toContain("unknown_number: 7");
+    expect(saved).toContain("unknown_list: scout, planner");
+    expect(saved).toContain("unknown_nested:\n  - scout\n  - planner");
+    expect(saved).toContain("fallback_models: openai/gpt-5, anthropic/claude-sonnet-4-5");
+    expect(saved).toContain("max_subagent_depth: 2");
+  } finally {
+    await harness.close();
+  }
+});
+
+test("settings subagents warns instead of partially parsing invalid max subagent depth", async () => {
+  test.setTimeout(60_000);
+  const userDataDir = await makeUserDataDir();
+  const agentDir = join(userDataDir, "agent");
+  const workspacePath = await makeWorkspace("subagent-invalid-depth-workspace");
+  await seedAgentDir(agentDir, { enabledModels: ["openai/gpt-5"] });
+  await mkdir(join(agentDir, "agents"), { recursive: true });
+  await writeFile(
+    join(agentDir, "agents", "invalid-depth.md"),
+    `---
+description: Invalid depth imported agent
+role: reviewer
+max_subagent_depth: 2abc
+---
+
+This file should not partially parse.
+`,
+    "utf8",
+  );
+
+  const harness = await launchDesktop(userDataDir, {
+    agentDir,
+    initialWorkspaces: [workspacePath],
+    testMode: "background",
+  });
+
+  try {
+    const window = await harness.firstWindow();
+    await createNamedThread(window, "Invalid depth session");
+    await window.getByRole("button", { name: "Settings", exact: true }).click();
+    await window.getByRole("button", { name: "Subagents", exact: true }).click();
+
+    const row = window.getByTestId("agent-definition-row-invalid-depth");
+    await expect(row).toContainText("Invalid max_subagent_depth frontmatter value");
+    await expect(row).not.toContainText("Max depth: 2");
+  } finally {
+    await harness.close();
+  }
+});

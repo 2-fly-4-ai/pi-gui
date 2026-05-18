@@ -74,6 +74,47 @@ export function AgentDefinitionEditor({ mode, config, runtime, defaultScope, bui
             <input aria-label="Description" value={form.description} onChange={(event) => update("description", event.target.value)} />
           </label>
           <label className="action-dialog__field">
+            <span>Role</span>
+            <select aria-label="Role" className="settings-select" value={form.role} onChange={(event) => update("role", event.target.value)}>
+              <option value="">Infer from name</option>
+              <option value="delegate">Delegate</option>
+              <option value="scout">Scout</option>
+              <option value="planner">Planner</option>
+              <option value="worker">Worker</option>
+              <option value="reviewer">Reviewer</option>
+              <option value="oracle">Oracle</option>
+              <option value="researcher">Researcher</option>
+              <option value="context-builder">Context Builder</option>
+            </select>
+          </label>
+          <label className="action-dialog__field">
+            <span>Context</span>
+            <select aria-label="Context mode" className="settings-select" value={form.contextMode} onChange={(event) => update("contextMode", event.target.value as AgentDefinitionFormState["contextMode"])}>
+              <option value="">Default</option>
+              <option value="fresh">Fresh</option>
+              <option value="fork">Fork current thread</option>
+              <option value="project">Project context</option>
+            </select>
+          </label>
+          <label className="action-dialog__field">
+            <span>Output</span>
+            <select aria-label="Output" className="settings-select" value={form.output} onChange={(event) => update("output", event.target.value as AgentDefinitionFormState["output"])}>
+              <option value="">Default</option>
+              <option value="message">Message</option>
+              <option value="artifact">Artifact</option>
+              <option value="both">Message + artifact</option>
+            </select>
+          </label>
+          <label className="action-dialog__field">
+            <span>Progress</span>
+            <select aria-label="Progress" className="settings-select" value={form.defaultProgress} onChange={(event) => update("defaultProgress", event.target.value as AgentDefinitionFormState["defaultProgress"])}>
+              <option value="">Default</option>
+              <option value="silent">Silent</option>
+              <option value="summary">Summary</option>
+              <option value="stream">Stream</option>
+            </select>
+          </label>
+          <label className="action-dialog__field">
             <span>Scope</span>
             <select aria-label="Scope" className="settings-select" value={form.scope} onChange={(event) => update("scope", event.target.value as AgentDefinitionScope)}>
               <option value="global">Global — all projects</option>
@@ -105,6 +146,14 @@ export function AgentDefinitionEditor({ mode, config, runtime, defaultScope, bui
             <select aria-label="Prompt mode" className="settings-select" value={form.promptMode} onChange={(event) => update("promptMode", event.target.value as "append" | "replace")}>
               <option value="replace">Replace — standalone agent prompt</option>
               <option value="append">Append — parent-twin prompt</option>
+            </select>
+          </label>
+          <label className="action-dialog__field">
+            <span>System prompt mode</span>
+            <select aria-label="System prompt mode" className="settings-select" value={form.systemPromptMode} onChange={(event) => update("systemPromptMode", event.target.value as AgentDefinitionFormState["systemPromptMode"])}>
+              <option value="">Default</option>
+              <option value="replace">Replace</option>
+              <option value="append">Append</option>
             </select>
           </label>
         </div>
@@ -160,6 +209,22 @@ export function AgentDefinitionEditor({ mode, config, runtime, defaultScope, bui
             <label className="action-dialog__field">
               <span>Max turns</span>
               <input aria-label="Max turns" inputMode="numeric" value={form.maxTurns} onChange={(event) => update("maxTurns", event.target.value)} />
+            </label>
+            <label className="action-dialog__field">
+              <span>Fallback models</span>
+              <input aria-label="Fallback models" placeholder="openai/gpt-5, anthropic/claude-sonnet-4-5" value={form.fallbackModels} onChange={(event) => update("fallbackModels", event.target.value)} />
+            </label>
+            <label className="action-dialog__field">
+              <span>Default reads</span>
+              <input aria-label="Default reads" placeholder="README.md, AGENTS.md" value={form.defaultReads} onChange={(event) => update("defaultReads", event.target.value)} />
+            </label>
+            <label className="action-dialog__field">
+              <span>Max subagent depth</span>
+              <input aria-label="Max subagent depth" inputMode="numeric" value={form.maxSubagentDepth} onChange={(event) => update("maxSubagentDepth", event.target.value)} />
+            </label>
+            <label className="agent-definition-editor__inline-check">
+              <input aria-label="Inherit project context" checked={form.inheritProjectContext} type="checkbox" onChange={(event) => update("inheritProjectContext", event.target.checked)} />
+              <span>Inherit project context</span>
             </label>
           </div>
         </section>

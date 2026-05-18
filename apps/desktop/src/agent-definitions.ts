@@ -59,6 +59,7 @@ export interface AgentDefinitionConfig {
   readonly defaultProgress?: SubagentProgressMode;
   readonly maxSubagentDepth?: number;
   readonly extraFrontmatter?: AgentDefinitionExtraFrontmatter;
+  readonly extraFrontmatterLines?: readonly string[];
   readonly maxTurns?: number;
   readonly inheritContext?: boolean;
   readonly runInBackground?: boolean;

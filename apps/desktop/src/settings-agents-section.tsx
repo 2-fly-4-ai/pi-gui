@@ -67,6 +67,10 @@ export function SettingsAgentsSection({ runtime, snapshot, pending, error, onSav
                     <span>Name: {agent.name}</span>
                     <span>Role: {canonicalRoleForAgentName(agent.name, agent.config.role)}</span>
                     {legacyAlias ? <span>Legacy alias for {legacyAlias}</span> : null}
+                    {agent.config.contextMode ? <span>Context: {agent.config.contextMode}</span> : null}
+                    {agent.config.output ? <span>Output: {agent.config.output}</span> : null}
+                    {agent.config.defaultProgress ? <span>Progress: {agent.config.defaultProgress}</span> : null}
+                    {agent.config.maxSubagentDepth !== undefined ? <span>Max depth: {agent.config.maxSubagentDepth}</span> : null}
                     <span>Model: {formatModel(agent)}</span>
                     <span>Reasoning: {formatThinking(agent)}</span>
                     <span>Tools: {agent.config.tools?.length ? agent.config.tools.join(", ") : "Inherited/default"}</span>

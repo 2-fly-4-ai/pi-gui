@@ -1,4 +1,12 @@
-import type { AgentDefinitionConfig, AgentDefinitionScope, AgentThinkingLevel, AgentToolName } from "./agent-definitions";
+import type {
+  AgentDefinitionConfig,
+  AgentDefinitionScope,
+  AgentThinkingLevel,
+  AgentToolName,
+  SubagentContextMode,
+  SubagentOutputMode,
+  SubagentProgressMode,
+} from "./agent-definitions";
 
 export interface AgentDefinitionFormState {
   readonly mode: "create" | "edit";
@@ -12,15 +20,27 @@ export interface AgentDefinitionFormState {
   readonly modelValue: string;
   readonly thinkingValue: "inherit" | AgentThinkingLevel;
   readonly promptMode: "append" | "replace";
+  readonly systemPromptMode: "" | "append" | "replace";
+  readonly role: string;
+  readonly contextMode: "" | SubagentContextMode;
+  readonly output: "" | SubagentOutputMode;
+  readonly defaultProgress: "" | SubagentProgressMode;
   readonly systemPrompt: string;
   readonly tools: readonly AgentToolName[];
   readonly extensions: boolean;
   readonly skills: boolean;
   readonly maxTurns: string;
   readonly inheritContext: boolean;
+  readonly inheritProjectContext: boolean;
+  readonly inheritProjectContextConfigured: boolean;
   readonly runInBackground: boolean;
   readonly isolated: boolean;
   readonly isolation: "" | "worktree";
+  readonly maxSubagentDepth: string;
+  readonly fallbackModels: string;
+  readonly defaultReads: string;
+  readonly extraFrontmatter: AgentDefinitionConfig["extraFrontmatter"];
+  readonly extraFrontmatterLines: AgentDefinitionConfig["extraFrontmatterLines"];
 }
 
 export interface AgentDefinitionFormValidation {
@@ -46,15 +66,27 @@ export function createAgentDefinitionFormState(input: {
     modelValue: input.config.modelMode === "fixed" && input.config.model ? `${input.config.model.providerId}:${input.config.model.modelId}` : "inherit",
     thinkingValue: input.config.thinkingMode === "fixed" && input.config.thinking ? input.config.thinking : "inherit",
     promptMode: input.config.promptMode,
+    systemPromptMode: input.config.systemPromptMode ?? "",
+    role: input.config.role ?? "",
+    contextMode: input.config.contextMode ?? "",
+    output: input.config.output ?? "",
+    defaultProgress: input.config.defaultProgress ?? "",
     systemPrompt: input.config.systemPrompt,
     tools: input.config.tools ?? [],
     extensions: input.config.extensions,
     skills: input.config.skills,
     maxTurns: input.config.maxTurns ? String(input.config.maxTurns) : "",
     inheritContext: input.config.inheritContext ?? false,
+    inheritProjectContext: input.config.inheritProjectContext ?? false,
+    inheritProjectContextConfigured: input.config.inheritProjectContext !== undefined,
     runInBackground: input.config.runInBackground ?? false,
     isolated: input.config.isolated ?? false,
     isolation: input.config.isolation === "worktree" ? "worktree" : "",
+    maxSubagentDepth: input.config.maxSubagentDepth !== undefined ? String(input.config.maxSubagentDepth) : "",
+    fallbackModels: input.config.fallbackModels?.map((model) => `${model.providerId}/${model.modelId}`).join(", ") ?? "",
+    defaultReads: input.config.defaultReads?.join(", ") ?? "",
+    extraFrontmatter: input.config.extraFrontmatter,
+    extraFrontmatterLines: input.config.extraFrontmatterLines,
   };
 }
 
@@ -81,6 +113,23 @@ export function validateAgentDefinitionForm(state: AgentDefinitionFormState): Ag
       errors.push("Max turns must be a positive integer.");
     }
   }
+  if (state.maxSubagentDepth.trim()) {
+    if (!/^(0|[1-9]\d*)$/.test(state.maxSubagentDepth.trim())) {
+      errors.push("Max subagent depth must be zero or a positive integer.");
+    }
+  }
+  for (const model of splitCommaList(state.fallbackModels)) {
+    if (!/^[^/]+\/.+$/.test(model) || hasUnsafeFrontmatterListValue(model)) {
+      errors.push("Fallback models must use safe provider/model values.");
+      break;
+    }
+  }
+  for (const entry of splitCommaList(state.defaultReads)) {
+    if (hasUnsafeFrontmatterListValue(entry)) {
+      errors.push("Default reads must not contain frontmatter delimiters or line breaks.");
+      break;
+    }
+  }
   return { valid: errors.length === 0, errors };
 }
 
@@ -89,6 +138,13 @@ export function buildAgentDefinitionConfig(state: AgentDefinitionFormState): Age
   const providerId = modelParts[0] ?? "";
   const modelId = modelParts.slice(1).join(":");
   const maxTurns = state.maxTurns.trim() ? Number.parseInt(state.maxTurns, 10) : undefined;
+  const fallbackModels = splitCommaList(state.fallbackModels).map((entry) => {
+    const slash = entry.indexOf("/");
+    return { providerId: entry.slice(0, slash), modelId: entry.slice(slash + 1) };
+  });
+  const defaultReads = splitCommaList(state.defaultReads);
+  const maxSubagentDepth = state.maxSubagentDepth.trim() ? Number.parseInt(state.maxSubagentDepth, 10) : undefined;
+
   return {
     name: state.name.trim(),
     displayName: state.displayName.trim() || undefined,
@@ -101,6 +157,17 @@ export function buildAgentDefinitionConfig(state: AgentDefinitionFormState): Age
     extensions: state.extensions,
     skills: state.skills,
     promptMode: state.promptMode,
+    role: state.role.trim() || undefined,
+    systemPromptMode: state.systemPromptMode || (state.mode === "create" ? state.promptMode : undefined),
+    contextMode: state.contextMode || undefined,
+    inheritProjectContext: state.inheritProjectContext || state.inheritProjectContextConfigured ? state.inheritProjectContext : undefined,
+    fallbackModels: fallbackModels.length ? fallbackModels : undefined,
+    output: state.output || undefined,
+    defaultReads: defaultReads.length ? defaultReads : undefined,
+    defaultProgress: state.defaultProgress || undefined,
+    maxSubagentDepth,
+    extraFrontmatter: state.extraFrontmatter,
+    extraFrontmatterLines: state.extraFrontmatterLines,
     maxTurns,
     inheritContext: state.inheritContext || undefined,
     runInBackground: state.runInBackground || undefined,
@@ -109,6 +176,14 @@ export function buildAgentDefinitionConfig(state: AgentDefinitionFormState): Age
     enabled: state.enabled,
     systemPrompt: state.systemPrompt.trim(),
   };
+}
+
+function splitCommaList(value: string): readonly string[] {
+  return value.split(",").map((entry) => entry.trim()).filter(Boolean);
+}
+
+function hasUnsafeFrontmatterListValue(value: string): boolean {
+  return /[\r\n,]/.test(value) || value.trim() === "---" || value.includes("---");
 }
 
 export function toggleAgentTool(tools: readonly AgentToolName[], tool: AgentToolName, checked: boolean): readonly AgentToolName[] {
