@@ -624,7 +624,6 @@
   max-height: calc(100vh - 320px);
   overflow: auto;
   overflow-anchor: none;
-  scroll-behavior: smooth;
 }
 
 .timeline-pane--thread {

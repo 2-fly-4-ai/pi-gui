@@ -258,7 +258,9 @@ export default function App() {
   const pinnedToBottomRef = useRef(true);
   const followingLatestRef = useRef(true);
   const autoAligningTimelineRef = useRef(false);
+  const manualTimelineScrollRestoreRef = useRef(false);
   const userTimelineScrollIntentRef = useRef(false);
+  const timelineScrollHandlerRef = useRef<() => void>(() => undefined);
   const manualTimelineScrollTopRef = useRef<number | null>(null);
   const previousTimelinePaneSizeRef = useRef<{ width: number; height: number } | null>(null);
   const lastTimelineScrollTopBySessionRef = useRef(new Map<string, number>());
@@ -982,7 +984,11 @@ export default function App() {
     const pane = timelinePaneRef.current;
     const savedScrollTop = manualTimelineScrollTopRef.current ?? lastTimelineScrollTopBySessionRef.current.get(selectedSessionKey);
     if (pane && savedScrollTop !== undefined && savedScrollTop !== null && Math.abs(pane.scrollTop - savedScrollTop) > 1) {
+      manualTimelineScrollRestoreRef.current = true;
       pane.scrollTop = savedScrollTop;
+      window.requestAnimationFrame(() => {
+        manualTimelineScrollRestoreRef.current = false;
+      });
     }
   }, [selectedSessionKey]);
 
@@ -1588,6 +1594,7 @@ export default function App() {
     pinnedToBottomRef.current = true;
     followingLatestRef.current = true;
     autoAligningTimelineRef.current = false;
+    manualTimelineScrollRestoreRef.current = false;
     userTimelineScrollIntentRef.current = false;
     manualTimelineScrollTopRef.current = null;
     previousTimelinePaneSizeRef.current = null;
@@ -1715,14 +1722,20 @@ export default function App() {
       userTimelineScrollIntentRef.current = true;
     };
 
+    const handleNativeScroll = () => {
+      timelineScrollHandlerRef.current();
+    };
+
     pane.addEventListener("wheel", markUserScrollIntent, { passive: true });
     pane.addEventListener("touchstart", markUserScrollIntent, { passive: true });
     pane.addEventListener("pointerdown", markUserScrollIntent, { passive: true });
+    pane.addEventListener("scroll", handleNativeScroll, { passive: true });
 
     return () => {
       pane.removeEventListener("wheel", markUserScrollIntent);
       pane.removeEventListener("touchstart", markUserScrollIntent);
       pane.removeEventListener("pointerdown", markUserScrollIntent);
+      pane.removeEventListener("scroll", handleNativeScroll);
     };
   }, [selectedSession, selectedSessionKey, snapshot?.activeView, timelinePaneMountVersion]);
 
@@ -1817,7 +1830,6 @@ export default function App() {
 
   const handleTimelineContentHeightChange = useCallback(() => {
     if (!followingLatestRef.current) {
-      restoreManualTimelineScrollTop();
       window.requestAnimationFrame(restoreManualTimelineScrollTop);
       return;
     }
@@ -2623,11 +2635,17 @@ export default function App() {
 
     if (!pinned) {
       if (!userScrollIntent) {
-        const savedScrollTop = manualTimelineScrollTopRef.current;
-        if (!followingLatestRef.current && savedScrollTop !== null && Math.abs(pane.scrollTop - savedScrollTop) > 1) {
-          pane.scrollTop = savedScrollTop;
+        if (manualTimelineScrollRestoreRef.current) {
+          return;
         }
-        return;
+        const previousScrollTop = lastTimelineScrollTopBySessionRef.current.get(selectedSessionKey);
+        const scrolledUpWithoutIntent = previousScrollTop !== undefined && pane.scrollTop < previousScrollTop - 2;
+        if (
+          (followingLatestRef.current || pinnedToBottomRef.current || preserveBottomOnNextPaneResizeRef.current) &&
+          !scrolledUpWithoutIntent
+        ) {
+          return;
+        }
       }
       pinnedToBottomRef.current = false;
       followingLatestRef.current = false;
@@ -2646,6 +2664,8 @@ export default function App() {
     lastTimelinePinnedBySessionRef.current.set(selectedSessionKey, true);
     setShowJumpToLatest(false);
   };
+
+  timelineScrollHandlerRef.current = handleTimelineScroll;
 
   const jumpToLatest = () => {
     followingLatestRef.current = true;
