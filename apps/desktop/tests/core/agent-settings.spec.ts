@@ -42,8 +42,8 @@ test("settings agents page saves built-in subagent model overrides", async () =>
     const dialog = window.getByTestId("agent-definition-editor");
     await expect(dialog).toBeVisible();
     await expect(dialog).toHaveAccessibleName("Edit general-purpose");
-    await dialog.getByLabel("System prompt").fill("Use the parent context and complete the delegated task.");
-    await dialog.getByLabel("Model").selectOption("openai:gpt-5");
+    await dialog.getByLabel("System prompt", { exact: true }).fill("Use the parent context and complete the delegated task.");
+    await dialog.getByLabel("Model", { exact: true }).selectOption("openai:gpt-5");
     await dialog.getByLabel("Reasoning").selectOption("medium");
     await dialog.getByRole("button", { name: "Save" }).click();
 
@@ -85,10 +85,10 @@ test("settings agents page creates a custom subagent with model, tools, prompt, 
     await dialog.getByLabel("Display name").fill("Security Reviewer");
     await dialog.getByLabel("Description").fill("Reviews code for security-sensitive mistakes");
     await dialog.getByLabel("Scope").selectOption("project");
-    await dialog.getByLabel("Model").selectOption("openai:gpt-5");
+    await dialog.getByLabel("Model", { exact: true }).selectOption("openai:gpt-5");
     await dialog.getByLabel("Reasoning").selectOption("high");
-    await dialog.getByLabel("Prompt mode").selectOption("replace");
-    await dialog.getByLabel("System prompt").fill("You review code for authentication, authorization, injection, and secret-handling bugs.");
+    await dialog.getByLabel("Prompt mode", { exact: true }).selectOption("replace");
+    await dialog.getByLabel("System prompt", { exact: true }).fill("You review code for authentication, authorization, injection, and secret-handling bugs.");
     await dialog.getByLabel("Tool: edit").uncheck();
     await dialog.getByLabel("Tool: write").uncheck();
     await dialog.getByLabel("Extensions").uncheck();
