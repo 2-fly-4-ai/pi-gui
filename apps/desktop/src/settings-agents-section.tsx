@@ -55,37 +55,40 @@ export function SettingsAgentsSection({ runtime, snapshot, pending, error, onSav
         {error ? <div className="settings-warning" role="alert">{error}</div> : null}
         {!snapshot ? <div className="settings-hint">Loading agent definitions…</div> : null}
         <div className="agent-definitions-list">
-          {agents.map((agent) => (
-            <div className="agent-definition-row" data-testid={`agent-definition-row-${agent.name}`} key={agent.name}>
-              <div className="agent-definition-row__main">
-                <div className="agent-definition-row__title">{agent.config.displayName || agent.name}</div>
-                <div className="agent-definition-row__description">{agent.config.description}</div>
-                <div className="agent-definition-row__meta">
-                  <span>{agent.source === "builtin" ? "Built-in" : agent.source === "project" ? "Project override" : "Global override"}</span>
-                  <span>Name: {agent.name}</span>
-                  <span>Role: {canonicalRoleForAgentName(agent.name, agent.config.role)}</span>
-                  {legacyAgentAliasForName(agent.name) ? <span>Legacy alias for {legacyAgentAliasForName(agent.name)}</span> : null}
-                  <span>Model: {formatModel(agent)}</span>
-                  <span>Reasoning: {formatThinking(agent)}</span>
-                  <span>Tools: {agent.config.tools?.length ? agent.config.tools.join(", ") : "Inherited/default"}</span>
-                  <span>Prompt: {agent.config.promptMode}</span>
+          {agents.map((agent) => {
+            const legacyAlias = legacyAgentAliasForName(agent.name);
+            return (
+              <div className="agent-definition-row" data-testid={`agent-definition-row-${agent.name}`} key={agent.name}>
+                <div className="agent-definition-row__main">
+                  <div className="agent-definition-row__title">{agent.config.displayName || agent.name}</div>
+                  <div className="agent-definition-row__description">{agent.config.description}</div>
+                  <div className="agent-definition-row__meta">
+                    <span>{agent.source === "builtin" ? "Built-in" : agent.source === "project" ? "Project override" : "Global override"}</span>
+                    <span>Name: {agent.name}</span>
+                    <span>Role: {canonicalRoleForAgentName(agent.name, agent.config.role)}</span>
+                    {legacyAlias ? <span>Legacy alias for {legacyAlias}</span> : null}
+                    <span>Model: {formatModel(agent)}</span>
+                    <span>Reasoning: {formatThinking(agent)}</span>
+                    <span>Tools: {agent.config.tools?.length ? agent.config.tools.join(", ") : "Inherited/default"}</span>
+                    <span>Prompt: {agent.config.promptMode}</span>
+                  </div>
+                  {agent.warnings.map((warning) => <div className="settings-warning" key={warning}>{warning}</div>)}
+                  {!modelAvailable(runtime, agent) ? <div className="settings-warning">Configured model is not currently available. The extension may fall back or fail until the provider is connected.</div> : null}
                 </div>
-                {agent.warnings.map((warning) => <div className="settings-warning" key={warning}>{warning}</div>)}
-                {!modelAvailable(runtime, agent) ? <div className="settings-warning">Configured model is not currently available. The extension may fall back or fail until the provider is connected.</div> : null}
+                <div className="agent-definition-row__actions">
+                  <button className="button button--secondary" disabled={pending} type="button" onClick={() => setEditor({ mode: "edit", record: agent })}>Edit</button>
+                  <button className="button button--secondary" disabled={pending} type="button" onClick={() => openDuplicate(agent)}>Duplicate</button>
+                  {agent.source !== "builtin" && agent.scope ? (
+                    agent.builtin ? (
+                      <button className="button button--secondary" disabled={pending} type="button" onClick={() => void onReset({ scope: agent.scope!, name: agent.name })}>Reset</button>
+                    ) : (
+                      <button className="button button--danger" disabled={pending} type="button" onClick={() => setDeleteTarget(agent)}>Delete</button>
+                    )
+                  ) : null}
+                </div>
               </div>
-              <div className="agent-definition-row__actions">
-                <button className="button button--secondary" disabled={pending} type="button" onClick={() => setEditor({ mode: "edit", record: agent })}>Edit</button>
-                <button className="button button--secondary" disabled={pending} type="button" onClick={() => openDuplicate(agent)}>Duplicate</button>
-                {agent.source !== "builtin" && agent.scope ? (
-                  agent.builtin ? (
-                    <button className="button button--secondary" disabled={pending} type="button" onClick={() => void onReset({ scope: agent.scope!, name: agent.name })}>Reset</button>
-                  ) : (
-                    <button className="button button--danger" disabled={pending} type="button" onClick={() => setDeleteTarget(agent)}>Delete</button>
-                  )
-                ) : null}
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </SettingsGroup>
 

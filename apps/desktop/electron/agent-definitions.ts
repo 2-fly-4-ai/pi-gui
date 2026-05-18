@@ -16,6 +16,7 @@ import { BUILTIN_AGENT_CONFIGS, CANONICAL_SUBAGENT_ROLES, LEGACY_AGENT_ALIAS_ORD
 
 const BUILTIN_TOOL_NAMES: readonly AgentToolName[] = ["read", "bash", "edit", "write", "grep", "find", "ls"];
 const THINKING_LEVELS: readonly AgentThinkingLevel[] = ["off", "minimal", "low", "medium", "high", "xhigh"];
+const AGENT_SORT_ORDER: readonly string[] = [...CANONICAL_SUBAGENT_ROLES, ...LEGACY_AGENT_ALIAS_ORDER];
 
 export async function listAgentDefinitions(workspacePath: string | undefined): Promise<AgentDefinitionsSnapshot> {
   const globalAgentsDir = join(resolveAgentDir(), "agents");
@@ -304,7 +305,6 @@ function isThinkingLevel(value: string): value is AgentThinkingLevel {
 }
 
 function rankAgent(name: string): number {
-  const order: readonly string[] = [...CANONICAL_SUBAGENT_ROLES, ...LEGACY_AGENT_ALIAS_ORDER];
-  const index = order.indexOf(name);
+  const index = AGENT_SORT_ORDER.indexOf(name);
   return index === -1 ? 100 : index;
 }

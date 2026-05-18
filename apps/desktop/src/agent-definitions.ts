@@ -17,6 +17,7 @@ export const CANONICAL_SUBAGENT_ROLES = [
 ] as const;
 
 export type CanonicalSubagentRoleName = (typeof CANONICAL_SUBAGENT_ROLES)[number];
+// Custom markdown definitions may declare non-canonical role names; helpers below only treat known presets as canonical.
 export type SubagentRoleName = CanonicalSubagentRoleName | string;
 export type SubagentContextMode = "fresh" | "fork" | "project";
 export type SubagentOutputMode = "message" | "artifact" | "both";
@@ -107,6 +108,10 @@ export const LEGACY_AGENT_ALIASES: Readonly<Record<(typeof LEGACY_AGENT_ALIAS_OR
   Plan: "planner",
 };
 
+export function isCanonicalSubagentRoleName(role: string | undefined): role is CanonicalSubagentRoleName {
+  return CANONICAL_SUBAGENT_ROLES.includes(role as CanonicalSubagentRoleName);
+}
+
 export function legacyAgentAliasForName(name: string): CanonicalSubagentRoleName | undefined {
   return LEGACY_AGENT_ALIAS_ORDER.includes(name as (typeof LEGACY_AGENT_ALIAS_ORDER)[number])
     ? LEGACY_AGENT_ALIASES[name as (typeof LEGACY_AGENT_ALIAS_ORDER)[number]]
@@ -114,7 +119,7 @@ export function legacyAgentAliasForName(name: string): CanonicalSubagentRoleName
 }
 
 export function canonicalRoleForAgentName(name: string, configuredRole?: string): string {
-  return configuredRole || legacyAgentAliasForName(name) || name;
+  return isCanonicalSubagentRoleName(configuredRole) ? configuredRole : legacyAgentAliasForName(name) || name;
 }
 
 export const BUILTIN_AGENT_NAMES = [...CANONICAL_SUBAGENT_ROLES, ...LEGACY_AGENT_ALIAS_ORDER] as const;
