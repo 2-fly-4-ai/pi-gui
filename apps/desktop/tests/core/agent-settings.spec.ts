@@ -68,7 +68,7 @@ test("settings agents page creates a custom subagent with model, tools, prompt, 
     const window = await harness.firstWindow();
     await createNamedThread(window, "Agent builder session");
     await window.getByRole("button", { name: "Settings", exact: true }).click();
-    await window.getByRole("button", { name: "Agents", exact: true }).click();
+    await window.getByRole("button", { name: "Subagents", exact: true }).click();
 
     await window.getByRole("button", { name: "New agent" }).click();
     const dialog = window.getByTestId("agent-definition-editor");
@@ -146,7 +146,7 @@ You are a cleanup test agent.
     const window = await harness.firstWindow();
     await createNamedThread(window, "Delete agent session");
     await window.getByRole("button", { name: "Settings", exact: true }).click();
-    await window.getByRole("button", { name: "Agents", exact: true }).click();
+    await window.getByRole("button", { name: "Subagents", exact: true }).click();
 
     const row = window.getByTestId("agent-definition-row-cleanup-agent");
     await expect(row).toBeVisible();
@@ -176,7 +176,7 @@ test("settings agents page duplicates a built-in agent into a custom agent", asy
     const window = await harness.firstWindow();
     await createNamedThread(window, "Duplicate agent session");
     await window.getByRole("button", { name: "Settings", exact: true }).click();
-    await window.getByRole("button", { name: "Agents", exact: true }).click();
+    await window.getByRole("button", { name: "Subagents", exact: true }).click();
 
     await window.getByTestId("agent-definition-row-Explore").getByRole("button", { name: "Duplicate" }).click();
     const dialog = window.getByTestId("agent-definition-editor");
@@ -225,7 +225,7 @@ prompt_mode: replace
     const window = await harness.firstWindow();
     await createNamedThread(window, "Agent warning session");
     await window.getByRole("button", { name: "Settings", exact: true }).click();
-    await window.getByRole("button", { name: "Agents", exact: true }).click();
+    await window.getByRole("button", { name: "Subagents", exact: true }).click();
 
     const row = window.getByTestId("agent-definition-row-Explore");
     await expect(row).toContainText("unavailable-provider/unavailable-model");
@@ -291,7 +291,7 @@ isolation: "worktree"
     const window = await harness.firstWindow();
     await createNamedThread(window, "Agent project override session");
     await window.getByRole("button", { name: "Settings", exact: true }).click();
-    await window.getByRole("button", { name: "Agents", exact: true }).click();
+    await window.getByRole("button", { name: "Subagents", exact: true }).click();
 
     const row = window.getByTestId("agent-definition-row-Plan");
     await expect(row).toContainText("Project override");

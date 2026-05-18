@@ -2743,7 +2743,7 @@ export default function App() {
     { id: "general", label: "General" },
     { id: "providers", label: "Providers" },
     { id: "models", label: "Models" },
-    { id: "agents", label: "Agents" },
+    { id: "agents", label: "Subagents" },
     { id: "notifications", label: "Notifications" },
   ] as const;
 
