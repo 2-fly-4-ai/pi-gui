@@ -21,11 +21,11 @@ test("settings agents page saves built-in subagent model overrides", async () =>
     await createNamedThread(window, "Agent settings session");
 
     await window.getByRole("button", { name: "Settings", exact: true }).click();
-    await window.getByRole("button", { name: "Agents", exact: true }).click();
+    await window.getByRole("button", { name: "Subagents", exact: true }).click();
 
     await expect(window.getByTestId("settings-agents-section")).toBeVisible();
-    await expect(window.getByText("Custom agent builder", { exact: true })).toBeVisible();
-    await expect(window.getByRole("button", { name: "New agent" })).toBeEnabled();
+    await expect(window.getByText("Role builder", { exact: true })).toBeVisible();
+    await expect(window.getByRole("button", { name: "New role" })).toBeEnabled();
     await expect(window.getByTestId("agent-definition-row-general-purpose")).toContainText("general-purpose");
     await expect(window.getByTestId("agent-definition-row-Explore")).toContainText("Explore");
     await expect(window.getByTestId("agent-definition-row-Plan")).toContainText("Plan");
@@ -306,7 +306,7 @@ isolation: "worktree"
   }
 });
 
-test("settings models points subagent model selection to Agents", async () => {
+test("settings models points subagent model selection to Subagents", async () => {
   test.setTimeout(60_000);
   const userDataDir = await makeUserDataDir();
   const agentDir = join(userDataDir, "agent");
@@ -326,7 +326,7 @@ test("settings models points subagent model selection to Agents", async () => {
     await window.getByRole("button", { name: "Models", exact: true }).click();
     await expect(window.getByText("Subagent models", { exact: true })).toBeVisible();
     await window.getByRole("button", { name: "Configure subagents" }).click();
-    await expect(window.getByRole("heading", { name: "Agents" })).toBeVisible();
+    await expect(window.getByRole("heading", { name: "Subagents" })).toBeVisible();
     await expect(window.getByTestId("settings-agents-section")).toBeVisible();
   } finally {
     await harness.close();

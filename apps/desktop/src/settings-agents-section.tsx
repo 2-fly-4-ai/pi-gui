@@ -37,14 +37,14 @@ export function SettingsAgentsSection({ runtime, snapshot, pending, error, onSav
 
   return (
     <div data-testid="settings-agents-section">
-      <SettingsGroup title="Subagent definitions" description="Agents are launched naturally by Pi during chat. Configure models, prompts, tools, and custom pi-subagents definitions.">
+      <SettingsGroup title="Subagent roles" description="Roles define the specialists Pi can delegate to. Existing .pi/agents markdown files still work.">
         <div className="settings-row">
           <div className="settings-row__label">
-            <div className="settings-row__title">Custom agent builder</div>
-            <div className="settings-row__description">Create specialist agents as markdown definitions under the selected global or project agents folder.</div>
+            <div className="settings-row__title">Role builder</div>
+            <div className="settings-row__description">Create specialist roles as markdown definitions under the selected global or project agents folder.</div>
           </div>
           <div className="settings-row__control">
-            <button className="button button--primary" disabled={pending} type="button" onClick={openNew}>New agent</button>
+            <button className="button button--primary" disabled={pending} type="button" onClick={openNew}>New role</button>
           </div>
         </div>
         {error ? <div className="settings-warning" role="alert">{error}</div> : null}

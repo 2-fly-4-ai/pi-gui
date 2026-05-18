@@ -106,7 +106,7 @@ export function SettingsModelsSection({
       </SettingsGroup>
 
       <SettingsGroup title="Subagent models" description="Subagents can inherit the active thread model or use their own fixed model.">
-        <SettingsRow title="Agent-specific models" description="Configure general-purpose, Explore, Plan, and custom pi-subagents definitions from Settings → Agents.">
+        <SettingsRow title="Role-specific models" description="Configure delegate, scout, planner, reviewer, and custom subagent roles from Settings → Subagents.">
           <button className="button button--secondary" type="button" onClick={onOpenAgentsSettings}>Configure subagents</button>
         </SettingsRow>
       </SettingsGroup>

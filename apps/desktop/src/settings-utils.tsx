@@ -30,7 +30,7 @@ export function sectionTitle(section: SettingsSection): string {
     case "models":
       return "Models";
     case "agents":
-      return "Agents";
+      return "Subagents";
     case "notifications":
       return "Notifications";
     default:
@@ -47,7 +47,7 @@ export function sectionDescription(section: SettingsSection, workspaceName: stri
     case "models":
       return "Choose the default model and which models appear in pickers.";
     case "agents":
-      return "Configure subagents that Pi can spawn automatically during chat.";
+      return "Configure roles and workflows that Pi can delegate to during chat.";
     case "notifications":
       return "Manage both macOS notification access and which background events should alert you.";
     default:
