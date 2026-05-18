@@ -3,6 +3,7 @@ import { basename, dirname, join } from "node:path";
 import { expect, test } from "@playwright/test";
 import type { SessionDriverEvent } from "@pi-gui/session-driver";
 import {
+  createNamedThread,
   emitTestSessionEvent,
   launchDesktop,
   makeUserDataDir,
@@ -11,6 +12,39 @@ import {
   selectSession,
   waitForWorkspaceByPath,
 } from "../helpers/electron-app";
+
+test("opens a Display Mode tile back into Threads with its transcript hydrated", async () => {
+  const userDataDir = await makeUserDataDir();
+  const workspacePath = await makeWorkspace("display-mode-open-thread");
+  const harness = await launchDesktop(userDataDir, {
+    initialWorkspaces: [workspacePath],
+    testMode: "background",
+  });
+
+  try {
+    const window = await harness.firstWindow();
+    await waitForWorkspaceByPath(window, workspacePath);
+    await createNamedThread(window, "Display mode open thread");
+    await seedTranscriptMessages(harness, window, {
+      count: 1,
+      textFactory: () => "Display mode open thread transcript sentinel",
+    });
+
+    const nav = window.locator(".sidebar__nav");
+    await nav.getByRole("button", { name: "Display Mode" }).click();
+    await expect.poll(async () => window.evaluate(() => window.piApp?.getState().then((state) => state.activeView) ?? "missing")).toBe("display-mode");
+
+    const tile = window.getByTestId("display-mode-thread-tile").filter({ hasText: "Display mode open thread" });
+    await expect(tile).toContainText("Display mode open thread transcript sentinel");
+    await tile.getByRole("button", { name: "Open thread", exact: true }).click();
+
+    await expect.poll(async () => window.evaluate(() => window.piApp?.getState().then((state) => state.activeView) ?? "missing")).toBe("threads");
+    await expect(window.locator(".topbar__session")).toHaveText("Display mode open thread");
+    await expect(window.getByTestId("transcript")).toContainText("Display mode open thread transcript sentinel");
+  } finally {
+    await harness.close();
+  }
+});
 
 test("opens Display Mode from the sidebar and renders thread command-center tiles", async () => {
   const userDataDir = await makeUserDataDir();

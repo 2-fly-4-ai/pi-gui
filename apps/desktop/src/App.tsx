@@ -115,6 +115,38 @@ function useDesktopAppState() {
     };
   }, []);
 
+  useEffect(() => {
+    const api = window.piApp;
+    if (!api) {
+      return undefined;
+    }
+
+    const expectedWorkspaceId = snapshot?.selectedWorkspaceId;
+    const expectedSessionId = snapshot?.selectedSessionId;
+    if (!expectedWorkspaceId || !expectedSessionId) {
+      setSelectedTranscript(null);
+      return undefined;
+    }
+
+    let active = true;
+    void api.getSelectedTranscript().then((transcript) => {
+      if (!active) {
+        return;
+      }
+      if (
+        transcript &&
+        transcript.workspaceId === expectedWorkspaceId &&
+        transcript.sessionId === expectedSessionId
+      ) {
+        setSelectedTranscript(transcript);
+      }
+    });
+
+    return () => {
+      active = false;
+    };
+  }, [snapshot?.activeView, snapshot?.selectedWorkspaceId, snapshot?.selectedSessionId]);
+
   return [snapshot, setSnapshot, selectedTranscript] as const;
 }
 
@@ -2978,6 +3010,7 @@ export default function App() {
             setSnapshot={setSnapshot}
             openSettings={openSettings}
             updateSnapshot={updateSnapshot}
+            onOpenThread={handleSelectSession}
           />
         ) : snapshot.activeView === "new-thread" ? (
           rootWorkspaceOptions.length > 0 ? (

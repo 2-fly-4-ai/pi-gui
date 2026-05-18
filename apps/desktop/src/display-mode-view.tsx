@@ -48,7 +48,7 @@ export function DisplayModeView({
   vsCodeOpen, vsCodeWorkspaceId, vsCodeFolderPath, vsCodeWidth, onVsCodeWidthChange, onToggleVsCode, onOpenVsCodeForWorkspace,
   initialPinnedThreadKey, vscodeSlotRef,
   runtimeByWorkspace, sessionCommandsBySession, commandCompatibilityByWorkspace,
-  setSnapshot, openSettings, updateSnapshot,
+  setSnapshot, openSettings, updateSnapshot, onOpenThread,
 }: {
   readonly api: PiDesktopApi;
   readonly drawerOpen: boolean;
@@ -72,6 +72,7 @@ export function DisplayModeView({
     setSnapshot: Dispatch<SetStateAction<DesktopAppState | null>>,
     action: () => Promise<DesktopAppState>,
   ) => Promise<DesktopAppState>;
+  readonly onOpenThread: (target: { readonly workspaceId: string; readonly sessionId: string }) => void;
 }) {
   const [threads, setThreads] = useState<readonly DisplayModeThreadRecord[]>([]);
   const [loading, setLoading] = useState(true);
@@ -457,7 +458,7 @@ export function DisplayModeView({
                 isExpanded={true}
                 compact={false}
                 onFilesUpdate={focusKey === pinnedThreadKey ? setPinnedThreadFiles : undefined}
-                onOpenThread={() => void api.selectSession({ workspaceId: focusRecord.workspace.id, sessionId: focusRecord.session.id })}
+                onOpenThread={() => onOpenThread({ workspaceId: focusRecord.workspace.id, sessionId: focusRecord.session.id })}
                 onOpenVSCode={() => onOpenVsCodeForWorkspace(focusRecord.workspace.id, focusRecord.workspace.path)}
                 onPinPreview={() => pinThread(focusRecord, focusKey)}
                 onToggleTerminal={() => toggleTerminal(focusKey)}
@@ -487,7 +488,7 @@ export function DisplayModeView({
                         isExpanded={false}
                         compact={compact}
                         onFilesUpdate={key === pinnedThreadKey ? setPinnedThreadFiles : undefined}
-                        onOpenThread={() => void api.selectSession({ workspaceId: record.workspace.id, sessionId: record.session.id })}
+                        onOpenThread={() => onOpenThread({ workspaceId: record.workspace.id, sessionId: record.session.id })}
                         onOpenVSCode={() => onOpenVsCodeForWorkspace(record.workspace.id, record.workspace.path)}
                         onPinPreview={() => pinThread(record, key)}
                         onToggleTerminal={() => toggleTerminal(key)}
@@ -527,7 +528,7 @@ export function DisplayModeView({
                       isExpanded={false}
                       compact={compact}
                       onFilesUpdate={key === pinnedThreadKey ? setPinnedThreadFiles : undefined}
-                      onOpenThread={() => void api.selectSession({ workspaceId: record.workspace.id, sessionId: record.session.id })}
+                      onOpenThread={() => onOpenThread({ workspaceId: record.workspace.id, sessionId: record.session.id })}
                       onOpenVSCode={() => onOpenVsCodeForWorkspace(record.workspace.id, record.workspace.path)}
                       onPinPreview={() => pinThread(record, key)}
                       onToggleTerminal={() => toggleTerminal(key)}
