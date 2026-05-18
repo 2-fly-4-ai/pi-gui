@@ -12,7 +12,7 @@ import type {
   ResetAgentDefinitionInput,
   SaveAgentDefinitionInput,
 } from "../src/agent-definitions";
-import { BUILTIN_AGENT_CONFIGS } from "../src/agent-definitions";
+import { BUILTIN_AGENT_CONFIGS, CANONICAL_SUBAGENT_ROLES, LEGACY_AGENT_ALIAS_ORDER } from "../src/agent-definitions";
 
 const BUILTIN_TOOL_NAMES: readonly AgentToolName[] = ["read", "bash", "edit", "write", "grep", "find", "ls"];
 const THINKING_LEVELS: readonly AgentThinkingLevel[] = ["off", "minimal", "low", "medium", "high", "xhigh"];
@@ -304,8 +304,7 @@ function isThinkingLevel(value: string): value is AgentThinkingLevel {
 }
 
 function rankAgent(name: string): number {
-  if (name === "general-purpose") return 0;
-  if (name === "Explore") return 1;
-  if (name === "Plan") return 2;
-  return 10;
+  const order: readonly string[] = [...CANONICAL_SUBAGENT_ROLES, ...LEGACY_AGENT_ALIAS_ORDER];
+  const index = order.indexOf(name);
+  return index === -1 ? 100 : index;
 }

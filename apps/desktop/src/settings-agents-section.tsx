@@ -8,7 +8,12 @@ import type {
   ResetAgentDefinitionInput,
   SaveAgentDefinitionInput,
 } from "./agent-definitions";
-import { createDefaultCustomAgentConfig, duplicateAgentConfig } from "./agent-definitions";
+import {
+  canonicalRoleForAgentName,
+  createDefaultCustomAgentConfig,
+  duplicateAgentConfig,
+  legacyAgentAliasForName,
+} from "./agent-definitions";
 import { AgentDefinitionEditor } from "./agent-definition-editor";
 import { SettingsGroup } from "./settings-utils";
 
@@ -58,6 +63,8 @@ export function SettingsAgentsSection({ runtime, snapshot, pending, error, onSav
                 <div className="agent-definition-row__meta">
                   <span>{agent.source === "builtin" ? "Built-in" : agent.source === "project" ? "Project override" : "Global override"}</span>
                   <span>Name: {agent.name}</span>
+                  <span>Role: {canonicalRoleForAgentName(agent.name, agent.config.role)}</span>
+                  {legacyAgentAliasForName(agent.name) ? <span>Legacy alias for {legacyAgentAliasForName(agent.name)}</span> : null}
                   <span>Model: {formatModel(agent)}</span>
                   <span>Reasoning: {formatThinking(agent)}</span>
                   <span>Tools: {agent.config.tools?.length ? agent.config.tools.join(", ") : "Inherited/default"}</span>

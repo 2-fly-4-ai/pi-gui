@@ -26,9 +26,17 @@ test("settings agents page saves built-in subagent model overrides", async () =>
     await expect(window.getByTestId("settings-agents-section")).toBeVisible();
     await expect(window.getByText("Role builder", { exact: true })).toBeVisible();
     await expect(window.getByRole("button", { name: "New role" })).toBeEnabled();
-    await expect(window.getByTestId("agent-definition-row-general-purpose")).toContainText("general-purpose");
-    await expect(window.getByTestId("agent-definition-row-Explore")).toContainText("Explore");
-    await expect(window.getByTestId("agent-definition-row-Plan")).toContainText("Plan");
+    await expect(window.getByTestId("agent-definition-row-delegate")).toContainText("Delegate");
+    await expect(window.getByTestId("agent-definition-row-scout")).toContainText("Scout");
+    await expect(window.getByTestId("agent-definition-row-planner")).toContainText("Planner");
+    await expect(window.getByTestId("agent-definition-row-worker")).toContainText("Worker");
+    await expect(window.getByTestId("agent-definition-row-reviewer")).toContainText("Reviewer");
+    await expect(window.getByTestId("agent-definition-row-oracle")).toContainText("Oracle");
+    await expect(window.getByTestId("agent-definition-row-researcher")).toContainText("Researcher");
+    await expect(window.getByTestId("agent-definition-row-context-builder")).toContainText("Context Builder");
+    await expect(window.getByTestId("agent-definition-row-general-purpose")).toContainText("Legacy alias for delegate");
+    await expect(window.getByTestId("agent-definition-row-Explore")).toContainText("Legacy alias for scout");
+    await expect(window.getByTestId("agent-definition-row-Plan")).toContainText("Legacy alias for planner");
 
     await window.getByTestId("agent-definition-row-general-purpose").getByRole("button", { name: "Edit" }).click();
     const dialog = window.getByTestId("agent-definition-editor");

@@ -5,6 +5,31 @@ export type AgentDefinitionSource = "builtin" | "global" | "project";
 export type AgentDefinitionModelMode = "inherit" | "fixed";
 export type AgentDefinitionThinkingMode = "inherit" | "fixed";
 export type AgentToolName = "read" | "bash" | "edit" | "write" | "grep" | "find" | "ls";
+export const CANONICAL_SUBAGENT_ROLES = [
+  "delegate",
+  "scout",
+  "planner",
+  "worker",
+  "reviewer",
+  "oracle",
+  "researcher",
+  "context-builder",
+] as const;
+
+export type CanonicalSubagentRoleName = (typeof CANONICAL_SUBAGENT_ROLES)[number];
+export type SubagentRoleName = CanonicalSubagentRoleName | string;
+export type SubagentContextMode = "fresh" | "fork" | "project";
+export type SubagentOutputMode = "message" | "artifact" | "both";
+export type SubagentProgressMode = "silent" | "summary" | "stream";
+
+export interface SubagentModelRef {
+  readonly providerId: string;
+  readonly modelId: string;
+}
+
+export interface AgentDefinitionExtraFrontmatter {
+  readonly [key: string]: string | boolean | number | readonly string[];
+}
 
 export type AgentThinkingLevel = NonNullable<RuntimeSettingsSnapshot["defaultThinkingLevel"]> | "off" | "minimal";
 
@@ -23,6 +48,16 @@ export interface AgentDefinitionConfig {
   readonly extensions: true | false;
   readonly skills: true | false;
   readonly promptMode: "append" | "replace";
+  readonly role?: SubagentRoleName;
+  readonly systemPromptMode?: "append" | "replace";
+  readonly contextMode?: SubagentContextMode;
+  readonly inheritProjectContext?: boolean;
+  readonly fallbackModels?: readonly SubagentModelRef[];
+  readonly output?: SubagentOutputMode;
+  readonly defaultReads?: readonly string[];
+  readonly defaultProgress?: SubagentProgressMode;
+  readonly maxSubagentDepth?: number;
+  readonly extraFrontmatter?: AgentDefinitionExtraFrontmatter;
   readonly maxTurns?: number;
   readonly inheritContext?: boolean;
   readonly runInBackground?: boolean;
@@ -64,7 +99,25 @@ export interface DeleteAgentDefinitionInput {
   readonly name: string;
 }
 
-export const BUILTIN_AGENT_NAMES = ["general-purpose", "Explore", "Plan"] as const;
+export const LEGACY_AGENT_ALIAS_ORDER = ["general-purpose", "Explore", "Plan"] as const;
+
+export const LEGACY_AGENT_ALIASES: Readonly<Record<(typeof LEGACY_AGENT_ALIAS_ORDER)[number], CanonicalSubagentRoleName>> = {
+  "general-purpose": "delegate",
+  Explore: "scout",
+  Plan: "planner",
+};
+
+export function legacyAgentAliasForName(name: string): CanonicalSubagentRoleName | undefined {
+  return LEGACY_AGENT_ALIAS_ORDER.includes(name as (typeof LEGACY_AGENT_ALIAS_ORDER)[number])
+    ? LEGACY_AGENT_ALIASES[name as (typeof LEGACY_AGENT_ALIAS_ORDER)[number]]
+    : undefined;
+}
+
+export function canonicalRoleForAgentName(name: string, configuredRole?: string): string {
+  return configuredRole || legacyAgentAliasForName(name) || name;
+}
+
+export const BUILTIN_AGENT_NAMES = [...CANONICAL_SUBAGENT_ROLES, ...LEGACY_AGENT_ALIAS_ORDER] as const;
 
 export const READ_ONLY_AGENT_TOOLS: readonly AgentToolName[] = ["read", "bash", "grep", "find", "ls"];
 
@@ -180,22 +233,188 @@ You are STRICTLY PROHIBITED from:
 List 3-5 files most critical for implementing this plan:
 - /absolute/path/to/file.ts - [Brief reason]`;
 
+export const DEFAULT_WORKER_PROMPT = `You are a focused implementation worker.
+
+Complete the delegated task in the current repository. Keep changes small, follow existing patterns, run targeted verification when possible, and report exactly what changed.`;
+
+export const DEFAULT_REVIEWER_PROMPT = `You are a strict code reviewer.
+
+Review the delegated diff, plan, or artifact for correctness, tests, maintainability, and product fit. Return findings with severity, file references, and concrete fixes. Do not modify files.`;
+
+export const DEFAULT_ORACLE_PROMPT = `You are an oracle agent for second opinions.
+
+Challenge assumptions, identify hidden risks, compare alternatives, and recommend a path. Do not modify files unless explicitly asked.`;
+
+export const DEFAULT_RESEARCHER_PROMPT = `You are a research specialist.
+
+Find relevant documentation and source-backed facts, summarize them concisely, and cite links or file paths. Avoid implementation unless explicitly asked.`;
+
+export const DEFAULT_CONTEXT_BUILDER_PROMPT = `You are a context builder.
+
+Create a compact handoff artifact that captures goals, constraints, decisions, touched files, verification, and remaining risks for another agent.`;
+
 export const BUILTIN_AGENT_CONFIGS: readonly AgentDefinitionConfig[] = [
   {
+    name: "delegate",
+    displayName: "Delegate",
+    role: "delegate",
+    description: "General-purpose delegated agent for complex tasks",
+    modelMode: "inherit",
+    thinkingMode: "inherit",
+    extensions: true,
+    skills: true,
+    promptMode: "append",
+    systemPromptMode: "append",
+    contextMode: "fork",
+    output: "message",
+    defaultProgress: "summary",
+    enabled: true,
+    systemPrompt: DEFAULT_GENERAL_PURPOSE_PROMPT,
+  },
+  {
+    name: "scout",
+    displayName: "Scout",
+    role: "scout",
+    description: "Fast read-only codebase reconnaissance",
+    modelMode: "inherit",
+    thinkingMode: "inherit",
+    tools: READ_ONLY_AGENT_TOOLS,
+    extensions: true,
+    skills: true,
+    promptMode: "replace",
+    systemPromptMode: "replace",
+    contextMode: "project",
+    output: "artifact",
+    defaultProgress: "summary",
+    enabled: true,
+    systemPrompt: DEFAULT_EXPLORE_PROMPT,
+  },
+  {
+    name: "planner",
+    displayName: "Planner",
+    role: "planner",
+    description: "Read-only implementation planning specialist",
+    modelMode: "inherit",
+    thinkingMode: "inherit",
+    tools: READ_ONLY_AGENT_TOOLS,
+    extensions: true,
+    skills: true,
+    promptMode: "replace",
+    systemPromptMode: "replace",
+    contextMode: "project",
+    output: "artifact",
+    defaultProgress: "summary",
+    enabled: true,
+    systemPrompt: DEFAULT_PLAN_PROMPT,
+  },
+  {
+    name: "worker",
+    displayName: "Worker",
+    role: "worker",
+    description: "Focused implementation specialist for delegated tasks",
+    modelMode: "inherit",
+    thinkingMode: "inherit",
+    extensions: true,
+    skills: true,
+    promptMode: "replace",
+    systemPromptMode: "replace",
+    contextMode: "fork",
+    output: "message",
+    defaultProgress: "summary",
+    enabled: true,
+    systemPrompt: DEFAULT_WORKER_PROMPT,
+  },
+  {
+    name: "reviewer",
+    displayName: "Reviewer",
+    role: "reviewer",
+    description: "Strict review specialist for diffs, plans, and artifacts",
+    modelMode: "inherit",
+    thinkingMode: "inherit",
+    tools: READ_ONLY_AGENT_TOOLS,
+    extensions: true,
+    skills: true,
+    promptMode: "replace",
+    systemPromptMode: "replace",
+    contextMode: "project",
+    output: "artifact",
+    defaultProgress: "summary",
+    enabled: true,
+    systemPrompt: DEFAULT_REVIEWER_PROMPT,
+  },
+  {
+    name: "oracle",
+    displayName: "Oracle",
+    role: "oracle",
+    description: "Second-opinion specialist for risks and alternatives",
+    modelMode: "inherit",
+    thinkingMode: "inherit",
+    extensions: true,
+    skills: true,
+    promptMode: "replace",
+    systemPromptMode: "replace",
+    contextMode: "fork",
+    output: "message",
+    defaultProgress: "summary",
+    enabled: true,
+    systemPrompt: DEFAULT_ORACLE_PROMPT,
+  },
+  {
+    name: "researcher",
+    displayName: "Researcher",
+    role: "researcher",
+    description: "Source-backed research specialist for docs and facts",
+    modelMode: "inherit",
+    thinkingMode: "inherit",
+    tools: READ_ONLY_AGENT_TOOLS,
+    extensions: true,
+    skills: true,
+    promptMode: "replace",
+    systemPromptMode: "replace",
+    contextMode: "project",
+    output: "artifact",
+    defaultProgress: "summary",
+    enabled: true,
+    systemPrompt: DEFAULT_RESEARCHER_PROMPT,
+  },
+  {
+    name: "context-builder",
+    displayName: "Context Builder",
+    role: "context-builder",
+    description: "Handoff specialist for compact project context artifacts",
+    modelMode: "inherit",
+    thinkingMode: "inherit",
+    extensions: true,
+    skills: true,
+    promptMode: "replace",
+    systemPromptMode: "replace",
+    contextMode: "fork",
+    output: "artifact",
+    defaultProgress: "summary",
+    enabled: true,
+    systemPrompt: DEFAULT_CONTEXT_BUILDER_PROMPT,
+  },
+  {
     name: "general-purpose",
-    displayName: "Agent",
+    displayName: "Agent (legacy)",
+    role: "delegate",
     description: "General-purpose agent for complex, multi-step tasks",
     modelMode: "inherit",
     thinkingMode: "inherit",
     extensions: true,
     skills: true,
     promptMode: "append",
+    systemPromptMode: "append",
+    contextMode: "fork",
+    output: "message",
+    defaultProgress: "summary",
     enabled: true,
     systemPrompt: DEFAULT_GENERAL_PURPOSE_PROMPT,
   },
   {
     name: "Explore",
-    displayName: "Explore",
+    displayName: "Explore (legacy)",
+    role: "scout",
     description: "Fast codebase exploration agent (read-only)",
     modelMode: "inherit",
     thinkingMode: "inherit",
@@ -203,12 +422,17 @@ export const BUILTIN_AGENT_CONFIGS: readonly AgentDefinitionConfig[] = [
     extensions: true,
     skills: true,
     promptMode: "replace",
+    systemPromptMode: "replace",
+    contextMode: "project",
+    output: "artifact",
+    defaultProgress: "summary",
     enabled: true,
     systemPrompt: DEFAULT_EXPLORE_PROMPT,
   },
   {
     name: "Plan",
-    displayName: "Plan",
+    displayName: "Plan (legacy)",
+    role: "planner",
     description: "Software architect for implementation planning (read-only)",
     modelMode: "inherit",
     thinkingMode: "inherit",
@@ -216,6 +440,10 @@ export const BUILTIN_AGENT_CONFIGS: readonly AgentDefinitionConfig[] = [
     extensions: true,
     skills: true,
     promptMode: "replace",
+    systemPromptMode: "replace",
+    contextMode: "project",
+    output: "artifact",
+    defaultProgress: "summary",
     enabled: true,
     systemPrompt: DEFAULT_PLAN_PROMPT,
   },
