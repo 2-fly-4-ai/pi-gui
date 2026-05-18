@@ -644,7 +644,21 @@ test("keeps transcript pinning semantics while assistant deltas stream into the 
       const metrics = await getTimelineScrollMetrics(window);
       return Math.abs(metrics.scrollTop - beforeScrollTop);
     }).toBeLessThanOrEqual(12);
-    await expect(window.getByTestId("timeline-jump")).toHaveCount(1);
+    const jump = window.getByTestId("timeline-jump");
+    await expect(jump).toHaveCount(1);
+
+    await jump.click();
+    await expect.poll(async () => (await getTimelineScrollMetrics(window)).remainingFromBottom).toBeLessThanOrEqual(16);
+    await expect(jump).toHaveCount(0);
+
+    const resumedStream = await streamAssistantDeltas(harness, window, [
+      "RESUMED_STREAM_CHUNK_A ",
+      "RESUMED_STREAM_CHUNK_B ",
+      "RESUMED_STREAM_CHUNK_C",
+    ]);
+    await expect(window.getByTestId("transcript")).toContainText(resumedStream.fullText);
+    await expect.poll(async () => (await getTimelineScrollMetrics(window)).remainingFromBottom).toBeLessThanOrEqual(16);
+    await expect(jump).toHaveCount(0);
   } finally {
     await harness.close();
   }

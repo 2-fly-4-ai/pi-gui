@@ -28,13 +28,14 @@ import { ArrowUpIcon, MaximizeIcon, MinimizeIcon, SidebarToggleIcon, StopSquareI
 import type { PiDesktopApi } from "./ipc";
 import type { SettingsSection } from "./settings-view";
 import { formatRelativeTime } from "./string-utils";
+import {
+  clampVsCodeSidePanelWidth,
+  getMaxVsCodeSidePanelWidth,
+} from "./vscode-panel-width";
 
 type DisplayModeFilter = "all" | "running" | "waiting" | "error";
 type DrawerTab = "preview" | "logs" | "files";
 type ColumnMode = number | "auto";
-
-const VSCODE_SIDE_PANEL_WIDTH_KEY = "vscode:sidePanelWidth";
-const LEGACY_VSCODE_WIDTH_KEYS = ["threads:vsCodeWidth", "dm:vsCodeWidth"] as const;
 
 interface ChangedFile {
   readonly path: string;
@@ -44,7 +45,7 @@ interface ChangedFile {
 
 export function DisplayModeView({
   api, drawerOpen, onToggleDrawer,
-  vsCodeOpen, vsCodeWorkspaceId, vsCodeFolderPath, onToggleVsCode, onOpenVsCodeForWorkspace,
+  vsCodeOpen, vsCodeWorkspaceId, vsCodeFolderPath, vsCodeWidth, onVsCodeWidthChange, onToggleVsCode, onOpenVsCodeForWorkspace,
   initialPinnedThreadKey, vscodeSlotRef,
   runtimeByWorkspace, sessionCommandsBySession, commandCompatibilityByWorkspace,
   setSnapshot, openSettings, updateSnapshot,
@@ -55,6 +56,8 @@ export function DisplayModeView({
   readonly vsCodeOpen: boolean;
   readonly vsCodeWorkspaceId: string | null;
   readonly vsCodeFolderPath: string | null;
+  readonly vsCodeWidth: number;
+  readonly onVsCodeWidthChange: (width: number) => void;
   readonly onToggleVsCode: () => void;
   readonly onOpenVsCodeForWorkspace: (workspaceId: string, folderPath: string) => void;
   readonly initialPinnedThreadKey: string;
@@ -87,7 +90,6 @@ export function DisplayModeView({
   const [draggingId, setDraggingId] = useState<string | null>(null);
 
   const [drawerWidth, setDrawerWidth] = useState<number>(() => lsGetNum("dm:drawerWidth", 320));
-  const [vsCodeWidth, setVsCodeWidth] = useState<number>(() => getInitialVsCodeWidth());
   const lastFetchAt = useRef<number>(0);
   const pendingRefresh = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const sectionRef = useRef<HTMLElement | null>(null);
@@ -99,7 +101,6 @@ export function DisplayModeView({
   useEffect(() => { lsSet("dm:colCount", colCount); }, [colCount]);
   useEffect(() => { lsSet("dm:compact", compact); }, [compact]);
   useEffect(() => { lsSet("dm:drawerWidth", drawerWidth); }, [drawerWidth]);
-  useEffect(() => { lsSet(VSCODE_SIDE_PANEL_WIDTH_KEY, vsCodeWidth); }, [vsCodeWidth]);
   useEffect(() => {
     drawerWidthRef.current = drawerWidth;
     sectionRef.current?.style.setProperty("--display-mode-drawer-width", `${drawerWidth}px`);
@@ -112,11 +113,11 @@ export function DisplayModeView({
     if (!vsCodeOpen) return;
     const section = sectionRef.current;
     if (!section) return;
-    const maxWidth = getMaxVsCodeWidth(section.offsetWidth);
+    const maxWidth = getMaxVsCodeSidePanelWidth(section.offsetWidth);
     if (vsCodeWidth > maxWidth) {
-      setVsCodeWidth(maxWidth);
+      onVsCodeWidthChange(maxWidth);
     }
-  }, [vsCodeOpen, vsCodeWidth]);
+  }, [onVsCodeWidthChange, vsCodeOpen, vsCodeWidth]);
   const startDrawerResize = (e: React.PointerEvent<HTMLDivElement>) => {
     e.preventDefault();
     e.currentTarget.setPointerCapture(e.pointerId);
@@ -157,15 +158,16 @@ export function DisplayModeView({
     const onMove = (mv: PointerEvent) => {
       const delta = startX - mv.clientX;
       const sectionWidth = section.offsetWidth;
-      const next = Math.max(getMinVsCodeWidth(sectionWidth), Math.min(getMaxVsCodeWidth(sectionWidth), startWidth + delta));
+      const next = clampVsCodeSidePanelWidth(startWidth + delta, sectionWidth);
       vsCodeWidthRef.current = next;
       section.style.setProperty("--display-mode-vscode-width", `${next}px`);
+      onVsCodeWidthChange(next);
     };
     const onUp = () => {
       section.classList.remove("display-mode--resizing");
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
-      setVsCodeWidth(vsCodeWidthRef.current);
+      onVsCodeWidthChange(vsCodeWidthRef.current);
     };
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
@@ -1074,41 +1076,6 @@ function isHttpUrl(value: string): boolean {
   } catch { return false; }
 }
 
-function getInitialVsCodeWidth(): number {
-  const viewportWidth = typeof window === "undefined" ? 1440 : window.innerWidth;
-  const target = Math.floor(viewportWidth / 3);
-  const saved = getStoredVsCodeSidePanelWidth(target);
-  return saved > Math.floor(viewportWidth * 0.55)
-    ? target
-    : Math.max(getMinVsCodeWidth(viewportWidth), Math.min(getMaxVsCodeWidth(viewportWidth), saved));
-}
-
-function getStoredVsCodeSidePanelWidth(fallback: number): number {
-  try {
-    const saved = Number(localStorage.getItem(VSCODE_SIDE_PANEL_WIDTH_KEY));
-    if (Number.isFinite(saved) && saved > 0) {
-      return saved;
-    }
-    for (const key of LEGACY_VSCODE_WIDTH_KEYS) {
-      const legacy = Number(localStorage.getItem(key));
-      if (Number.isFinite(legacy) && legacy > 0) {
-        localStorage.setItem(VSCODE_SIDE_PANEL_WIDTH_KEY, String(legacy));
-        return legacy;
-      }
-    }
-  } catch {
-    // ignore storage failures
-  }
-  return fallback;
-}
-
-function getMinVsCodeWidth(containerWidth: number): number {
-  return Math.min(360, Math.max(280, Math.floor(containerWidth * 0.3)));
-}
-
-function getMaxVsCodeWidth(containerWidth: number): number {
-  return Math.max(getMinVsCodeWidth(containerWidth), Math.floor(containerWidth * 0.7));
-}
 
 function gridTemplateColumnsForMode(mode: ColumnMode): string {
   return mode === "auto"

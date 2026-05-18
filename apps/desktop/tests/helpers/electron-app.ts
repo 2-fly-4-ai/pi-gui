@@ -1043,13 +1043,21 @@ export async function jumpTimelineToBottom(window: Page): Promise<void> {
 }
 
 export async function scrollTimelineAwayFromBottom(window: Page, pixels = 160): Promise<void> {
+  const pane = window.getByTestId("timeline-pane");
+  const box = await pane.boundingBox();
+  if (!box) {
+    throw new Error("Timeline pane was unavailable");
+  }
+  await window.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await window.mouse.wheel(0, -Math.max(1, Math.floor(pixels / 2)));
   await window.evaluate((distance) => {
-    const pane = document.querySelector<HTMLDivElement>("[data-testid='timeline-pane']");
-    if (!pane) {
+    const paneElement = document.querySelector<HTMLDivElement>("[data-testid='timeline-pane']");
+    if (!paneElement) {
       throw new Error("Timeline pane was unavailable");
     }
-    pane.scrollTop = Math.max(0, pane.scrollHeight - pane.clientHeight - distance);
-    pane.dispatchEvent(new Event("scroll", { bubbles: true }));
+    paneElement.scrollTop = Math.max(0, paneElement.scrollHeight - paneElement.clientHeight - distance);
+    paneElement.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, pointerId: 1 }));
+    paneElement.dispatchEvent(new Event("scroll", { bubbles: true }));
   }, pixels);
 }
 

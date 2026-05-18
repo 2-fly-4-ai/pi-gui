@@ -203,6 +203,28 @@ test("opens Display Mode from the sidebar and renders thread command-center tile
         ? webviewHeight
         : 0;
     })).toBeGreaterThan(500);
+
+    const displayPanelBeforeResize = await displayVsCodePanel.boundingBox();
+    const displayResizeHandle = await window.locator(".display-mode-vscode__resize").boundingBox();
+    expect(displayPanelBeforeResize).not.toBeNull();
+    expect(displayResizeHandle).not.toBeNull();
+    await window.mouse.move(displayResizeHandle!.x + displayResizeHandle!.width / 2, displayResizeHandle!.y + displayResizeHandle!.height / 2);
+    await window.mouse.down();
+    await window.mouse.move(displayResizeHandle!.x - 220, displayResizeHandle!.y + displayResizeHandle!.height / 2, { steps: 6 });
+    await window.mouse.up();
+    await expect.poll(async () => (await displayVsCodePanel.boundingBox())?.width ?? 0).toBeGreaterThan(
+      (displayPanelBeforeResize?.width ?? 0) + 100,
+    );
+    const displayPanelWidth = (await displayVsCodePanel.boundingBox())?.width ?? 0;
+
+    await nav.getByRole("button", { name: "Threads" }).click();
+    await expect.poll(async () => window.evaluate(() => window.piApp?.getState().then((state) => state.activeView) ?? "missing")).toBe("threads");
+    const reopenedThreadPanel = window.getByTestId("thread-vscode-panel");
+    await expect(reopenedThreadPanel).toBeVisible();
+    await expect.poll(async () => {
+      const box = await reopenedThreadPanel.boundingBox();
+      return box ? Math.abs(box.width - displayPanelWidth) : Number.POSITIVE_INFINITY;
+    }).toBeLessThanOrEqual(4);
     const settings = JSON.parse(await readFile(join(userDataDir, "vscode-serve-web", "user-data", "User", "settings.json"), "utf8")) as Record<string, unknown>;
     const machineSettings = JSON.parse(await readFile(join(userDataDir, "vscode-serve-web", "user-data", "Machine", "settings.json"), "utf8")) as Record<string, unknown>;
     const workspaceSettings = JSON.parse(await readFile(join(staleWorkspaceSettingsDir, "settings.json"), "utf8")) as Record<string, unknown>;

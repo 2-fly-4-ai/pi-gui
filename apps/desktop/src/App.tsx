@@ -70,32 +70,13 @@ import {
   readComposerAttachmentsFromFiles,
 } from "./composer-attachments";
 import { normalizeToolAccess } from "./tool-access";
-
-const VSCODE_SIDE_PANEL_WIDTH_KEY = "vscode:sidePanelWidth";
-const LEGACY_VSCODE_WIDTH_KEYS = ["threads:vsCodeWidth", "dm:vsCodeWidth"] as const;
-
-function getStoredVsCodeSidePanelWidth(fallback: number): number {
-  try {
-    const saved = Number(localStorage.getItem(VSCODE_SIDE_PANEL_WIDTH_KEY));
-    if (Number.isFinite(saved) && saved > 0) {
-      return saved;
-    }
-    for (const key of LEGACY_VSCODE_WIDTH_KEYS) {
-      const legacy = Number(localStorage.getItem(key));
-      if (Number.isFinite(legacy) && legacy > 0) {
-        localStorage.setItem(VSCODE_SIDE_PANEL_WIDTH_KEY, String(legacy));
-        return legacy;
-      }
-    }
-  } catch {
-    // ignore storage failures
-  }
-  return fallback;
-}
-
-function getInitialThreadVsCodeWidth(): number {
-  return getStoredVsCodeSidePanelWidth(520);
-}
+import {
+  clampVsCodeSidePanelWidth,
+  getInitialVsCodeSidePanelWidth,
+  getMaxVsCodeSidePanelWidth,
+  getMinVsCodeSidePanelWidth,
+  storeVsCodeSidePanelWidth,
+} from "./vscode-panel-width";
 
 function useDesktopAppState() {
   const [snapshot, setSnapshot] = useState<DesktopAppState | null>(null);
@@ -243,6 +224,10 @@ export default function App() {
   const timelinePaneRef = useRef<HTMLDivElement | null>(null);
   const lastTranscriptMarkerRef = useRef("");
   const pinnedToBottomRef = useRef(true);
+  const followingLatestRef = useRef(true);
+  const autoAligningTimelineRef = useRef(false);
+  const userTimelineScrollIntentRef = useRef(false);
+  const manualTimelineScrollTopRef = useRef<number | null>(null);
   const previousTimelinePaneSizeRef = useRef<{ width: number; height: number } | null>(null);
   const lastTimelineScrollTopBySessionRef = useRef(new Map<string, number>());
   const lastTimelinePinnedBySessionRef = useRef(new Map<string, boolean>());
@@ -264,11 +249,25 @@ export default function App() {
   const [vsCodeFolderPath, setVsCodeFolderPath] = useState<string | null>(null);
   const [vsCodeSlotElement, setVsCodeSlotElement] = useState<HTMLElement | null>(null);
   const [vsCodePanelStyle, setVsCodePanelStyle] = useState<React.CSSProperties>({ visibility: "hidden" });
-  const [threadVsCodeWidth, setThreadVsCodeWidth] = useState(() => getInitialThreadVsCodeWidth());
+  const [threadVsCodeWidth, setThreadVsCodeWidth] = useState(() => getInitialVsCodeSidePanelWidth());
   const threadVsCodeWidthRef = useRef(threadVsCodeWidth);
   const setThreadVsCodeCssWidth = useCallback((width: number) => {
     mainRef.current?.style.setProperty("--thread-vscode-width", `${width}px`);
   }, []);
+  const getThreadVsCodeContainerWidth = useCallback(() => mainRef.current?.getBoundingClientRect().width ?? window.innerWidth, []);
+  const applyThreadVsCodeWidth = useCallback((width: number, containerWidth = getThreadVsCodeContainerWidth()) => {
+    const nextWidth = clampVsCodeSidePanelWidth(width, containerWidth);
+    threadVsCodeWidthRef.current = nextWidth;
+    setThreadVsCodeCssWidth(nextWidth);
+    return nextWidth;
+  }, [getThreadVsCodeContainerWidth, setThreadVsCodeCssWidth]);
+  const setSharedVsCodeWidth = useCallback((width: number) => {
+    threadVsCodeWidthRef.current = width;
+    setThreadVsCodeCssWidth(width);
+    flushSync(() => {
+      setThreadVsCodeWidth(width);
+    });
+  }, [setThreadVsCodeCssWidth]);
   const toggleVsCode = useCallback(() => setVsCodeOpen((o) => !o), []);
   const openVsCodeForWorkspace = useCallback((workspaceId: string, folderPath: string) => {
     setVsCodeWorkspaceId(workspaceId);
@@ -280,12 +279,11 @@ export default function App() {
     event.currentTarget.setPointerCapture(event.pointerId);
     const startX = event.clientX;
     const startWidth = threadVsCodeWidthRef.current;
+    const containerWidth = getThreadVsCodeContainerWidth();
 
     const onMove = (moveEvent: PointerEvent) => {
       const delta = startX - moveEvent.clientX;
-      const nextWidth = Math.max(360, Math.min(900, startWidth + delta));
-      threadVsCodeWidthRef.current = nextWidth;
-      setThreadVsCodeCssWidth(nextWidth);
+      applyThreadVsCodeWidth(startWidth + delta, containerWidth);
     };
 
     const onUp = () => {
@@ -296,32 +294,31 @@ export default function App() {
 
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
-  }, [setThreadVsCodeCssWidth]);
+  }, [applyThreadVsCodeWidth, getThreadVsCodeContainerWidth]);
   const handleThreadVsCodeResizeKeyDown = useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
+    const containerWidth = getThreadVsCodeContainerWidth();
     let nextWidth: number | undefined;
 
     switch (event.key) {
       case "ArrowLeft":
-        nextWidth = Math.min(900, threadVsCodeWidthRef.current + 24);
+        nextWidth = threadVsCodeWidthRef.current + 24;
         break;
       case "ArrowRight":
-        nextWidth = Math.max(360, threadVsCodeWidthRef.current - 24);
+        nextWidth = threadVsCodeWidthRef.current - 24;
         break;
       case "Home":
-        nextWidth = 360;
+        nextWidth = getMinVsCodeSidePanelWidth(containerWidth);
         break;
       case "End":
-        nextWidth = 900;
+        nextWidth = getMaxVsCodeSidePanelWidth(containerWidth);
         break;
       default:
         return;
     }
 
     event.preventDefault();
-    threadVsCodeWidthRef.current = nextWidth;
-    setThreadVsCodeCssWidth(nextWidth);
-    setThreadVsCodeWidth(nextWidth);
-  }, [setThreadVsCodeCssWidth]);
+    setThreadVsCodeWidth(applyThreadVsCodeWidth(nextWidth, containerWidth));
+  }, [applyThreadVsCodeWidth, getThreadVsCodeContainerWidth]);
   const [openTerminalSessionKeys, setOpenTerminalSessionKeys] = useState<ReadonlySet<string>>(() => new Set());
   const [takeoverTerminalSessionKeys, setTakeoverTerminalSessionKeys] = useState<ReadonlySet<string>>(() => new Set());
   const [activeTerminalSessionKey, setActiveTerminalSessionKey] = useState("");
@@ -354,7 +351,7 @@ export default function App() {
   useEffect(() => {
     threadVsCodeWidthRef.current = threadVsCodeWidth;
     setThreadVsCodeCssWidth(threadVsCodeWidth);
-    try { localStorage.setItem(VSCODE_SIDE_PANEL_WIDTH_KEY, String(threadVsCodeWidth)); } catch {}
+    storeVsCodeSidePanelWidth(threadVsCodeWidth);
   }, [setThreadVsCodeCssWidth, threadVsCodeWidth]);
 
   useLayoutEffect(() => {
@@ -902,25 +899,26 @@ export default function App() {
     }
 
     const align = (remainingChecks: number) => {
+      autoAligningTimelineRef.current = true;
       if (behavior === "auto") {
         pane.scrollTop = pane.scrollHeight;
       } else {
         pane.scrollTo({ top: pane.scrollHeight, behavior });
       }
       pinnedToBottomRef.current = true;
+      followingLatestRef.current = true;
+      manualTimelineScrollTopRef.current = null;
       lastTimelineScrollTopBySessionRef.current.set(selectedSessionKey, pane.scrollTop);
       lastTimelinePinnedBySessionRef.current.set(selectedSessionKey, true);
       setShowJumpToLatest(false);
 
-      if (remainingChecks <= 0) {
-        return;
-      }
-
       window.requestAnimationFrame(() => {
         const remaining = pane.scrollHeight - pane.scrollTop - pane.clientHeight;
-        if (remaining > 1 || remainingChecks > 1) {
+        if (remainingChecks > 0 && remaining > 1) {
           align(remainingChecks - 1);
+          return;
         }
+        autoAligningTimelineRef.current = false;
       });
     };
 
@@ -947,6 +945,14 @@ export default function App() {
 
     scrollTimelineToBottom(behavior);
   }, [activeTranscript.length, scrollTimelineToBottom, selectedSessionKey]);
+
+  const restoreManualTimelineScrollTop = useCallback(() => {
+    const pane = timelinePaneRef.current;
+    const savedScrollTop = manualTimelineScrollTopRef.current ?? lastTimelineScrollTopBySessionRef.current.get(selectedSessionKey);
+    if (pane && savedScrollTop !== undefined && savedScrollTop !== null && Math.abs(pane.scrollTop - savedScrollTop) > 1) {
+      pane.scrollTop = savedScrollTop;
+    }
+  }, [selectedSessionKey]);
 
   const finalizeTimelineVirtualizationDisable = useCallback(() => {
     const pane = timelinePaneRef.current;
@@ -1027,7 +1033,7 @@ export default function App() {
       return;
     }
 
-    const shouldRestoreBottom = (savedPinned ?? pinnedToBottomRef.current) || preserveBottomOnNextPaneResizeRef.current;
+    const shouldRestoreBottom = followingLatestRef.current || (savedPinned ?? pinnedToBottomRef.current) || preserveBottomOnNextPaneResizeRef.current;
     if (shouldRestoreBottom) {
       preserveBottomOnNextPaneResizeRef.current = true;
       node.scrollTop = node.scrollHeight;
@@ -1049,6 +1055,8 @@ export default function App() {
 
     node.scrollTop = savedScrollTop;
     pinnedToBottomRef.current = false;
+    followingLatestRef.current = false;
+    manualTimelineScrollTopRef.current = savedScrollTop;
     resetExactBottomRestoreState();
     lastTimelinePinnedBySessionRef.current.set(selectedSessionKey, false);
     window.requestAnimationFrame(() => {
@@ -1546,6 +1554,10 @@ export default function App() {
     setShowJumpToLatest(false);
     lastTranscriptMarkerRef.current = "";
     pinnedToBottomRef.current = true;
+    followingLatestRef.current = true;
+    autoAligningTimelineRef.current = false;
+    userTimelineScrollIntentRef.current = false;
+    manualTimelineScrollTopRef.current = null;
     previousTimelinePaneSizeRef.current = null;
     preserveBottomOnNextPaneResizeRef.current = false;
     resetExactBottomRestoreState(selectedSessionKey || null);
@@ -1559,7 +1571,7 @@ export default function App() {
     if (exactBottomRestoreSessionKeyRef.current !== selectedSessionKey) {
       return;
     }
-    if (!pinnedToBottomRef.current && !preserveBottomOnNextPaneResizeRef.current) {
+    if (!followingLatestRef.current || (!pinnedToBottomRef.current && !preserveBottomOnNextPaneResizeRef.current)) {
       return;
     }
 
@@ -1624,7 +1636,7 @@ export default function App() {
 
     const timeout = window.setTimeout(() => {
       void api.updateComposerDraft(composerDraft);
-    }, 350);
+    }, 100);
 
     return () => {
       window.clearTimeout(timeout);
@@ -1639,9 +1651,9 @@ export default function App() {
 
     const pane = timelinePaneRef.current;
     const previousHeight = composer.getBoundingClientRect().height;
-    const shouldPreserveBottom = pane
+    const shouldPreserveBottom = followingLatestRef.current && (pane
       ? isNearBottom(pane) || pinnedToBottomRef.current || preserveBottomOnNextPaneResizeRef.current
-      : pinnedToBottomRef.current || preserveBottomOnNextPaneResizeRef.current;
+      : pinnedToBottomRef.current || preserveBottomOnNextPaneResizeRef.current);
 
     composer.style.height = "0px";
     composer.style.height = `${Math.min(composer.scrollHeight, 220)}px`;
@@ -1660,6 +1672,27 @@ export default function App() {
       });
     }
   }, [composerDraft, requestPinnedBottomAlignment]);
+
+  useLayoutEffect(() => {
+    const pane = timelinePaneRef.current;
+    if (!pane || snapshot?.activeView !== "threads" || !selectedSession) {
+      return undefined;
+    }
+
+    const markUserScrollIntent = () => {
+      userTimelineScrollIntentRef.current = true;
+    };
+
+    pane.addEventListener("wheel", markUserScrollIntent, { passive: true });
+    pane.addEventListener("touchstart", markUserScrollIntent, { passive: true });
+    pane.addEventListener("pointerdown", markUserScrollIntent, { passive: true });
+
+    return () => {
+      pane.removeEventListener("wheel", markUserScrollIntent);
+      pane.removeEventListener("touchstart", markUserScrollIntent);
+      pane.removeEventListener("pointerdown", markUserScrollIntent);
+    };
+  }, [selectedSession, selectedSessionKey, snapshot?.activeView, timelinePaneMountVersion]);
 
   useLayoutEffect(() => {
     if (snapshot?.activeView !== "threads" || !selectedSession) {
@@ -1686,6 +1719,7 @@ export default function App() {
     const stickToBottomAfterLayoutChange = () => {
       preserveBottomOnNextPaneResizeRef.current = false;
       pinnedToBottomRef.current = true;
+      followingLatestRef.current = true;
       window.requestAnimationFrame(() => {
         requestPinnedBottomAlignment("auto", { preferExactRestore: true });
         window.requestAnimationFrame(() => {
@@ -1739,26 +1773,34 @@ export default function App() {
     }
     lastTranscriptMarkerRef.current = marker;
 
-    if (pinnedToBottomRef.current) {
-      requestPinnedBottomAlignment("auto", { preferExactRestore: true });
+    if (followingLatestRef.current) {
+      requestPinnedBottomAlignment("auto");
       return;
     }
 
+    restoreManualTimelineScrollTop();
+    window.requestAnimationFrame(restoreManualTimelineScrollTop);
     setShowJumpToLatest(true);
-  }, [activeTranscript, requestPinnedBottomAlignment, selectedSession, selectedSessionKey]);
+  }, [activeTranscript, requestPinnedBottomAlignment, restoreManualTimelineScrollTop, selectedSession, selectedSessionKey]);
 
   const handleTimelineContentHeightChange = useCallback(() => {
+    if (!followingLatestRef.current) {
+      restoreManualTimelineScrollTop();
+      window.requestAnimationFrame(restoreManualTimelineScrollTop);
+      return;
+    }
+
     if (!pinnedToBottomRef.current && !preserveBottomOnNextPaneResizeRef.current) {
       return;
     }
 
     window.requestAnimationFrame(() => {
-      if (!pinnedToBottomRef.current && !preserveBottomOnNextPaneResizeRef.current) {
+      if (!followingLatestRef.current || (!pinnedToBottomRef.current && !preserveBottomOnNextPaneResizeRef.current)) {
         return;
       }
-      requestPinnedBottomAlignment("auto", { preferExactRestore: true });
+      requestPinnedBottomAlignment("auto");
     });
-  }, [requestPinnedBottomAlignment]);
+  }, [requestPinnedBottomAlignment, restoreManualTimelineScrollTop]);
 
   if (!api || !snapshot) {
     return (
@@ -1797,6 +1839,9 @@ export default function App() {
     isTerminalVisible ? "main--with-terminal" : "",
     showTerminalTakeover ? "main--terminal-takeover" : "",
   ].filter(Boolean).join(" ");
+  const threadVsCodeContainerWidth = getThreadVsCodeContainerWidth();
+  const threadVsCodeMinWidth = getMinVsCodeSidePanelWidth(threadVsCodeContainerWidth);
+  const threadVsCodeMaxWidth = getMaxVsCodeSidePanelWidth(threadVsCodeContainerWidth);
   const terminalPanel = isTerminalVisible && visibleTerminalTarget ? (
     <div className="terminal-stack">
       {openTerminalTargets.length > 1 ? (
@@ -2541,19 +2586,37 @@ export default function App() {
     }
 
     const pinned = isNearBottom(pane);
-    if (preserveBottomOnNextPaneResizeRef.current && !pinned) {
+    const userScrollIntent = userTimelineScrollIntentRef.current;
+    userTimelineScrollIntentRef.current = false;
+
+    if (!pinned) {
+      if (!userScrollIntent) {
+        const savedScrollTop = manualTimelineScrollTopRef.current;
+        if (!followingLatestRef.current && savedScrollTop !== null && Math.abs(pane.scrollTop - savedScrollTop) > 1) {
+          pane.scrollTop = savedScrollTop;
+        }
+        return;
+      }
+      pinnedToBottomRef.current = false;
+      followingLatestRef.current = false;
+      manualTimelineScrollTopRef.current = pane.scrollTop;
+      preserveBottomOnNextPaneResizeRef.current = false;
+      resetExactBottomRestoreState();
+      lastTimelineScrollTopBySessionRef.current.set(selectedSessionKey, pane.scrollTop);
+      lastTimelinePinnedBySessionRef.current.set(selectedSessionKey, false);
       return;
     }
 
-    pinnedToBottomRef.current = pinned;
+    pinnedToBottomRef.current = true;
+    followingLatestRef.current = true;
+    manualTimelineScrollTopRef.current = null;
     lastTimelineScrollTopBySessionRef.current.set(selectedSessionKey, pane.scrollTop);
-    lastTimelinePinnedBySessionRef.current.set(selectedSessionKey, pinned);
-    if (pinned) {
-      setShowJumpToLatest(false);
-    }
+    lastTimelinePinnedBySessionRef.current.set(selectedSessionKey, true);
+    setShowJumpToLatest(false);
   };
 
   const jumpToLatest = () => {
+    followingLatestRef.current = true;
     requestPinnedBottomAlignment("smooth", { preferExactRestore: true });
   };
 
@@ -2903,6 +2966,8 @@ export default function App() {
             vsCodeOpen={vsCodeOpen}
             vsCodeWorkspaceId={vsCodeWorkspaceId}
             vsCodeFolderPath={vsCodeFolderPath}
+            vsCodeWidth={threadVsCodeWidth}
+            onVsCodeWidthChange={setSharedVsCodeWidth}
             onToggleVsCode={toggleVsCode}
             onOpenVsCodeForWorkspace={openVsCodeForWorkspace}
             initialPinnedThreadKey={displayModeInitialPinnedThreadKey}
@@ -3165,8 +3230,8 @@ export default function App() {
               tabIndex={0}
               aria-label="Resize VS Code panel"
               aria-orientation="vertical"
-              aria-valuemin={360}
-              aria-valuemax={900}
+              aria-valuemin={threadVsCodeMinWidth}
+              aria-valuemax={threadVsCodeMaxWidth}
               aria-valuenow={threadVsCodeWidth}
               onKeyDown={handleThreadVsCodeResizeKeyDown}
               onPointerDown={startThreadVsCodeResize}
