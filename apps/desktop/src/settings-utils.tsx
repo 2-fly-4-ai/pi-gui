@@ -41,7 +41,7 @@ export function sectionTitle(section: SettingsSection): string {
 export function sectionDescription(section: SettingsSection, workspaceName: string): string {
   switch (section) {
     case "appearance":
-      return "Choose your theme and the Shinobi character that represents you in threads.";
+      return "Choose your theme, Shinobi character, and thinking shuriken.";
     case "providers":
       return `Connect providers and manage auth for ${workspaceName}.`;
     case "models":

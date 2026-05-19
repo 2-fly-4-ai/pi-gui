@@ -9,8 +9,8 @@ import { BUILTIN_AGENT_CONFIGS, canonicalRoleForAgentName } from "./agent-defini
 import { resolveSubagentShinobiFromMap, useSubagentShinobiMap } from "./subagent-shinobi-roster";
 import { resolveSubagentRoleColor, useSubagentRoleColorMap } from "./subagent-role-colors";
 import { parseSubagentWorkflowMarker } from "./subagent-timeline-card";
+import { useSelectedShuriken } from "./shuriken-roster";
 import { extensionToLanguage } from "./syntax-highlight";
-import ninjaStarUrl from "./assets/ninja-star.svg";
 
 export const TimelineItem = memo(function TimelineItem({
   item,
@@ -181,13 +181,23 @@ function TimelineMessage({ item }: { readonly item: SessionTranscriptMessage }) 
 }
 
 function TimelineThinkingItem({ item }: { readonly item: Extract<TranscriptMessage, { kind: "thinking" }> }) {
+  const [selectedShuriken] = useSelectedShuriken();
   const running = item.status === "running";
   const body = item.text.trim() || "Thinking…";
   const elapsed = useElapsedLabel(item.createdAt, running);
   return (
     <article className={`timeline-item timeline-item--thinking${running ? " timeline-item--thinking-running" : ""}`}>
       <div className="timeline-thinking__header">
-        <img className="timeline-thinking__icon" src={ninjaStarUrl} alt="" aria-hidden="true" />
+        <img
+          className="timeline-thinking__icon"
+          data-shuriken-id={selectedShuriken.id}
+          data-testid="timeline-thinking-shuriken"
+          src={selectedShuriken.imageUrl}
+          width="16"
+          height="16"
+          alt=""
+          aria-hidden="true"
+        />
         <span>{running ? "Thinking…" : "Thinking"}</span>
         {running ? <span className="timeline-thinking__elapsed">{elapsed}</span> : null}
       </div>

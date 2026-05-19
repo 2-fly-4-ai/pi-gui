@@ -720,13 +720,18 @@
 }
 
 .timeline-thinking__icon {
+  display: block;
   width: 16px;
   height: 16px;
+  flex: 0 0 16px;
+  object-fit: contain;
   opacity: 0.68;
+  transform-origin: center;
 }
 
 .timeline-item--thinking-running .timeline-thinking__icon {
   animation: thinking-star-spin 1.05s linear infinite;
+  will-change: transform;
 }
 
 .timeline-thinking__body {
@@ -3782,6 +3787,39 @@
   color: var(--muted-soft);
   font-size: 12px;
   line-height: 1.25;
+}
+
+.shuriken-picker__hero {
+  grid-template-columns: minmax(96px, 140px) 1fr;
+}
+
+.shuriken-picker__portrait-shell {
+  place-items: center;
+  border-radius: 26px;
+}
+
+.shuriken-picker__portrait-shell img {
+  width: min(74%, 118px);
+  max-height: 118px;
+  filter: drop-shadow(0 14px 16px rgba(23, 28, 42, 0.2));
+}
+
+.shuriken-picker__grid {
+  grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+}
+
+.shuriken-card {
+  grid-template-rows: 92px auto;
+  min-height: 174px;
+}
+
+.shuriken-card__image-shell {
+  place-items: center;
+}
+
+.shuriken-card__image-shell img {
+  width: 70%;
+  height: 72px;
 }
 
 @media (max-width: 760px) {
