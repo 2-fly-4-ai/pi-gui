@@ -4,6 +4,7 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
 import {
   commitAllInGitRepo,
   desktopShortcut,
+  getAppDiagnostics,
   getDesktopState,
   getTimelineScrollMetrics,
   initGitRepo,
@@ -444,6 +445,45 @@ test("keeps a virtualized thread off-bottom after switching sessions", async () 
     await selectSession(window, targetTitle);
     await expect(window.locator(".topbar__session")).toHaveText(targetTitle);
     await expect.poll(async () => (await getTimelineScrollMetrics(window)).remainingFromBottom).toBeGreaterThan(500);
+  } finally {
+    await harness.close();
+  }
+});
+
+test("republishes the selected transcript when returning to the thread surface", async () => {
+  test.setTimeout(90_000);
+  const userDataDir = await makeUserDataDir();
+  const workspacePath = await makeWorkspace("timeline-return-thread-republish");
+  const harness = await launchDesktop(userDataDir, {
+    initialWorkspaces: [workspacePath],
+    testMode: "background",
+  });
+
+  try {
+    const window = await harness.firstWindow();
+    await createTimelineSession(window, "Return to thread session");
+
+    const finalMarker = "THREAD_RETURN_FINAL_ROW";
+    await seedTranscriptMessages(harness, window, {
+      count: 12,
+      textFactory: (index) =>
+        index === 11 ? `${finalMarker} ${"visible after returning ".repeat(8)}` : `Return seed row ${index}`,
+    });
+    await expect(window.getByTestId("transcript")).toContainText(finalMarker);
+
+    const beforeReturn = await getAppDiagnostics(harness);
+    await setDesktopActiveView(window, "settings");
+    await expect.poll(async () => (await getDesktopState(window)).activeView).toBe("settings");
+    await expect(window.getByTestId("timeline-pane")).toHaveCount(0);
+
+    await setDesktopActiveView(window, "threads");
+    await expect.poll(async () => (await getDesktopState(window)).activeView).toBe("threads");
+    await expect(window.getByTestId("timeline-pane")).toBeVisible();
+    await expect(window.getByTestId("transcript")).toContainText(finalMarker);
+    await expect.poll(async () => {
+      const diagnostics = await getAppDiagnostics(harness);
+      return diagnostics.selectedTranscriptPublishCount - beforeReturn.selectedTranscriptPublishCount;
+    }).toBeGreaterThanOrEqual(1);
   } finally {
     await harness.close();
   }
