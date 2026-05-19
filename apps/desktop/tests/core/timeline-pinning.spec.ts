@@ -636,6 +636,47 @@ test("native timeline scroll away from bottom disables follow-latest during stre
   }
 });
 
+test("pinned streaming keeps the visible bottom stable", async () => {
+  test.setTimeout(90_000);
+  const userDataDir = await makeUserDataDir();
+  const workspacePath = await makeWorkspace("pinned-stream-stability-workspace");
+  const harness = await launchDesktop(userDataDir, {
+    initialWorkspaces: [workspacePath],
+    testMode: "background",
+  });
+
+  try {
+    const window = await harness.firstWindow();
+    await createTimelineSession(window, "Pinned stream stability session");
+    await seedTranscriptMessages(harness, window, {
+      count: 28,
+      textFactory: (index) => `Pinned stability row ${index} ${"content ".repeat(10)}`,
+    });
+    await expect(window.getByTestId("transcript")).toContainText("Pinned stability row 27");
+    await jumpTimelineToBottom(window);
+    await expect.poll(async () => (await getTimelineScrollMetrics(window)).remainingFromBottom).toBeLessThanOrEqual(16);
+
+    const composerShell = window.locator(".composer");
+    const beforeComposerBox = await composerShell.boundingBox();
+    const beforeMetrics = await getTimelineScrollMetrics(window);
+
+    await streamAssistantDeltas(harness, window, [
+      "STABILITY_STREAM_A ",
+      "STABILITY_STREAM_B ",
+      "STABILITY_STREAM_C ",
+      "STABILITY_STREAM_D ",
+    ]);
+
+    const afterComposerBox = await composerShell.boundingBox();
+    const afterMetrics = await getTimelineScrollMetrics(window);
+    expect(afterMetrics.remainingFromBottom).toBeLessThanOrEqual(16);
+    expect(Math.abs((afterComposerBox?.y ?? 0) - (beforeComposerBox?.y ?? 0))).toBeLessThanOrEqual(2);
+    expect(afterMetrics.scrollTop).toBeGreaterThanOrEqual(beforeMetrics.scrollTop);
+  } finally {
+    await harness.close();
+  }
+});
+
 test("keeps transcript pinning semantics while assistant deltas stream into the same row", async () => {
   test.setTimeout(90_000);
   const userDataDir = await makeUserDataDir();
