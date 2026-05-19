@@ -736,7 +736,7 @@ function DisplayModeTile({
     void api.submitComposerToSession(
       { workspaceId: record.workspace.id, sessionId: record.session.id },
       text,
-      record.session.status === "running" ? { deliverAs: "followUp" } : undefined,
+      record.session.status === "running" ? { deliverAs: "steer" } : undefined,
     ).finally(() => setSubmitting(false));
   }, [api, record.session.id, record.session.status, record.workspace.id, submitting]);
 

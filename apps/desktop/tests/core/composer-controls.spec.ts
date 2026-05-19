@@ -122,7 +122,7 @@ test("supports keyboard shortcuts, slash menus, and topbar controls through the 
     await expect(fastModeTrigger).toBeVisible();
     await fastModeTrigger.click();
     await expect(window.locator(".fast-mode-selector__dropdown")).toContainText("Fast Mode");
-    await expect(window.locator(".fast-mode-selector__dropdown")).toContainText("pi-openai-fast");
+    await expect(window.locator(".fast-mode-selector__dropdown")).toContainText("Priority tier");
     await window.keyboard.press("Escape");
 
     await composer.fill("Keep the draft /thinking");

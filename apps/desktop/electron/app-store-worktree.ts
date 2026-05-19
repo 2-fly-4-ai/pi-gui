@@ -136,18 +136,10 @@ export async function startThread(store: AppStoreInternals, input: StartThreadIn
 
     // Fire message in background — assistantDelta events flow through
     // handleSessionEvent → emit() and update React while on the thread view.
-    // Apply the openai-fast session override first so Fast Mode affects the first real prompt.
     if (prompt || attachments.length > 0) {
-      void (async () => {
-        if (input.fastMode === "on" || input.fastMode === "off") {
-          await sendMessageToSession(store, session.ref, `/fast ${input.fastMode}`, [], {
-            rollbackOptimisticMessageOnError: false,
-          });
-        }
-        await sendMessageToSession(store, session.ref, prompt, attachments, {
-          rollbackOptimisticMessageOnError: false,
-        });
-      })().catch((error) => {
+      void sendMessageToSession(store, session.ref, prompt, attachments, {
+        rollbackOptimisticMessageOnError: false,
+      }).catch((error) => {
         void store.withError(error);
       });
     }

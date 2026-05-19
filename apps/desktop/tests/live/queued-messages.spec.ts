@@ -1,6 +1,5 @@
 import { expect, test } from "@playwright/test";
 import {
-  desktopShortcut,
   getDesktopState,
   getRealAuthConfig,
   getSelectedTranscript,
@@ -17,7 +16,7 @@ function assistantMessages(transcript: Awaited<ReturnType<typeof getSelectedTran
     .map((item) => item.text.trim());
 }
 
-test("queues follow-ups with Enter and steers the current run with Cmd+Enter", async () => {
+test("steers the current run with Enter while a run is active", async () => {
   test.setTimeout(240_000);
   const realAuth = getRealAuthConfig();
   test.skip(!realAuth.enabled, realAuth.skipReason);
@@ -50,43 +49,23 @@ test("queues follow-ups with Enter and steers the current run with Cmd+Enter", a
     const sendButton = window.getByTestId("send");
     await expect(sendButton).toHaveAttribute("aria-label", "Stop run");
 
-    await composer.fill("After the current run fully finishes, reply with exactly FOLLOW_UP_DONE.");
-    await expect(sendButton).toHaveAttribute("aria-label", "Send message");
-    await composer.press("Enter");
-    await expect(sendButton).toHaveAttribute("aria-label", "Stop run");
-    await expect(window.getByTestId("queued-composer-message").filter({ hasText: "FOLLOW_UP_DONE" })).toHaveCount(1);
-    await expect(window.locator(".queued-composer-message__mode")).toHaveCount(0);
-
     await composer.fill("Change your pending final answer for the current run to exactly STEER_DONE.");
-    await expect(sendButton).toHaveAttribute("aria-label", "Send message");
-    await composer.press(desktopShortcut("Enter"));
+    await expect(sendButton).toHaveAttribute("aria-label", "Steer current run");
+    await composer.press("Enter");
     await expect(window.getByTestId("queued-composer-message").filter({ hasText: "STEER_DONE" })).toHaveCount(0);
     await expect(window.getByTestId("transcript")).toContainText("STEER_DONE");
 
     await expect(window.getByTestId("transcript")).toContainText("STEER_DONE", { timeout: 180_000 });
-    await expect(window.getByTestId("transcript")).toContainText("FOLLOW_UP_DONE", { timeout: 180_000 });
 
     await expect
       .poll(async () => {
         const messages = assistantMessages(await getSelectedTranscript(window));
-        const steerIndex = messages.findIndex((message) => message.includes("STEER_DONE"));
-        const followUpIndex = messages.findIndex((message) => message.includes("FOLLOW_UP_DONE"));
-        return {
-          messages,
-          hasSteer: steerIndex >= 0,
-          hasFollowUpAfterSteer: followUpIndex > steerIndex,
-        };
+        return messages.some((message) => message.includes("STEER_DONE"));
       }, { timeout: 180_000 })
-      .toMatchObject({
-        hasSteer: true,
-        hasFollowUpAfterSteer: true,
-      });
+      .toBe(true);
 
     const finalAssistantText = assistantMessages(await getSelectedTranscript(window)).join("\n");
-    const steerPosition = finalAssistantText.indexOf("STEER_DONE");
-    const followUpPosition = finalAssistantText.indexOf("FOLLOW_UP_DONE");
-    expect(steerPosition).toBeGreaterThanOrEqual(0);
-    expect(followUpPosition).toBeGreaterThan(steerPosition);
+    expect(finalAssistantText.includes("STEER_DONE")).toBe(true);
     expect(finalAssistantText.includes("BASELINE_DONE")).toBe(false);
 
     await expect

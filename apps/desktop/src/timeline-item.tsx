@@ -1,12 +1,15 @@
-import { memo, useEffect, useState } from "react";
+import { memo, useEffect, useState, type CSSProperties } from "react";
 import type { SessionTranscriptMessage } from "@pi-gui/pi-sdk-driver";
 import type { TimelineActivity, TimelineToolCall, TimelineSummary, TranscriptMessage } from "./timeline-types";
 import { MessageMarkdown } from "./message-markdown";
 import { InlineDiff, extractDiffFromOutput } from "./diff-inline";
 import { ChevronRightIcon, CopyIcon, DiffIcon, FileIcon } from "./icons";
+import { useSelectedShinobi } from "./shinobi-roster";
+import { BUILTIN_AGENT_CONFIGS, canonicalRoleForAgentName } from "./agent-definitions";
+import { resolveSubagentShinobiFromMap, useSubagentShinobiMap } from "./subagent-shinobi-roster";
+import { resolveSubagentRoleColor, useSubagentRoleColorMap } from "./subagent-role-colors";
 import { parseSubagentWorkflowMarker } from "./subagent-timeline-card";
 import { extensionToLanguage } from "./syntax-highlight";
-import userMessageIconUrl from "./assets/user-message-icon.png";
 import ninjaStarUrl from "./assets/ninja-star.svg";
 
 export const TimelineItem = memo(function TimelineItem({
@@ -76,6 +79,9 @@ function areTimelineItemPropsEqual(
 }
 
 function TimelineMessage({ item }: { readonly item: SessionTranscriptMessage }) {
+  const [selectedShinobi] = useSelectedShinobi();
+  const [subagentShinobiMap] = useSubagentShinobiMap();
+  const [subagentRoleColorMap] = useSubagentRoleColorMap();
   const wrappedCompactionSummary = extractWrappedCompactionSummary(item.text);
   if (wrappedCompactionSummary) {
     return <TimelineCompactionSummary item={{ ...item, role: "compactionSummary", text: wrappedCompactionSummary }} />;
@@ -87,7 +93,26 @@ function TimelineMessage({ item }: { readonly item: SessionTranscriptMessage }) 
       <article className="subagent-timeline-card" data-testid="subagent-timeline-card">
         <div className="subagent-timeline-card__eyebrow">Subagent workflow submitted</div>
         <h3>{subagentCard.workflow}</h3>
-        {subagentCard.roles.length ? <p>{subagentCard.roles.join(" → ")}</p> : null}
+        {subagentCard.roles.length ? (
+          <div className="subagent-timeline-card__roles" aria-label={`Subagent roles: ${subagentCard.roles.join(" to ")}`}>
+            {subagentCard.roles.map((role, index) => {
+              const shinobi = resolveSubagentShinobiFromMap(subagentShinobiMap, role, role);
+              const roleColor = resolveSubagentRoleColor(subagentRoleColorMap, role, role);
+              return (
+                <span className="subagent-timeline-card__role" key={`${role}:${index}`} style={{ "--role-accent": roleColor } as CSSProperties}>
+                  {index > 0 ? <span className="subagent-timeline-card__role-arrow" aria-hidden="true">→</span> : null}
+                  <span className="subagent-timeline-card__role-chip">
+                    <img src={shinobi.imageUrl} alt="" aria-hidden="true" />
+                    <span>
+                      <strong>{role}</strong>
+                      <small>{shinobi.name}</small>
+                    </span>
+                  </span>
+                </span>
+              );
+            })}
+          </div>
+        ) : null}
         {subagentCard.artifacts.length ? (
           <div className="subagent-timeline-card__artifacts">
             {subagentCard.artifacts.map((artifact) => <span key={artifact}>{artifact}</span>)}
@@ -128,7 +153,9 @@ function TimelineMessage({ item }: { readonly item: SessionTranscriptMessage }) 
           ) : null}
           <MessageMarkdown text={item.text} />
         </div>
-        <img className="timeline-item__user-icon" src={userMessageIconUrl} alt="" aria-hidden="true" />
+        <span className="timeline-item__user-icon-frame" aria-hidden="true" title={selectedShinobi.name}>
+          <img className="timeline-item__user-icon" src={selectedShinobi.imageUrl} alt="" />
+        </span>
       </article>
     );
   }
@@ -294,6 +321,12 @@ function TimelineToolCallItem({
 }) {
   const command = extractCommand(item.input);
   const outputText = item.outputText ?? extractToolText(item.output) ?? item.detail;
+  const [subagentShinobiMap] = useSubagentShinobiMap();
+  const [subagentRoleColorMap] = useSubagentRoleColorMap();
+  const agentSubagentType = isAgentTool(item.toolName) ? extractAgentSubagentType(item.input) ?? "general-purpose" : undefined;
+  const agentMetadata = agentSubagentType ? resolveAgentToolMetadata(agentSubagentType) : undefined;
+  const agentShinobi = agentMetadata ? resolveSubagentShinobiFromMap(subagentShinobiMap, agentSubagentType ?? agentMetadata.role, agentMetadata.role) : undefined;
+  const agentRoleColor = agentMetadata ? resolveSubagentRoleColor(subagentRoleColorMap, agentSubagentType ?? agentMetadata.role, agentMetadata.role) : undefined;
   const hasVisibleOutput = Boolean(outputText?.trim());
   const hasDetails = item.input !== undefined || item.output !== undefined;
   const running = item.status === "running";
@@ -309,7 +342,10 @@ function TimelineToolCallItem({
   };
 
   return (
-    <article className={`timeline-tool timeline-tool--${item.status}`}>
+    <article
+      className={`timeline-tool timeline-tool--${item.status}${agentShinobi ? " timeline-tool--agent" : ""}`}
+      style={agentRoleColor ? { "--role-accent": agentRoleColor } as CSSProperties : undefined}
+    >
       <div className="timeline-tool__header-row">
         <button
           className="timeline-tool__header"
@@ -319,22 +355,49 @@ function TimelineToolCallItem({
           onClick={() => onToggle?.(item.callId)}
         >
           {item.status === "running" ? <span className="timeline-tool__spinner" aria-hidden="true" /> : null}
+          {agentShinobi ? (
+            <span className="timeline-tool__agent-avatar" aria-label={`${agentShinobi.name} agent avatar`} title={agentShinobi.name}>
+              <img src={agentShinobi.imageUrl} alt="" aria-hidden="true" />
+            </span>
+          ) : null}
           {hasDetails || hasVisibleOutput ? (
             <span className={`timeline-tool__chevron ${expanded ? "timeline-tool__chevron--expanded" : ""}`}>
               <ChevronRightIcon />
             </span>
           ) : null}
-          <span className="timeline-tool__label">{compactLabel}</span>
-          {diffStats ? (
-            <span className="timeline-tool__diff-stats">
-              <span className="timeline-tool__stat-add">+{diffStats.added}</span>
-              {" "}
-              <span className="timeline-tool__stat-del">-{diffStats.removed}</span>
+          {agentMetadata ? (
+            <span className="timeline-tool__agent-meta">
+              <span className="timeline-tool__agent-titleline">
+                <span className="timeline-tool__label">{compactLabel}</span>
+                <strong>{agentMetadata.name}</strong>
+                {agentShinobi ? <span>{agentShinobi.name}</span> : null}
+                <span className="timeline-tool__meta-inline">
+                  {running ? (
+                    <>running for <RunningElapsedText startedAt={item.createdAt} /></>
+                  ) : item.status === "success" ? (
+                    <><span className="timeline-tool__status-check" aria-hidden="true">✓</span>{statusLabel(item.status)}</>
+                  ) : (
+                    statusLabel(item.status)
+                  )}
+                </span>
+              </span>
+              {agentMetadata.description ? <em>{agentMetadata.description}</em> : null}
             </span>
-          ) : null}
-          <span className="timeline-tool__meta-inline">
-            {running ? <RunningToolMeta toolName={item.toolName} startedAt={item.createdAt} /> : `${item.toolName} · ${statusLabel(item.status)}`}
-          </span>
+          ) : (
+            <>
+              <span className="timeline-tool__label">{compactLabel}</span>
+              {diffStats ? (
+                <span className="timeline-tool__diff-stats">
+                  <span className="timeline-tool__stat-add">+{diffStats.added}</span>
+                  {" "}
+                  <span className="timeline-tool__stat-del">-{diffStats.removed}</span>
+                </span>
+              ) : null}
+              <span className="timeline-tool__meta-inline">
+                {running ? <RunningToolMeta toolName={item.toolName} startedAt={item.createdAt} /> : `${item.toolName} · ${statusLabel(item.status)}`}
+              </span>
+            </>
+          )}
         </button>
         {filePath && onViewFileInDiff ? (
           <button
@@ -414,6 +477,34 @@ function TimelineToolCallItem({
 
 function isWriteTool(toolName: string): boolean {
   return /write|edit|patch|apply/i.test(toolName);
+}
+
+function isAgentTool(toolName: string): boolean {
+  const normalized = toolName.toLowerCase();
+  return normalized === "agent" || normalized.endsWith(".agent");
+}
+
+function extractAgentSubagentType(input: unknown): string | undefined {
+  if (input && typeof input === "object" && !Array.isArray(input)) {
+    const record = input as Record<string, unknown>;
+    const subagentType = record.subagent_type ?? record.subagentType;
+    return typeof subagentType === "string" && subagentType.trim() ? subagentType.trim() : undefined;
+  }
+  if (typeof input === "string") {
+    const match = input.match(/["']?subagent_?type["']?\s*[:=]\s*["']([^"']+)["']/i);
+    return match?.[1]?.trim() || undefined;
+  }
+  return undefined;
+}
+
+function resolveAgentToolMetadata(subagentType: string): { readonly role: string; readonly name: string; readonly description: string } {
+  const role = canonicalRoleForAgentName(subagentType, subagentType);
+  const config = BUILTIN_AGENT_CONFIGS.find((agent) => agent.name === role) ?? BUILTIN_AGENT_CONFIGS.find((agent) => agent.name === subagentType);
+  return {
+    role,
+    name: config?.displayName || config?.name || subagentType,
+    description: config?.description ?? "",
+  };
 }
 
 function buildCompactLabel(item: TimelineToolCall): string {

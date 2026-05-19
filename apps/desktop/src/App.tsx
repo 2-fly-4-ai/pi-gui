@@ -235,7 +235,6 @@ export default function App() {
   const [newThreadModelId, setNewThreadModelId] = useState<string | undefined>();
   const [newThreadThinkingLevel, setNewThreadThinkingLevel] = useState<string | undefined>();
   const [newThreadToolAccess, setNewThreadToolAccess] = useState<ToolAccessSelection>(DEFAULT_TOOL_ACCESS);
-  const [newThreadFastMode, setNewThreadFastMode] = useState<"auto" | "on" | "off">("auto");
   const [newThreadComposerError, setNewThreadComposerError] = useState<string | undefined>();
   const [themeMode, setThemeMode] = useState<"system" | "light" | "dark">("system");
   const [notificationPermissionStatus, setNotificationPermissionStatus] =
@@ -265,8 +264,10 @@ export default function App() {
   const autoAligningTimelineRef = useRef(false);
   const manualTimelineScrollRestoreRef = useRef(false);
   const userTimelineScrollIntentRef = useRef(false);
+  const lastUserTimelineScrollIntentAtRef = useRef(0);
   const timelineScrollHandlerRef = useRef<() => void>(() => undefined);
   const manualTimelineScrollTopRef = useRef<number | null>(null);
+  const manualTimelineAnchorRef = useRef<{ rowId: string; offsetTop: number } | null>(null);
   const previousTimelinePaneSizeRef = useRef<{ width: number; height: number } | null>(null);
   const lastTimelineScrollTopBySessionRef = useRef(new Map<string, number>());
   const lastTimelinePinnedBySessionRef = useRef(new Map<string, boolean>());
@@ -657,6 +658,8 @@ export default function App() {
       ? selectedTranscript.transcript
       : [];
   const showThinking = snapshot?.showThinking ?? false;
+  const fastModeState = snapshot?.fastMode ?? { available: false, enabled: false };
+  const fastModeSelection = fastModeState.enabled ? "on" : "off";
   const showThinkingRequestRef = useRef(showThinking);
   showThinkingRequestRef.current = showThinking;
   const thinkingActive = rawActiveTranscript.some((item) => item.kind === "thinking" && item.status === "running");
@@ -666,10 +669,14 @@ export default function App() {
   const activeTranscriptMarker = buildTranscriptChangeMarker(selectedSessionKey, activeTranscript);
   const latestPlan = useMemo(() => detectLatestPlan(rawActiveTranscript), [rawActiveTranscript, activeTranscriptMarker]);
   const planSurfaceAvailable = snapshot?.activeView === "threads" && Boolean(selectedWorkspace && selectedSession && latestPlan);
+  const selectedTranscriptMatchesSession = Boolean(
+    selectedTranscript &&
+    selectedTranscript.workspaceId === selectedWorkspace?.id &&
+    selectedTranscript.sessionId === selectedSession?.id,
+  );
+  const selectedSessionLooksHydratable = Boolean(selectedSession?.preview.trim() || selectedSession?.status === "running");
   const isTranscriptLoading = Boolean(selectedSession) && activeTranscript.length === 0 && (
-    !selectedTranscript ||
-    selectedTranscript.workspaceId !== selectedWorkspace?.id ||
-    selectedTranscript.sessionId !== selectedSession?.id
+    !selectedTranscriptMatchesSession || selectedSessionLooksHydratable
   );
   const selectedSessionCommands = selectedSession ? snapshot?.sessionCommandsBySession[selectedSessionKey] ?? [] : [];
   const selectedExtensionUi = selectedSession ? snapshot?.sessionExtensionUiBySession[selectedSessionKey] : undefined;
@@ -1012,6 +1019,71 @@ export default function App() {
       });
     }
   }, [selectedSessionKey]);
+
+  const captureManualTimelineAnchor = useCallback(() => {
+    const pane = timelinePaneRef.current;
+    if (!pane) {
+      manualTimelineAnchorRef.current = null;
+      return;
+    }
+
+    const paneTop = pane.getBoundingClientRect().top;
+    const rows = Array.from(pane.querySelectorAll<HTMLElement>("[data-timeline-row-id]"));
+    const anchorRow = rows.find((row) => row.getBoundingClientRect().bottom > paneTop + 1);
+    const rowId = anchorRow?.dataset.timelineRowId;
+    if (!anchorRow || !rowId) {
+      manualTimelineAnchorRef.current = null;
+      return;
+    }
+
+    manualTimelineAnchorRef.current = {
+      rowId,
+      offsetTop: anchorRow.getBoundingClientRect().top - paneTop,
+    };
+  }, []);
+
+  const restoreManualTimelineAnchor = useCallback(() => {
+    const pane = timelinePaneRef.current;
+    const anchor = manualTimelineAnchorRef.current;
+    if (!pane || !anchor) {
+      return false;
+    }
+
+    const paneTop = pane.getBoundingClientRect().top;
+    const anchorRow = Array.from(pane.querySelectorAll<HTMLElement>("[data-timeline-row-id]")).find(
+      (row) => row.dataset.timelineRowId === anchor.rowId,
+    );
+    if (!anchorRow) {
+      return false;
+    }
+
+    const currentOffset = anchorRow.getBoundingClientRect().top - paneTop;
+    const delta = currentOffset - anchor.offsetTop;
+    if (Math.abs(delta) > 1) {
+      manualTimelineScrollRestoreRef.current = true;
+      pane.scrollTop += delta;
+      manualTimelineScrollTopRef.current = pane.scrollTop;
+      lastTimelineScrollTopBySessionRef.current.set(selectedSessionKey, pane.scrollTop);
+      window.requestAnimationFrame(() => {
+        manualTimelineScrollRestoreRef.current = false;
+      });
+    }
+    return true;
+  }, [selectedSessionKey]);
+
+  const restoreManualTimelinePosition = useCallback(() => {
+    restoreManualTimelineAnchor();
+    restoreManualTimelineScrollTop();
+    captureManualTimelineAnchor();
+  }, [captureManualTimelineAnchor, restoreManualTimelineAnchor, restoreManualTimelineScrollTop]);
+
+  const restoreManualTimelinePositionAcrossFrames = useCallback((remainingFrames = 4) => {
+    restoreManualTimelinePosition();
+    if (remainingFrames <= 0) {
+      return;
+    }
+    window.requestAnimationFrame(() => restoreManualTimelinePositionAcrossFrames(remainingFrames - 1));
+  }, [restoreManualTimelinePosition]);
 
   const finalizeTimelineVirtualizationDisable = useCallback(() => {
     const pane = timelinePaneRef.current;
@@ -1610,17 +1682,22 @@ export default function App() {
   ]);
 
   useLayoutEffect(() => {
+    const savedPinned = lastTimelinePinnedBySessionRef.current.get(selectedSessionKey);
+    const savedScrollTop = lastTimelineScrollTopBySessionRef.current.get(selectedSessionKey);
+    const shouldFollowLatest = savedPinned ?? true;
+
     setShowJumpToLatest(false);
     lastTranscriptMarkerRef.current = "";
-    pinnedToBottomRef.current = true;
-    followingLatestRef.current = true;
+    pinnedToBottomRef.current = shouldFollowLatest;
+    followingLatestRef.current = shouldFollowLatest;
     autoAligningTimelineRef.current = false;
     manualTimelineScrollRestoreRef.current = false;
     userTimelineScrollIntentRef.current = false;
-    manualTimelineScrollTopRef.current = null;
+    manualTimelineScrollTopRef.current = shouldFollowLatest ? null : (savedScrollTop ?? null);
+    manualTimelineAnchorRef.current = null;
     previousTimelinePaneSizeRef.current = null;
     preserveBottomOnNextPaneResizeRef.current = false;
-    resetExactBottomRestoreState(selectedSessionKey || null);
+    resetExactBottomRestoreState(shouldFollowLatest ? (selectedSessionKey || null) : null);
     setDisableTimelineVirtualization(Boolean(selectedSessionKey));
   }, [selectedSessionKey]);
 
@@ -1741,6 +1818,7 @@ export default function App() {
 
     const markUserScrollIntent = () => {
       userTimelineScrollIntentRef.current = true;
+      lastUserTimelineScrollIntentAtRef.current = performance.now();
     };
 
     const handleNativeScroll = () => {
@@ -1827,7 +1905,7 @@ export default function App() {
     };
   }, [requestPinnedBottomAlignment, selectedSessionKey, showDiffPanel, snapshot?.activeView, timelinePaneMountVersion]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const pane = timelinePaneRef.current;
     if (!pane || !selectedSession) {
       return;
@@ -1844,14 +1922,13 @@ export default function App() {
       return;
     }
 
-    restoreManualTimelineScrollTop();
-    window.requestAnimationFrame(restoreManualTimelineScrollTop);
+    restoreManualTimelinePositionAcrossFrames();
     setShowJumpToLatest(true);
-  }, [activeTranscript, requestPinnedBottomAlignment, restoreManualTimelineScrollTop, selectedSession, selectedSessionKey]);
+  }, [activeTranscript, requestPinnedBottomAlignment, restoreManualTimelinePositionAcrossFrames, selectedSession, selectedSessionKey]);
 
   const handleTimelineContentHeightChange = useCallback(() => {
     if (!followingLatestRef.current) {
-      window.requestAnimationFrame(restoreManualTimelineScrollTop);
+      restoreManualTimelinePositionAcrossFrames();
       return;
     }
 
@@ -1865,7 +1942,7 @@ export default function App() {
       }
       requestPinnedBottomAlignment("auto");
     });
-  }, [requestPinnedBottomAlignment, restoreManualTimelineScrollTop]);
+  }, [requestPinnedBottomAlignment, restoreManualTimelinePositionAcrossFrames]);
 
   if (!api || !snapshot) {
     return (
@@ -2139,7 +2216,7 @@ export default function App() {
     setAttachmentsClearedOnSubmit(true);
     void (async () => {
       const nextState = await updateSnapshot(api, setSnapshot, () =>
-        api.submitComposer(previousDraft, selectedSession.status === "running" ? { deliverAs: options.deliverAs ?? "followUp" } : undefined),
+        api.submitComposer(previousDraft, selectedSession.status === "running" ? { deliverAs: options.deliverAs ?? "steer" } : undefined),
       );
       setComposerDraft(nextState.composerDraft);
       setAttachmentsClearedOnSubmit(false);
@@ -2314,17 +2391,8 @@ export default function App() {
     );
   };
 
-  const handleRunFastCommand = (command: string) => {
-    if (!selectedSession) {
-      return;
-    }
-    const previousDraft = composerDraft;
-    setComposerDraft("");
-    void updateSnapshot(api, setSnapshot, () => api.submitComposer(command)).then((nextState) => {
-      setComposerDraft(nextState.composerDraft);
-    }).catch(() => {
-      setComposerDraft(previousDraft);
-    });
+  const handleSetFastMode = (mode: "auto" | "on" | "off") => {
+    void updateSnapshot(api, setSnapshot, () => api.setFastMode(mode === "on"));
   };
 
   const handleSetDefaultModel = (provider: string, modelId: string) => {
@@ -2649,7 +2717,6 @@ export default function App() {
       modelId: resolvedNewThreadModelId,
       thinkingLevel: resolvedNewThreadThinkingLevel,
       toolAccess: resolvedNewThreadToolAccess,
-      fastMode: newThreadFastMode,
     };
     const input: StartThreadInput = {
       rootWorkspaceId: newThreadRootWorkspaceId,
@@ -2666,7 +2733,6 @@ export default function App() {
       setNewThreadModelId(undefined);
       setNewThreadThinkingLevel(undefined);
       setNewThreadToolAccess(DEFAULT_TOOL_ACCESS);
-      setNewThreadFastMode("auto");
       setNewThreadEnvironment("local");
     });
   };
@@ -2678,7 +2744,7 @@ export default function App() {
     }
 
     const pinned = isNearBottom(pane);
-    const userScrollIntent = userTimelineScrollIntentRef.current;
+    const userScrollIntent = userTimelineScrollIntentRef.current && performance.now() - lastUserTimelineScrollIntentAtRef.current < 120;
     userTimelineScrollIntentRef.current = false;
 
     if (!pinned) {
@@ -2686,18 +2752,16 @@ export default function App() {
         if (manualTimelineScrollRestoreRef.current) {
           return;
         }
-        const previousScrollTop = lastTimelineScrollTopBySessionRef.current.get(selectedSessionKey);
-        const scrolledUpWithoutIntent = previousScrollTop !== undefined && pane.scrollTop < previousScrollTop - 2;
-        if (
-          (followingLatestRef.current || pinnedToBottomRef.current || preserveBottomOnNextPaneResizeRef.current) &&
-          !scrolledUpWithoutIntent
-        ) {
+        if (followingLatestRef.current || pinnedToBottomRef.current || preserveBottomOnNextPaneResizeRef.current || autoAligningTimelineRef.current) {
           return;
         }
+        restoreManualTimelinePositionAcrossFrames();
+        return;
       }
       pinnedToBottomRef.current = false;
       followingLatestRef.current = false;
       manualTimelineScrollTopRef.current = pane.scrollTop;
+      captureManualTimelineAnchor();
       preserveBottomOnNextPaneResizeRef.current = false;
       resetExactBottomRestoreState();
       lastTimelineScrollTopBySessionRef.current.set(selectedSessionKey, pane.scrollTop);
@@ -2708,6 +2772,7 @@ export default function App() {
     pinnedToBottomRef.current = true;
     followingLatestRef.current = true;
     manualTimelineScrollTopRef.current = null;
+    manualTimelineAnchorRef.current = null;
     lastTimelineScrollTopBySessionRef.current.set(selectedSessionKey, pane.scrollTop);
     lastTimelinePinnedBySessionRef.current.set(selectedSessionKey, true);
     setShowJumpToLatest(false);
@@ -2737,7 +2802,7 @@ export default function App() {
 
     if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing && selectedSession?.status === "running") {
       event.preventDefault();
-      submitComposerDraft({ deliverAs: (event.metaKey || event.ctrlKey) ? "steer" : "followUp" });
+      submitComposerDraft({ deliverAs: "steer" });
       return;
     }
 
@@ -2811,23 +2876,6 @@ export default function App() {
         testId="settings-surface"
         title="Settings"
       >
-        {settingsSection === "providers" || settingsSection === "agents" || (settingsSection === "models" && snapshot.modelSettingsScopeMode === "per-repo") ? (
-          <div className="surface-toolbar">
-            <label className="surface-toolbar__field">
-              <span>Discovery workspace</span>
-              <select
-                value={settingsWorkspace?.id ?? ""}
-                onChange={(event) => setSettingsWorkspaceId(event.target.value)}
-              >
-                {rootWorkspaceOptions.map((workspace) => (
-                  <option key={workspace.id} value={workspace.id}>
-                    {workspace.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-          </div>
-        ) : null}
         <SettingsView
           workspace={settingsWorkspace}
           runtime={settingsSection === "models" || settingsSection === "agents" ? settingsModelRuntime : settingsRuntime}
@@ -2845,6 +2893,21 @@ export default function App() {
           modelSettingsScopeMode={snapshot.modelSettingsScopeMode}
           integratedTerminalShell={snapshot.integratedTerminalShell}
           themeMode={themeMode}
+          headerAccessory={settingsSection === "providers" || settingsSection === "agents" || (settingsSection === "models" && snapshot.modelSettingsScopeMode === "per-repo") ? (
+            <label className="surface-toolbar__field surface-toolbar__field--inline">
+              <span>Discovery workspace</span>
+              <select
+                value={settingsWorkspace?.id ?? ""}
+                onChange={(event) => setSettingsWorkspaceId(event.target.value)}
+              >
+                {rootWorkspaceOptions.map((workspace) => (
+                  <option key={workspace.id} value={workspace.id}>
+                    {workspace.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : undefined}
           onLoginProvider={handleLoginProvider}
           onLogoutProvider={handleLogoutProvider}
           onSetProviderApiKey={handleSetProviderApiKey}
@@ -3102,7 +3165,8 @@ export default function App() {
               showThinking={showThinking}
               modelOnboarding={newThreadModelOnboarding}
               toolAccess={resolvedNewThreadToolAccess}
-              fastMode={newThreadFastMode}
+              fastMode={fastModeSelection}
+              fastModeAvailable={fastModeState.available}
               skillProfileControl={newThreadRuntime ? (
                 <SkillProfileSelector
                   profiles={newThreadRuntime.skillProfiles}
@@ -3131,7 +3195,7 @@ export default function App() {
               onSetThinking={setNewThreadThinkingLevel}
               onToggleShowThinking={handleToggleShowThinking}
               onSetToolAccess={setNewThreadToolAccess}
-              onSetFastMode={setNewThreadFastMode}
+              onSetFastMode={handleSetFastMode}
               onOpenModelSettings={(section) => openSettings(newThreadWorkspace?.id, section)}
               onComposerKeyDown={handleNewThreadComposerKeyDown}
               onComposerPaste={handleNewThreadComposerPaste}
@@ -3215,7 +3279,9 @@ export default function App() {
               onSetModel={handleSetSessionModel}
               onSetThinking={handleSetSessionThinking}
               onToggleShowThinking={handleToggleShowThinking}
-              onRunFastCommand={handleRunFastCommand}
+              fastMode={fastModeSelection}
+              fastModeAvailable={fastModeState.available}
+              onSetFastMode={handleSetFastMode}
               skillProfileControl={selectedRuntime ? (
                 <SkillProfileSelector
                   profiles={selectedRuntime.skillProfiles}

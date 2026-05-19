@@ -160,6 +160,13 @@ export interface RemoveWorktreeInput {
   readonly worktreeId: string;
 }
 
+export interface FastModeStateRecord {
+  readonly backend: "pi-codex-fast";
+  readonly available: boolean;
+  readonly enabled: boolean;
+  readonly configPath: string;
+}
+
 export interface DesktopAppState {
   readonly workspaces: readonly WorkspaceRecord[];
   readonly worktreesByWorkspace: Readonly<Record<string, readonly WorktreeRecord[]>>;
@@ -182,6 +189,7 @@ export interface DesktopAppState {
   readonly workspaceOrder: readonly string[];
   readonly modelSettingsScopeMode: ModelSettingsScopeMode;
   readonly globalModelSettings: ModelSettingsSnapshot;
+  readonly fastMode: FastModeStateRecord;
   readonly sidebarCollapsed: boolean;
   readonly showThinking: boolean;
   readonly reviewRequest?: CreateReviewSnapshotOptions & { readonly nonce: number };
@@ -226,6 +234,12 @@ export function createEmptyDesktopAppState(): DesktopAppState {
     modelSettingsScopeMode: "app-global",
     globalModelSettings: {
       enabledModelPatterns: [],
+    },
+    fastMode: {
+      backend: "pi-codex-fast",
+      available: false,
+      enabled: false,
+      configPath: "",
     },
     sidebarCollapsed: false,
     showThinking: false,

@@ -17,7 +17,7 @@ import { ComposerControlBar } from "./composer-control-bar";
 import { ReasoningSelector } from "./reasoning-selector";
 import { ToolAccessSelector } from "./tool-access-selector";
 import { ContextWindowIndicator } from "./context-window-indicator";
-import { FastModeSelector } from "./fast-mode-selector";
+import { FastModeSelector, type FastModeSelection } from "./fast-mode-selector";
 import { ThinkingTraceToggle } from "./thinking-trace-toggle";
 
 interface ComposerPanelProps {
@@ -40,6 +40,8 @@ interface ComposerPanelProps {
   readonly slashSections: readonly ComposerSlashCommandSection[];
   readonly slashOptions: readonly ComposerSlashOption[];
   readonly sessionCommands: readonly RuntimeCommandRecord[];
+  readonly fastMode: FastModeSelection;
+  readonly fastModeAvailable: boolean;
   readonly selectedSlashCommand?: ComposerSlashCommand;
   readonly selectedSlashOption?: ComposerSlashOption;
   readonly showSlashMenu: boolean;
@@ -60,7 +62,7 @@ interface ComposerPanelProps {
   readonly onSetModel: (provider: string, modelId: string) => void;
   readonly onSetThinking: (level: string) => void;
   readonly onToggleShowThinking: () => void;
-  readonly onRunFastCommand: (command: string) => void;
+  readonly onSetFastMode: (mode: FastModeSelection) => void;
   readonly skillProfileControl?: ReactNode;
   readonly modelOnboarding: ModelOnboardingState;
   readonly toolAccess: ToolAccessSelection;
@@ -97,6 +99,8 @@ export const ComposerPanel = memo(function ComposerPanel({
   slashSections,
   slashOptions,
   sessionCommands,
+  fastMode,
+  fastModeAvailable,
   selectedSlashCommand,
   selectedSlashOption,
   showSlashMenu,
@@ -117,7 +121,7 @@ export const ComposerPanel = memo(function ComposerPanel({
   onSetModel,
   onSetThinking,
   onToggleShowThinking,
-  onRunFastCommand,
+  onSetFastMode,
   skillProfileControl,
   modelOnboarding,
   toolAccess,
@@ -135,6 +139,7 @@ export const ComposerPanel = memo(function ComposerPanel({
 }: ComposerPanelProps) {
   const hasComposerInput = composerDraft.trim().length > 0 || attachments.length > 0;
   const primaryActionIsStop = sessionStatus === "running" && !hasComposerInput;
+  const primaryActionLabel = sessionStatus === "running" && hasComposerInput ? "Steer current run" : primaryActionIsStop ? "Stop run" : "Send message";
 
   return (
     <footer className="composer">
@@ -205,8 +210,9 @@ export const ComposerPanel = memo(function ComposerPanel({
                 )}
                 fastModeControl={(
                   <FastModeSelector
-                    commands={sessionCommands}
-                    onRunFastCommand={onRunFastCommand}
+                    available={fastModeAvailable}
+                    value={fastMode}
+                    onSetFastMode={onSetFastMode}
                   />
                 )}
                 skillProfileControl={skillProfileControl}
@@ -225,7 +231,7 @@ export const ComposerPanel = memo(function ComposerPanel({
                     onToggle={onToggleShowThinking}
                   />
                 )}
-                sendLabel={primaryActionIsStop ? "Stop run" : "Send message"}
+                sendLabel={primaryActionLabel}
                 sendDisabled={
                   !primaryActionIsStop &&
                   ((!composerDraft.trim() && attachments.length === 0) || modelOnboarding.requiresModelSelection)

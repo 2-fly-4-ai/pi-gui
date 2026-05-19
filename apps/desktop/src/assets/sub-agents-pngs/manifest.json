@@ -1,0 +1,285 @@
+{
+  "generatedAt": "2026-05-19T01:21:41.102Z",
+  "sourceFolder": "/Users/brianfarley/Downloads/subagents",
+  "outputFolder": "/Users/brianfarley/Desktop/Githhub-project/pi-gui/.worktrees/nico-lite-subagents/apps/desktop/src/assets/sub-agents-pngs",
+  "inputFilesMatched": 10,
+  "outputFiles": [
+    {
+      "name": "sub-agent-01.png",
+      "source": "/Users/brianfarley/Downloads/subagents/ChatGPT Image May 19, 2026, 01_07_48 PM (1).png",
+      "width": 806,
+      "height": 755,
+      "bytes": 42348
+    },
+    {
+      "name": "sub-agent-02.png",
+      "source": "/Users/brianfarley/Downloads/subagents/ChatGPT Image May 19, 2026, 01_07_48 PM (2).png",
+      "width": 852,
+      "height": 757,
+      "bytes": 89818
+    },
+    {
+      "name": "sub-agent-03.png",
+      "source": "/Users/brianfarley/Downloads/subagents/ChatGPT Image May 19, 2026, 01_07_49 PM (3).png",
+      "width": 690,
+      "height": 912,
+      "bytes": 132084
+    },
+    {
+      "name": "sub-agent-04.png",
+      "source": "/Users/brianfarley/Downloads/subagents/ChatGPT Image May 19, 2026, 01_07_49 PM (4).png",
+      "width": 762,
+      "height": 756,
+      "bytes": 86148
+    },
+    {
+      "name": "sub-agent-05.png",
+      "source": "/Users/brianfarley/Downloads/subagents/ChatGPT Image May 19, 2026, 01_07_49 PM (5).png",
+      "width": 706,
+      "height": 767,
+      "bytes": 49491
+    },
+    {
+      "name": "sub-agent-06.png",
+      "source": "/Users/brianfarley/Downloads/subagents/ChatGPT Image May 19, 2026, 01_07_50 PM (6).png",
+      "width": 852,
+      "height": 672,
+      "bytes": 58391
+    },
+    {
+      "name": "sub-agent-07.png",
+      "source": "/Users/brianfarley/Downloads/subagents/ChatGPT Image May 19, 2026, 01_07_50 PM (7).png",
+      "width": 754,
+      "height": 857,
+      "bytes": 62814
+    },
+    {
+      "name": "sub-agent-08.png",
+      "source": "/Users/brianfarley/Downloads/subagents/ChatGPT Image May 19, 2026, 01_07_51 PM (8).png",
+      "width": 720,
+      "height": 781,
+      "bytes": 107753
+    },
+    {
+      "name": "sub-agent-09.png",
+      "source": "/Users/brianfarley/Downloads/subagents/ChatGPT Image May 19, 2026, 01_07_52 PM (9).png",
+      "width": 676,
+      "height": 867,
+      "bytes": 112990
+    },
+    {
+      "name": "sub-agent-10.png",
+      "source": "/Users/brianfarley/Downloads/subagents/ChatGPT Image May 19, 2026, 01_07_52 PM (10).png",
+      "width": 875,
+      "height": 712,
+      "bytes": 92866
+    },
+    {
+      "name": "sub-agent-11.png",
+      "role": "debugger",
+      "source": "/Users/brianfarley/Downloads/subagents/subagent-replacements/ChatGPT Image May 19, 2026, 06_03_10 PM (1).png",
+      "width": 905,
+      "height": 885,
+      "bytes": 55442,
+      "replacedAt": "2026-05-19T06:12:53.282Z"
+    },
+    {
+      "name": "sub-agent-12.png",
+      "role": "archiver",
+      "source": "/Users/brianfarley/Downloads/subagents/extra-subagents/ChatGPT Image May 19, 2026, 06_03_10 PM (2).png",
+      "width": 1070,
+      "height": 918,
+      "bytes": 101934,
+      "replacedAt": "2026-05-19T06:12:53.282Z"
+    },
+    {
+      "name": "sub-agent-13.png",
+      "role": "guardian",
+      "source": "/Users/brianfarley/Downloads/subagents/subagent-replacements/ChatGPT Image May 19, 2026, 06_13_55 PM.png",
+      "width": 928,
+      "height": 987,
+      "bytes": 61551,
+      "replacedAt": "2026-05-19T06:17:06.445Z"
+    },
+    {
+      "name": "sub-agent-14.png",
+      "source": "/Users/brianfarley/Downloads/subagents/new-subagents/ChatGPT Image May 19, 2026, 06_44_36 PM.png",
+      "width": 991,
+      "height": 1075,
+      "bytes": 77195
+    },
+    {
+      "name": "sub-agent-15.png",
+      "source": "/Users/brianfarley/Downloads/subagents/new-subagents/ChatGPT Image May 19, 2026, 06_45_08 PM (1).png",
+      "width": 868,
+      "height": 1054,
+      "bytes": 45405
+    },
+    {
+      "name": "sub-agent-16.png",
+      "source": "/Users/brianfarley/Downloads/subagents/new-subagents/ChatGPT Image May 19, 2026, 06_45_08 PM (2).png",
+      "width": 967,
+      "height": 1064,
+      "bytes": 60001
+    },
+    {
+      "name": "sub-agent-17.png",
+      "source": "/Users/brianfarley/Downloads/subagents/new-subagents/ChatGPT Image May 19, 2026, 06_45_09 PM (3).png",
+      "width": 824,
+      "height": 1000,
+      "bytes": 52212
+    },
+    {
+      "name": "sub-agent-18.png",
+      "source": "/Users/brianfarley/Downloads/subagents/new-subagents/ChatGPT Image May 19, 2026, 06_45_09 PM (4).png",
+      "width": 843,
+      "height": 977,
+      "bytes": 58994
+    },
+    {
+      "name": "sub-agent-19.png",
+      "source": "/Users/brianfarley/Downloads/subagents/new-subagents/ChatGPT Image May 19, 2026, 06_59_03 PM (1).png",
+      "width": 973,
+      "height": 865,
+      "bytes": 60640
+    },
+    {
+      "name": "sub-agent-20.png",
+      "source": "/Users/brianfarley/Downloads/subagents/new-subagents/ChatGPT Image May 19, 2026, 06_59_04 PM (2).png",
+      "width": 772,
+      "height": 974,
+      "bytes": 49272
+    }
+  ],
+  "updatedAt": "2026-05-19T07:01:27.777Z",
+  "additions": [
+    {
+      "sourceFolder": "/Users/brianfarley/Downloads/subagents/extra-subagents",
+      "inputFilesMatched": 3,
+      "outputFilesAdded": [
+        {
+          "name": "sub-agent-11.png",
+          "source": "/Users/brianfarley/Downloads/subagents/extra-subagents/ChatGPT Image May 19, 2026, 01_07_50 PM (6).png",
+          "width": 834,
+          "height": 805,
+          "bytes": 40742
+        },
+        {
+          "name": "sub-agent-12.png",
+          "source": "/Users/brianfarley/Downloads/subagents/extra-subagents/ChatGPT Image May 19, 2026, 01_12_38 PM (2).png",
+          "width": 960,
+          "height": 845,
+          "bytes": 55766
+        },
+        {
+          "name": "sub-agent-13.png",
+          "source": "/Users/brianfarley/Downloads/subagents/extra-subagents/ChatGPT Image May 19, 2026, 01_12_39 PM (3).png",
+          "width": 840,
+          "height": 901,
+          "bytes": 68884
+        }
+      ],
+      "skipped": []
+    },
+    {
+      "sourceFolder": "/Users/brianfarley/Downloads/subagents/new-subagents",
+      "inputFilesMatched": 5,
+      "outputFilesAdded": [
+        {
+          "name": "sub-agent-14.png",
+          "source": "/Users/brianfarley/Downloads/subagents/new-subagents/ChatGPT Image May 19, 2026, 06_44_36 PM.png",
+          "width": 991,
+          "height": 1075,
+          "bytes": 77195
+        },
+        {
+          "name": "sub-agent-15.png",
+          "source": "/Users/brianfarley/Downloads/subagents/new-subagents/ChatGPT Image May 19, 2026, 06_45_08 PM (1).png",
+          "width": 868,
+          "height": 1054,
+          "bytes": 45405
+        },
+        {
+          "name": "sub-agent-16.png",
+          "source": "/Users/brianfarley/Downloads/subagents/new-subagents/ChatGPT Image May 19, 2026, 06_45_08 PM (2).png",
+          "width": 967,
+          "height": 1064,
+          "bytes": 60001
+        },
+        {
+          "name": "sub-agent-17.png",
+          "source": "/Users/brianfarley/Downloads/subagents/new-subagents/ChatGPT Image May 19, 2026, 06_45_09 PM (3).png",
+          "width": 824,
+          "height": 1000,
+          "bytes": 52212
+        },
+        {
+          "name": "sub-agent-18.png",
+          "source": "/Users/brianfarley/Downloads/subagents/new-subagents/ChatGPT Image May 19, 2026, 06_45_09 PM (4).png",
+          "width": 843,
+          "height": 977,
+          "bytes": 58994
+        }
+      ],
+      "skipped": []
+    },
+    {
+      "sourceFolder": "/Users/brianfarley/Downloads/subagents/new-subagents",
+      "inputFilesMatched": 2,
+      "outputFilesAdded": [
+        {
+          "name": "sub-agent-19.png",
+          "source": "/Users/brianfarley/Downloads/subagents/new-subagents/ChatGPT Image May 19, 2026, 06_59_03 PM (1).png",
+          "width": 973,
+          "height": 865,
+          "bytes": 60640
+        },
+        {
+          "name": "sub-agent-20.png",
+          "source": "/Users/brianfarley/Downloads/subagents/new-subagents/ChatGPT Image May 19, 2026, 06_59_04 PM (2).png",
+          "width": 772,
+          "height": 974,
+          "bytes": 49272
+        }
+      ],
+      "skipped": []
+    }
+  ],
+  "replacements": [
+    {
+      "replacedAt": "2026-05-19T06:12:53.282Z",
+      "files": [
+        {
+          "role": "debugger",
+          "name": "sub-agent-11.png",
+          "source": "/Users/brianfarley/Downloads/subagents/subagent-replacements/ChatGPT Image May 19, 2026, 06_03_10 PM (1).png",
+          "width": 905,
+          "height": 885,
+          "bytes": 55442
+        },
+        {
+          "role": "archiver",
+          "name": "sub-agent-12.png",
+          "source": "/Users/brianfarley/Downloads/subagents/extra-subagents/ChatGPT Image May 19, 2026, 06_03_10 PM (2).png",
+          "width": 1070,
+          "height": 918,
+          "bytes": 101934
+        }
+      ]
+    },
+    {
+      "replacedAt": "2026-05-19T06:17:06.445Z",
+      "files": [
+        {
+          "name": "sub-agent-13.png",
+          "role": "guardian",
+          "source": "/Users/brianfarley/Downloads/subagents/subagent-replacements/ChatGPT Image May 19, 2026, 06_13_55 PM.png",
+          "width": 928,
+          "height": 987,
+          "bytes": 61551,
+          "replacedAt": "2026-05-19T06:17:06.445Z"
+        }
+      ]
+    }
+  ]
+}

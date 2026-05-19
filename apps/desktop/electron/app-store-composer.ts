@@ -321,7 +321,7 @@ export async function submitComposer(
     }
 
     if (isRunning && !resolvedRuntimeSlashCommand) {
-      const deliverAs = options.deliverAs ?? "followUp";
+      const deliverAs = options.deliverAs ?? "steer";
       const nextMessage = buildQueuedComposerMessage({
         existing: editingState
           ? store.getQueuedComposerMessages(sessionRef).find((message) => message.id === editingState.messageId)
@@ -476,7 +476,7 @@ export async function submitComposerToSession(
   let optimisticSteerMessage: SessionQueuedMessage | undefined;
   try {
     if (isRunning) {
-      const deliverAs = options.deliverAs ?? "followUp";
+      const deliverAs = options.deliverAs ?? "steer";
       const nextMessage = buildQueuedComposerMessage({
         text,
         attachments: [],

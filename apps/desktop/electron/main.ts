@@ -661,6 +661,7 @@ app.whenReady().then(async () => {
     store.setSidebarCollapsed(collapsed),
   );
   ipcMain.handle(desktopIpc.setShowThinking, (_event, showThinking: boolean) => store.setShowThinking(showThinking));
+  ipcMain.handle(desktopIpc.setFastMode, (_event, enabled: boolean) => store.setFastMode(enabled));
   ipcMain.handle(desktopIpc.refreshRuntime, (_event, workspaceId?: string) => store.refreshRuntime(workspaceId));
   ipcMain.handle(desktopIpc.setModelSettingsScopeMode, (_event, mode) => store.setModelSettingsScopeMode(mode));
   ipcMain.handle(desktopIpc.setSessionModel, (_event, workspaceId: string, sessionId: string, provider: string, modelId: string) =>

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type CSSProperties } from "react";
 import type { RuntimeSnapshot } from "@pi-gui/session-driver/runtime-types";
 import type {
   AgentDefinitionConfig,
@@ -20,6 +20,8 @@ import {
   type RunSubagentWorkflowInput,
   type SubagentRunRecord,
 } from "./subagent-workflows";
+import { resolveSubagentShinobiFromMap, useSubagentShinobiMap } from "./subagent-shinobi-roster";
+import { resolveSubagentRoleColor, useSubagentRoleColorMap } from "./subagent-role-colors";
 import { SettingsGroup, settingsPill } from "./settings-utils";
 
 interface SettingsAgentsSectionProps {
@@ -63,6 +65,8 @@ export function SettingsAgentsSection({
   const [editor, setEditor] = useState<EditorState>();
   const [deleteTarget, setDeleteTarget] = useState<AgentDefinitionRecord | undefined>();
   const [tab, setTab] = useState<"roles" | "workflows" | "runs">("roles");
+  const [subagentShinobiMap] = useSubagentShinobiMap();
+  const [subagentRoleColorMap] = useSubagentRoleColorMap();
   const agents = snapshot?.agents ?? [];
 
   const openNew = () => setEditor({ mode: "create", config: createDefaultCustomAgentConfig(), scope: "global" });
@@ -105,15 +109,43 @@ export function SettingsAgentsSection({
           <div className="agent-definitions-list">
             {agents.map((agent) => {
               const legacyAlias = legacyAgentAliasForName(agent.name);
+              const role = canonicalRoleForAgentName(agent.name, agent.config.role);
+              const selectedShinobi = resolveSubagentShinobiFromMap(subagentShinobiMap, agent.name, role);
+              const roleColor = resolveSubagentRoleColor(subagentRoleColorMap, agent.name, role);
               return (
-                <div className="agent-definition-row" data-testid={`agent-definition-row-${agent.name}`} key={agent.name}>
-                  <div className="agent-definition-row__main">
-                    <div className="agent-definition-row__title">{agent.config.displayName || agent.name}</div>
-                    <div className="agent-definition-row__description">{agent.config.description}</div>
+                <div className="agent-definition-row agent-definition-row--with-shinobi" data-testid={`agent-definition-row-${agent.name}`} key={agent.name} style={{ "--role-accent": roleColor } as CSSProperties}>
+                  <div className="agent-definition-row__header">
+                    <div className="agent-definition-row__identity">
+                      <div className="agent-definition-row__shinobi-portrait" aria-hidden="true">
+                        <img src={selectedShinobi.imageUrl} alt="" />
+                      </div>
+                      <div className="agent-definition-row__main">
+                        <div className="agent-definition-row__title"><span>{agent.config.displayName || agent.name}</span><span className="agent-definition-row__color-dot" aria-hidden="true" /></div>
+                        <div className="agent-definition-row__description">{agent.config.description}</div>
+                        <div className="agent-definition-row__shinobi-copy">
+                          <strong>{selectedShinobi.name}</strong>
+                          <em>{selectedShinobi.meaning}</em>
+                          {selectedShinobi.customImage ? <span>Custom image</span> : null}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="agent-definition-row__actions">
+                      <button className="button button--secondary button--small" disabled={pending} type="button" onClick={() => setEditor({ mode: "edit", record: agent })}>Edit</button>
+                      <button className="button button--secondary button--small" disabled={pending} type="button" onClick={() => openDuplicate(agent)}>Duplicate</button>
+                      {agent.source !== "builtin" && agent.scope ? (
+                        agent.builtin ? (
+                          <button className="button button--secondary button--small" disabled={pending} type="button" onClick={() => void onReset({ scope: agent.scope!, name: agent.name })}>Reset</button>
+                        ) : (
+                          <button className="button button--danger button--small" disabled={pending} type="button" onClick={() => setDeleteTarget(agent)}>Delete</button>
+                        )
+                      ) : null}
+                    </div>
+                  </div>
+                  <div className="agent-definition-row__content">
                     <div className="agent-definition-row__meta">
                       <span>{agent.source === "builtin" ? "Built-in" : agent.source === "project" ? "Project override" : "Global override"}</span>
                       <span>Name: {agent.name}</span>
-                      <span>Role: {canonicalRoleForAgentName(agent.name, agent.config.role)}</span>
+                      <span>Role: {role}</span>
                       {legacyAlias ? <span>Legacy alias for {legacyAlias}</span> : null}
                       {agent.config.contextMode ? <span>Context: {agent.config.contextMode}</span> : null}
                       {agent.config.output ? <span>Output: {agent.config.output}</span> : null}
@@ -126,17 +158,6 @@ export function SettingsAgentsSection({
                     </div>
                     {agent.warnings.map((warning) => <div className="settings-warning" key={warning}>{warning}</div>)}
                     {!modelAvailable(runtime, agent) ? <div className="settings-warning">Configured model is not currently available. The extension may fall back or fail until the provider is connected.</div> : null}
-                  </div>
-                  <div className="agent-definition-row__actions">
-                    <button className="button button--secondary" disabled={pending} type="button" onClick={() => setEditor({ mode: "edit", record: agent })}>Edit</button>
-                    <button className="button button--secondary" disabled={pending} type="button" onClick={() => openDuplicate(agent)}>Duplicate</button>
-                    {agent.source !== "builtin" && agent.scope ? (
-                      agent.builtin ? (
-                        <button className="button button--secondary" disabled={pending} type="button" onClick={() => void onReset({ scope: agent.scope!, name: agent.name })}>Reset</button>
-                      ) : (
-                        <button className="button button--danger" disabled={pending} type="button" onClick={() => setDeleteTarget(agent)}>Delete</button>
-                      )
-                    ) : null}
                   </div>
                 </div>
               );
@@ -198,10 +219,10 @@ export function SettingsAgentsSection({
       ) : null}
 
       {editor?.mode === "create" ? (
-        <AgentDefinitionEditor mode="create" config={editor.config} runtime={runtime} defaultScope={editor.scope} builtin={false} pending={pending} onClose={() => setEditor(undefined)} onSave={async (input) => { await onSave(input); setEditor(undefined); }} />
+        <AgentDefinitionEditor mode="create" config={editor.config} agentKey={editor.config.name} runtime={runtime} defaultScope={editor.scope} builtin={false} pending={pending} onClose={() => setEditor(undefined)} onSave={async (input) => { await onSave(input); setEditor(undefined); }} />
       ) : null}
       {editor?.mode === "edit" ? (
-        <AgentDefinitionEditor mode="edit" config={editor.record.config} runtime={runtime} defaultScope={editor.record.scope ?? "global"} builtin={editor.record.builtin} pending={pending} onClose={() => setEditor(undefined)} onSave={async (input) => { await onSave(input); setEditor(undefined); }} />
+        <AgentDefinitionEditor mode="edit" config={editor.record.config} agentKey={editor.record.name} runtime={runtime} defaultScope={editor.record.scope ?? "global"} builtin={editor.record.builtin} pending={pending} onClose={() => setEditor(undefined)} onSave={async (input) => { await onSave(input); setEditor(undefined); }} />
       ) : null}
       {deleteTarget?.scope ? (
         <div className="action-dialog-backdrop" role="presentation">

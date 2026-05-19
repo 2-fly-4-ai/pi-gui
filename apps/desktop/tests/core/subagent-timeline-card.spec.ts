@@ -46,7 +46,9 @@ test("timeline renders subagent workflow marker as a compact card", async () => 
 
     const card = window.getByTestId("subagent-timeline-card");
     await expect(card).toContainText("Parallel review");
-    await expect(card).toContainText("reviewer/correctness → reviewer/tests → reviewer/simplicity");
+    await expect(card).toContainText("reviewer/correctness");
+    await expect(card).toContainText("reviewer/tests");
+    await expect(card).toContainText("reviewer/simplicity");
     await expect(card).toContainText("review-correctness.md");
 
     await streamAssistantDeltas(harness, window, [[

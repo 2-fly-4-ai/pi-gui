@@ -1,0 +1,481 @@
+{
+  "generatedAt": "2026-05-19T00:36:55.658Z",
+  "sourceFolder": "/Users/brianfarley/Downloads",
+  "outputFolder": "/Users/brianfarley/Desktop/Githhub-project/pi-gui/.worktrees/nico-lite-subagents/apps/desktop/src/assets/ninja-transparent-pngs",
+  "inputFilesMatched": 31,
+  "uniqueOriginals": 10,
+  "outputFiles": [
+    {
+      "name": "ninja-01.png",
+      "source": "ChatGPT Image May 19, 2026, 12_05_05 PM (10).png",
+      "width": 848,
+      "height": 837,
+      "bytes": 120911
+    },
+    {
+      "name": "ninja-02.png",
+      "source": "ChatGPT Image May 19, 2026, 12_05_04 PM (9).png",
+      "width": 810,
+      "height": 755,
+      "bytes": 117528
+    },
+    {
+      "name": "ninja-03.png",
+      "source": "ChatGPT Image May 19, 2026, 12_05_03 PM (8).png",
+      "width": 644,
+      "height": 769,
+      "bytes": 87474
+    },
+    {
+      "name": "ninja-04.png",
+      "source": "ChatGPT Image May 19, 2026, 12_05_02 PM (7).png",
+      "width": 807,
+      "height": 893,
+      "bytes": 125728
+    },
+    {
+      "name": "ninja-05.png",
+      "source": "ChatGPT Image May 19, 2026, 12_05_00 PM (6).png",
+      "width": 695,
+      "height": 739,
+      "bytes": 96010
+    },
+    {
+      "name": "ninja-06.png",
+      "source": "ChatGPT Image May 19, 2026, 12_05_00 PM (5).png",
+      "width": 755,
+      "height": 719,
+      "bytes": 94362
+    },
+    {
+      "name": "ninja-07.png",
+      "source": "ChatGPT Image May 19, 2026, 12_04_59 PM (4).png",
+      "width": 722,
+      "height": 811,
+      "bytes": 82894
+    },
+    {
+      "name": "ninja-08.png",
+      "source": "ChatGPT Image May 19, 2026, 12_04_59 PM (3).png",
+      "width": 635,
+      "height": 751,
+      "bytes": 81199
+    },
+    {
+      "name": "ninja-09.png",
+      "source": "ChatGPT Image May 19, 2026, 12_04_58 PM (2).png",
+      "width": 772,
+      "height": 721,
+      "bytes": 82921
+    },
+    {
+      "name": "ninja-10.png",
+      "source": "ChatGPT Image May 19, 2026, 12_04_58 PM (1).png",
+      "width": 791,
+      "height": 758,
+      "bytes": 93816
+    },
+    {
+      "name": "ninja-11.png",
+      "source": "/Users/brianfarley/Downloads/subagents/main-shinobi/ChatGPT Image May 19, 2026, 01_10_13 PM (2).png",
+      "width": 878,
+      "height": 922,
+      "bytes": 52306
+    },
+    {
+      "name": "ninja-12.png",
+      "source": "/Users/brianfarley/Downloads/subagents/main-shinobi/ChatGPT Image May 19, 2026, 01_10_13 PM (3).png",
+      "width": 896,
+      "height": 948,
+      "bytes": 56872
+    },
+    {
+      "name": "ninja-13.png",
+      "source": "/Users/brianfarley/Downloads/subagents/main-shinobi/ChatGPT Image May 19, 2026, 01_10_14 PM (4).png",
+      "width": 869,
+      "height": 970,
+      "bytes": 46910
+    },
+    {
+      "name": "ninja-14.png",
+      "source": "/Users/brianfarley/Downloads/subagents/main-shinobi/ChatGPT Image May 19, 2026, 01_10_14 PM (5).png",
+      "width": 1019,
+      "height": 966,
+      "bytes": 50781
+    },
+    {
+      "name": "ninja-15.png",
+      "source": "/Users/brianfarley/Downloads/subagents/main-shinobi/ChatGPT Image May 19, 2026, 01_10_14 PM (6).png",
+      "width": 986,
+      "height": 976,
+      "bytes": 60858
+    },
+    {
+      "name": "ninja-16.png",
+      "source": "/Users/brianfarley/Downloads/subagents/main-shinobi/ChatGPT Image May 19, 2026, 01_11_19 PM (1).png",
+      "width": 1092,
+      "height": 1087,
+      "bytes": 70179
+    },
+    {
+      "name": "ninja-17.png",
+      "source": "/Users/brianfarley/Downloads/subagents/main-shinobi/ChatGPT Image May 19, 2026, 01_11_19 PM (2).png",
+      "width": 1013,
+      "height": 1115,
+      "bytes": 66113
+    },
+    {
+      "name": "ninja-18.png",
+      "source": "/Users/brianfarley/Downloads/subagents/main-shinobi/ChatGPT Image May 19, 2026, 01_11_20 PM (3).png",
+      "width": 1076,
+      "height": 1079,
+      "bytes": 69927
+    },
+    {
+      "name": "ninja-19.png",
+      "source": "/Users/brianfarley/Downloads/subagents/main-shinobi/ChatGPT Image May 19, 2026, 01_11_22 PM (4).png",
+      "width": 1014,
+      "height": 1074,
+      "bytes": 69476
+    },
+    {
+      "name": "ninja-20.png",
+      "source": "/Users/brianfarley/Downloads/subagents/main-shinobi/ChatGPT Image May 19, 2026, 01_11_23 PM (5).png",
+      "width": 1059,
+      "height": 1075,
+      "bytes": 79020
+    },
+    {
+      "name": "ninja-21.png",
+      "source": "/Users/brianfarley/Downloads/subagents/main-shinobi/ChatGPT Image May 19, 2026, 01_11_24 PM (6).png",
+      "width": 1055,
+      "height": 1063,
+      "bytes": 68312
+    },
+    {
+      "name": "ninja-22.png",
+      "source": "/Users/brianfarley/Downloads/subagents/main-shinobi/edb299ac-3f02-47f1-8553-1a68419ebfa9.png",
+      "width": 964,
+      "height": 1001,
+      "bytes": 55971
+    },
+    {
+      "name": "ninja-23.png",
+      "source": "/Users/brianfarley/Downloads/subagents/ChatGPT Image May 19, 2026, 01_07_48 PM (1).png",
+      "width": 806,
+      "height": 755,
+      "bytes": 42348
+    },
+    {
+      "name": "ninja-24.png",
+      "source": "/Users/brianfarley/Downloads/subagents/ChatGPT Image May 19, 2026, 01_07_48 PM (2).png",
+      "width": 852,
+      "height": 757,
+      "bytes": 89818
+    },
+    {
+      "name": "ninja-25.png",
+      "source": "/Users/brianfarley/Downloads/subagents/ChatGPT Image May 19, 2026, 01_07_49 PM (3).png",
+      "width": 690,
+      "height": 912,
+      "bytes": 132084
+    },
+    {
+      "name": "ninja-26.png",
+      "source": "/Users/brianfarley/Downloads/subagents/ChatGPT Image May 19, 2026, 01_07_49 PM (4).png",
+      "width": 762,
+      "height": 756,
+      "bytes": 86148
+    },
+    {
+      "name": "ninja-27.png",
+      "source": "/Users/brianfarley/Downloads/subagents/ChatGPT Image May 19, 2026, 01_07_49 PM (5).png",
+      "width": 706,
+      "height": 767,
+      "bytes": 49491
+    },
+    {
+      "name": "ninja-28.png",
+      "source": "/Users/brianfarley/Downloads/subagents/ChatGPT Image May 19, 2026, 01_07_50 PM (6).png",
+      "width": 852,
+      "height": 672,
+      "bytes": 58391
+    },
+    {
+      "name": "ninja-29.png",
+      "source": "/Users/brianfarley/Downloads/subagents/ChatGPT Image May 19, 2026, 01_07_50 PM (7).png",
+      "width": 754,
+      "height": 857,
+      "bytes": 62814
+    },
+    {
+      "name": "ninja-30.png",
+      "source": "/Users/brianfarley/Downloads/subagents/ChatGPT Image May 19, 2026, 01_07_51 PM (8).png",
+      "width": 720,
+      "height": 781,
+      "bytes": 107753
+    },
+    {
+      "name": "ninja-31.png",
+      "source": "/Users/brianfarley/Downloads/subagents/ChatGPT Image May 19, 2026, 01_07_52 PM (9).png",
+      "width": 676,
+      "height": 867,
+      "bytes": 112990
+    },
+    {
+      "name": "ninja-32.png",
+      "source": "/Users/brianfarley/Downloads/subagents/ChatGPT Image May 19, 2026, 01_07_52 PM (10).png",
+      "width": 875,
+      "height": 712,
+      "bytes": 92866
+    },
+    {
+      "name": "ninja-23.png",
+      "source": "/Users/brianfarley/Downloads/subagents/new-main-shinobis/ChatGPT Image May 19, 2026, 07_03_54 PM (1).png",
+      "width": 1012,
+      "height": 1004,
+      "bytes": 64196
+    },
+    {
+      "name": "ninja-24.png",
+      "source": "/Users/brianfarley/Downloads/subagents/new-main-shinobis/ChatGPT Image May 19, 2026, 07_03_54 PM (2).png",
+      "width": 1041,
+      "height": 857,
+      "bytes": 56207
+    },
+    {
+      "name": "ninja-25.png",
+      "source": "/Users/brianfarley/Downloads/subagents/new-main-shinobis/ChatGPT Image May 19, 2026, 07_03_55 PM (3).png",
+      "width": 985,
+      "height": 986,
+      "bytes": 64092
+    },
+    {
+      "name": "ninja-26.png",
+      "source": "/Users/brianfarley/Downloads/subagents/new-main-shinobis/ChatGPT Image May 19, 2026, 07_03_55 PM (4).png",
+      "width": 943,
+      "height": 919,
+      "bytes": 60397
+    },
+    {
+      "name": "ninja-27.png",
+      "source": "/Users/brianfarley/Downloads/subagents/new-main-shinobis/ChatGPT Image May 19, 2026, 07_03_56 PM (5).png",
+      "width": 1035,
+      "height": 998,
+      "bytes": 52624
+    }
+  ],
+  "updatedAt": "2026-05-19T07:10:39.809Z",
+  "additions": [
+    {
+      "sourceFolder": "/Users/brianfarley/Downloads/subagents/main-shinobi",
+      "inputFilesMatched": 12,
+      "outputFilesAdded": [
+        {
+          "name": "ninja-11.png",
+          "source": "/Users/brianfarley/Downloads/subagents/main-shinobi/ChatGPT Image May 19, 2026, 01_10_13 PM (2).png",
+          "width": 878,
+          "height": 922,
+          "bytes": 52306
+        },
+        {
+          "name": "ninja-12.png",
+          "source": "/Users/brianfarley/Downloads/subagents/main-shinobi/ChatGPT Image May 19, 2026, 01_10_13 PM (3).png",
+          "width": 896,
+          "height": 948,
+          "bytes": 56872
+        },
+        {
+          "name": "ninja-13.png",
+          "source": "/Users/brianfarley/Downloads/subagents/main-shinobi/ChatGPT Image May 19, 2026, 01_10_14 PM (4).png",
+          "width": 869,
+          "height": 970,
+          "bytes": 46910
+        },
+        {
+          "name": "ninja-14.png",
+          "source": "/Users/brianfarley/Downloads/subagents/main-shinobi/ChatGPT Image May 19, 2026, 01_10_14 PM (5).png",
+          "width": 1019,
+          "height": 966,
+          "bytes": 50781
+        },
+        {
+          "name": "ninja-15.png",
+          "source": "/Users/brianfarley/Downloads/subagents/main-shinobi/ChatGPT Image May 19, 2026, 01_10_14 PM (6).png",
+          "width": 986,
+          "height": 976,
+          "bytes": 60858
+        },
+        {
+          "name": "ninja-16.png",
+          "source": "/Users/brianfarley/Downloads/subagents/main-shinobi/ChatGPT Image May 19, 2026, 01_11_19 PM (1).png",
+          "width": 1092,
+          "height": 1087,
+          "bytes": 70179
+        },
+        {
+          "name": "ninja-17.png",
+          "source": "/Users/brianfarley/Downloads/subagents/main-shinobi/ChatGPT Image May 19, 2026, 01_11_19 PM (2).png",
+          "width": 1013,
+          "height": 1115,
+          "bytes": 66113
+        },
+        {
+          "name": "ninja-18.png",
+          "source": "/Users/brianfarley/Downloads/subagents/main-shinobi/ChatGPT Image May 19, 2026, 01_11_20 PM (3).png",
+          "width": 1076,
+          "height": 1079,
+          "bytes": 69927
+        },
+        {
+          "name": "ninja-19.png",
+          "source": "/Users/brianfarley/Downloads/subagents/main-shinobi/ChatGPT Image May 19, 2026, 01_11_22 PM (4).png",
+          "width": 1014,
+          "height": 1074,
+          "bytes": 69476
+        },
+        {
+          "name": "ninja-20.png",
+          "source": "/Users/brianfarley/Downloads/subagents/main-shinobi/ChatGPT Image May 19, 2026, 01_11_23 PM (5).png",
+          "width": 1059,
+          "height": 1075,
+          "bytes": 79020
+        },
+        {
+          "name": "ninja-21.png",
+          "source": "/Users/brianfarley/Downloads/subagents/main-shinobi/ChatGPT Image May 19, 2026, 01_11_24 PM (6).png",
+          "width": 1055,
+          "height": 1063,
+          "bytes": 68312
+        },
+        {
+          "name": "ninja-22.png",
+          "source": "/Users/brianfarley/Downloads/subagents/main-shinobi/edb299ac-3f02-47f1-8553-1a68419ebfa9.png",
+          "width": 964,
+          "height": 1001,
+          "bytes": 55971
+        }
+      ],
+      "skipped": []
+    },
+    {
+      "sourceFolder": "/Users/brianfarley/Downloads/subagents",
+      "inputFilesMatched": 10,
+      "outputFilesAdded": [
+        {
+          "name": "ninja-23.png",
+          "source": "/Users/brianfarley/Downloads/subagents/ChatGPT Image May 19, 2026, 01_07_48 PM (1).png",
+          "width": 806,
+          "height": 755,
+          "bytes": 42348
+        },
+        {
+          "name": "ninja-24.png",
+          "source": "/Users/brianfarley/Downloads/subagents/ChatGPT Image May 19, 2026, 01_07_48 PM (2).png",
+          "width": 852,
+          "height": 757,
+          "bytes": 89818
+        },
+        {
+          "name": "ninja-25.png",
+          "source": "/Users/brianfarley/Downloads/subagents/ChatGPT Image May 19, 2026, 01_07_49 PM (3).png",
+          "width": 690,
+          "height": 912,
+          "bytes": 132084
+        },
+        {
+          "name": "ninja-26.png",
+          "source": "/Users/brianfarley/Downloads/subagents/ChatGPT Image May 19, 2026, 01_07_49 PM (4).png",
+          "width": 762,
+          "height": 756,
+          "bytes": 86148
+        },
+        {
+          "name": "ninja-27.png",
+          "source": "/Users/brianfarley/Downloads/subagents/ChatGPT Image May 19, 2026, 01_07_49 PM (5).png",
+          "width": 706,
+          "height": 767,
+          "bytes": 49491
+        },
+        {
+          "name": "ninja-28.png",
+          "source": "/Users/brianfarley/Downloads/subagents/ChatGPT Image May 19, 2026, 01_07_50 PM (6).png",
+          "width": 852,
+          "height": 672,
+          "bytes": 58391
+        },
+        {
+          "name": "ninja-29.png",
+          "source": "/Users/brianfarley/Downloads/subagents/ChatGPT Image May 19, 2026, 01_07_50 PM (7).png",
+          "width": 754,
+          "height": 857,
+          "bytes": 62814
+        },
+        {
+          "name": "ninja-30.png",
+          "source": "/Users/brianfarley/Downloads/subagents/ChatGPT Image May 19, 2026, 01_07_51 PM (8).png",
+          "width": 720,
+          "height": 781,
+          "bytes": 107753
+        },
+        {
+          "name": "ninja-31.png",
+          "source": "/Users/brianfarley/Downloads/subagents/ChatGPT Image May 19, 2026, 01_07_52 PM (9).png",
+          "width": 676,
+          "height": 867,
+          "bytes": 112990
+        },
+        {
+          "name": "ninja-32.png",
+          "source": "/Users/brianfarley/Downloads/subagents/ChatGPT Image May 19, 2026, 01_07_52 PM (10).png",
+          "width": 875,
+          "height": 712,
+          "bytes": 92866
+        }
+      ],
+      "skipped": []
+    },
+    {
+      "sourceFolder": "/Users/brianfarley/Downloads/subagents/new-main-shinobis",
+      "inputFilesMatched": 5,
+      "outputFilesAdded": [
+        {
+          "name": "ninja-23.png",
+          "source": "/Users/brianfarley/Downloads/subagents/new-main-shinobis/ChatGPT Image May 19, 2026, 07_03_54 PM (1).png",
+          "width": 1012,
+          "height": 1004,
+          "bytes": 64196
+        },
+        {
+          "name": "ninja-24.png",
+          "source": "/Users/brianfarley/Downloads/subagents/new-main-shinobis/ChatGPT Image May 19, 2026, 07_03_54 PM (2).png",
+          "width": 1041,
+          "height": 857,
+          "bytes": 56207
+        },
+        {
+          "name": "ninja-25.png",
+          "source": "/Users/brianfarley/Downloads/subagents/new-main-shinobis/ChatGPT Image May 19, 2026, 07_03_55 PM (3).png",
+          "width": 985,
+          "height": 986,
+          "bytes": 64092
+        },
+        {
+          "name": "ninja-26.png",
+          "source": "/Users/brianfarley/Downloads/subagents/new-main-shinobis/ChatGPT Image May 19, 2026, 07_03_55 PM (4).png",
+          "width": 943,
+          "height": 919,
+          "bytes": 60397
+        },
+        {
+          "name": "ninja-27.png",
+          "source": "/Users/brianfarley/Downloads/subagents/new-main-shinobis/ChatGPT Image May 19, 2026, 07_03_56 PM (5).png",
+          "width": 1035,
+          "height": 998,
+          "bytes": 52624
+        }
+      ],
+      "skipped": []
+    }
+  ]
+}

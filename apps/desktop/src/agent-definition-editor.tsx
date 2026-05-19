@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type CSSProperties, type ChangeEvent } from "react";
 import type { RuntimeSnapshot } from "@pi-gui/session-driver/runtime-types";
 import type { AgentDefinitionConfig, AgentDefinitionScope, SaveAgentDefinitionInput } from "./agent-definitions";
 import { AGENT_TOOL_OPTIONS } from "./agent-definitions";
@@ -9,11 +9,17 @@ import {
   validateAgentDefinitionForm,
   type AgentDefinitionFormState,
 } from "./agent-definition-form";
+import {
+  resolveSubagentShinobiFromMap,
+  useSubagentShinobiMap,
+} from "./subagent-shinobi-roster";
+import { resolveSubagentRoleColor, useSubagentRoleColorMap } from "./subagent-role-colors";
 import { THINKING_LEVELS, labelForThinking } from "./settings-utils";
 
 interface AgentDefinitionEditorProps {
   readonly mode: "create" | "edit";
   readonly config: AgentDefinitionConfig;
+  readonly agentKey: string;
   readonly runtime?: RuntimeSnapshot;
   readonly defaultScope: AgentDefinitionScope;
   readonly builtin: boolean;
@@ -22,11 +28,14 @@ interface AgentDefinitionEditorProps {
   readonly onSave: (input: SaveAgentDefinitionInput) => Promise<void> | void;
 }
 
-export function AgentDefinitionEditor({ mode, config, runtime, defaultScope, builtin, pending = false, onClose, onSave }: AgentDefinitionEditorProps) {
+export function AgentDefinitionEditor({ mode, config, agentKey, runtime, defaultScope, builtin, pending = false, onClose, onSave }: AgentDefinitionEditorProps) {
   const title = mode === "create" ? "New role" : `Edit ${config.name}`;
   const titleId = `agent-definition-editor-title-${mode}-${config.name || "new"}`;
   const [form, setForm] = useState<AgentDefinitionFormState>(() => createAgentDefinitionFormState({ mode, config, scope: defaultScope, builtin }));
   const [attemptedSave, setAttemptedSave] = useState(false);
+  const [imageError, setImageError] = useState<string | undefined>();
+  const [subagentShinobiMap, setSubagentShinobiImage, resetSubagentShinobiImage] = useSubagentShinobiMap();
+  const [subagentRoleColorMap, setSubagentRoleColor, resetSubagentRoleColor] = useSubagentRoleColorMap();
   const validation = validateAgentDefinitionForm(form);
   const enabledModels = useMemo(() => (runtime?.models ?? []).filter((model) => model.available), [runtime]);
 
@@ -38,6 +47,23 @@ export function AgentDefinitionEditor({ mode, config, runtime, defaultScope, bui
     setAttemptedSave(true);
     if (!validation.valid) return;
     void Promise.resolve(onSave({ scope: form.scope, config: buildAgentDefinitionConfig(form) })).catch(() => undefined);
+  };
+
+  const roleKey = form.role.trim() || form.name.trim() || config.role || config.name || agentKey;
+  const effectiveAgentKey = agentKey || form.name;
+  const selectedShinobi = resolveSubagentShinobiFromMap(subagentShinobiMap, effectiveAgentKey, roleKey);
+  const selectedRoleColor = resolveSubagentRoleColor(subagentRoleColorMap, effectiveAgentKey, roleKey);
+
+  const chooseSubagentImage = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.currentTarget.files?.[0];
+    event.currentTarget.value = "";
+    if (!file) return;
+    try {
+      setImageError(undefined);
+      setSubagentShinobiImage(effectiveAgentKey, await readSubagentImageFile(file));
+    } catch (error) {
+      setImageError(error instanceof Error ? error.message : String(error));
+    }
   };
 
   return (
@@ -59,6 +85,47 @@ export function AgentDefinitionEditor({ mode, config, runtime, defaultScope, bui
             {validation.errors.map((error) => <div key={error}>{error}</div>)}
           </div>
         ) : null}
+        {imageError ? <div className="settings-warning" role="alert">{imageError}</div> : null}
+
+        <section className="agent-definition-editor__shinobi" style={{ "--role-accent": selectedRoleColor } as CSSProperties}>
+          <div className="agent-definition-editor__shinobi-portrait">
+            <img src={selectedShinobi.imageUrl} alt="" aria-hidden="true" />
+          </div>
+          <div>
+            <div className="agent-definition-editor__shinobi-eyebrow">Role portrait</div>
+            <h3>{selectedShinobi.name}</h3>
+            <p><em>{selectedShinobi.meaning}</em>{selectedShinobi.customImage ? " · Custom image" : ""}</p>
+          </div>
+          <div className="agent-definition-editor__shinobi-actions">
+            <label className="button button--secondary">
+              Choose image
+              <input
+                accept="image/png,image/jpeg,image/webp,image/gif"
+                aria-label="Choose subagent image"
+                className="visually-hidden"
+                type="file"
+                onChange={(event) => void chooseSubagentImage(event)}
+              />
+            </label>
+            {selectedShinobi.customImage ? (
+              <button className="button button--secondary" type="button" onClick={() => resetSubagentShinobiImage(effectiveAgentKey)}>
+                Reset image
+              </button>
+            ) : null}
+          </div>
+          <label className="agent-definition-editor__color-field">
+            <span>Role color</span>
+            <input
+              aria-label="Role color"
+              type="color"
+              value={selectedRoleColor}
+              onChange={(event) => setSubagentRoleColor(effectiveAgentKey, event.target.value)}
+            />
+            <button className="button button--secondary" type="button" onClick={() => resetSubagentRoleColor(effectiveAgentKey)}>
+              Reset color
+            </button>
+          </label>
+        </section>
 
         <div className="agent-definition-editor__grid">
           <label className="action-dialog__field">
@@ -85,6 +152,17 @@ export function AgentDefinitionEditor({ mode, config, runtime, defaultScope, bui
               <option value="oracle">Oracle</option>
               <option value="researcher">Researcher</option>
               <option value="context-builder">Context Builder</option>
+              <option value="architect">Architect</option>
+              <option value="debugger">Debugger</option>
+              <option value="archivist">Archivist</option>
+              <option value="guardian">Guardian</option>
+              <option value="crawler">Crawler</option>
+              <option value="coverage">Coverage</option>
+              <option value="contract">Contract</option>
+              <option value="changelog">Changelog</option>
+              <option value="monitor">Monitor</option>
+              <option value="docs-writer">Docs Writer</option>
+              <option value="testing">Testing</option>
             </select>
           </label>
           <label className="action-dialog__field">
@@ -236,4 +314,26 @@ export function AgentDefinitionEditor({ mode, config, runtime, defaultScope, bui
       </section>
     </div>
   );
+}
+
+function readSubagentImageFile(file: File): Promise<string> {
+  if (!file.type.startsWith("image/")) {
+    return Promise.reject(new Error("Choose an image file for the subagent portrait."));
+  }
+  if (file.size > 2_500_000) {
+    return Promise.reject(new Error("Subagent portraits must be smaller than 2.5 MB."));
+  }
+
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.addEventListener("load", () => {
+      if (typeof reader.result === "string" && reader.result.startsWith("data:image/")) {
+        resolve(reader.result);
+        return;
+      }
+      reject(new Error("Could not read that image file."));
+    });
+    reader.addEventListener("error", () => reject(new Error("Could not read that image file.")));
+    reader.readAsDataURL(file);
+  });
 }

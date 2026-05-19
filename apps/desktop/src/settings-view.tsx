@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import type { RuntimeSettingsSnapshot, RuntimeSnapshot } from "@pi-gui/session-driver/runtime-types";
 import type { AgentDefinitionsSnapshot, DeleteAgentDefinitionInput, ResetAgentDefinitionInput, SaveAgentDefinitionInput } from "./agent-definitions";
 import type { ModelSettingsScopeMode, NotificationPreferences, WorkspaceRecord } from "./desktop-state";
@@ -30,6 +31,7 @@ interface SettingsViewProps {
   readonly modelSettingsScopeMode: ModelSettingsScopeMode;
   readonly integratedTerminalShell: string;
   readonly themeMode: "system" | "light" | "dark";
+  readonly headerAccessory?: ReactNode;
   readonly onSetModelSettingsScopeMode: (mode: ModelSettingsScopeMode) => void;
   readonly onSetDefaultModel: (provider: string, modelId: string) => void;
   readonly onSetThinkingLevel: (thinkingLevel: RuntimeSettingsSnapshot["defaultThinkingLevel"]) => void;
@@ -69,6 +71,7 @@ export function SettingsView({
   modelSettingsScopeMode,
   integratedTerminalShell,
   themeMode,
+  headerAccessory,
   onSetModelSettingsScopeMode,
   onSetDefaultModel,
   onSetThinkingLevel,
@@ -105,7 +108,7 @@ export function SettingsView({
   return (
     <section className="canvas">
       <div className="conversation settings-view">
-        <header className="view-header">
+        <header className="view-header settings-view__header">
           <div>
             <div className="chat-header__eyebrow">Settings</div>
             <h1 className="view-header__title">{sectionTitle(section)}</h1>
@@ -113,6 +116,7 @@ export function SettingsView({
               {sectionDescription(section, workspace?.name ?? "this workspace")}
             </p>
           </div>
+          {headerAccessory ? <div className="settings-view__header-accessory">{headerAccessory}</div> : null}
         </header>
 
         <div className="settings-grid">

@@ -3,7 +3,6 @@ import type { SessionDriverEvent, SessionQueuedMessage, SessionRef, WorkspaceRef
 import {
   TINY_PNG_BASE64,
   createNamedThread,
-  desktopShortcut,
   emitTestSessionEvent,
   getDesktopState,
   getSelectedTranscript,
@@ -192,7 +191,7 @@ test("delineates queued follow-ups and submitted steers in the timeline", async 
 
     const composer = window.getByTestId("composer");
     await composer.fill("Steer the current run now");
-    await composer.press(desktopShortcut("Enter"));
+    await composer.press("Enter");
 
     await expect(window.getByTestId("queued-composer-message").filter({ hasText: "Steer the current run now" })).toHaveCount(0);
     await expect(window.getByTestId("transcript")).toContainText("Steer the current run now");

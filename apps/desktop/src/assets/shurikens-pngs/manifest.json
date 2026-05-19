@@ -1,0 +1,95 @@
+{
+  "generatedAt": "2026-05-19T16:57:25.256Z",
+  "sourceFolders": [
+    "/Users/brianfarley/Downloads/subagents/new-subagents/shuriken_individual_first6",
+    "/Users/brianfarley/Downloads/subagents/new-subagents/shuriken_individual_next6_exact"
+  ],
+  "outputFolder": "/Users/brianfarley/Desktop/Githhub-project/pi-gui/.worktrees/nico-lite-subagents/apps/desktop/src/assets/shurikens-pngs",
+  "inputFilesMatched": 12,
+  "outputFiles": [
+    {
+      "name": "01-four-point-shuriken.png",
+      "source": "/Users/brianfarley/Downloads/subagents/new-subagents/shuriken_individual_first6/01_four_point_shuriken.png",
+      "width": 765,
+      "height": 766,
+      "bytes": 22072
+    },
+    {
+      "name": "02-five-point-shuriken.png",
+      "source": "/Users/brianfarley/Downloads/subagents/new-subagents/shuriken_individual_first6/02_five_point_shuriken.png",
+      "width": 763,
+      "height": 724,
+      "bytes": 24220
+    },
+    {
+      "name": "03-arrow-tip-shuriken.png",
+      "source": "/Users/brianfarley/Downloads/subagents/new-subagents/shuriken_individual_first6/03_arrow_tip_shuriken.png",
+      "width": 665,
+      "height": 766,
+      "bytes": 28267
+    },
+    {
+      "name": "04-eight-point-shuriken.png",
+      "source": "/Users/brianfarley/Downloads/subagents/new-subagents/shuriken_individual_first6/04_eight_point_shuriken.png",
+      "width": 746,
+      "height": 768,
+      "bytes": 30752
+    },
+    {
+      "name": "05-curved-windmill-shuriken.png",
+      "source": "/Users/brianfarley/Downloads/subagents/new-subagents/shuriken_individual_first6/05_curved_windmill_shuriken.png",
+      "width": 756,
+      "height": 753,
+      "bytes": 33824
+    },
+    {
+      "name": "06-notched-square-shuriken.png",
+      "source": "/Users/brianfarley/Downloads/subagents/new-subagents/shuriken_individual_first6/06_notched_square_shuriken.png",
+      "width": 754,
+      "height": 747,
+      "bytes": 33665
+    },
+    {
+      "name": "07-compass-ring-shuriken.png",
+      "source": "/Users/brianfarley/Downloads/subagents/new-subagents/shuriken_individual_next6_exact/07_compass_ring_shuriken.png",
+      "width": 782,
+      "height": 786,
+      "bytes": 26417
+    },
+    {
+      "name": "08-four-notch-square-shuriken.png",
+      "source": "/Users/brianfarley/Downloads/subagents/new-subagents/shuriken_individual_next6_exact/08_four_notch_square_shuriken.png",
+      "width": 768,
+      "height": 772,
+      "bytes": 32336
+    },
+    {
+      "name": "09-multi-hole-starburst-shuriken.png",
+      "source": "/Users/brianfarley/Downloads/subagents/new-subagents/shuriken_individual_next6_exact/09_multi_hole_starburst_shuriken.png",
+      "width": 793,
+      "height": 769,
+      "bytes": 36100
+    },
+    {
+      "name": "10-three-blade-shuriken.png",
+      "source": "/Users/brianfarley/Downloads/subagents/new-subagents/shuriken_individual_next6_exact/10_three_blade_shuriken.png",
+      "width": 782,
+      "height": 690,
+      "bytes": 21516
+    },
+    {
+      "name": "11-diamond-center-shuriken.png",
+      "source": "/Users/brianfarley/Downloads/subagents/new-subagents/shuriken_individual_next6_exact/11_diamond_center_shuriken.png",
+      "width": 773,
+      "height": 786,
+      "bytes": 22509
+    },
+    {
+      "name": "12-gate-frame-shuriken.png",
+      "source": "/Users/brianfarley/Downloads/subagents/new-subagents/shuriken_individual_next6_exact/12_gate_frame_shuriken.png",
+      "width": 767,
+      "height": 774,
+      "bytes": 28469
+    }
+  ]
+}

@@ -100,6 +100,7 @@ import * as worktree from "./app-store-worktree";
 import * as composer from "./app-store-composer";
 import { isSessionActivelyViewed } from "./session-visibility";
 import { AssistantDeltaBatcher } from "./assistant-delta-batcher";
+import { readFastModeState, writeFastModeEnabled } from "./fast-mode-config";
 import type { MemoryMonitorStoreSnapshot } from "./memory-monitor";
 
 type StateListener = (state: DesktopAppState) => void;
@@ -695,6 +696,18 @@ export class DesktopAppStore implements AppStoreInternals {
     return this.emit();
   }
 
+  async setFastMode(enabled: boolean): Promise<DesktopAppState> {
+    await this.initialize();
+    const fastMode = writeFastModeEnabled(enabled);
+    this.state = {
+      ...this.state,
+      fastMode,
+      lastError: undefined,
+      revision: this.state.revision + 1,
+    };
+    return this.emit();
+  }
+
   async setNotificationPreferences(preferences: Partial<NotificationPreferences>): Promise<DesktopAppState> {
     await this.initialize();
     this.state = {
@@ -1215,6 +1228,7 @@ export class DesktopAppStore implements AppStoreInternals {
         workspaceOrder: this.state.workspaceOrder,
         modelSettingsScopeMode: this.state.modelSettingsScopeMode,
         globalModelSettings,
+        fastMode: readFastModeState(),
         composerDraft: this.resolveComposerDraft(selectedWorkspaceId, selectedSessionId, options.composerDraft),
         composerDraftSyncSource: composerDraftSync.source,
         composerDraftSyncNonce: composerDraftSync.nonce,
@@ -1278,6 +1292,14 @@ export class DesktopAppStore implements AppStoreInternals {
   private async ensureTranscriptLoaded(sessionRef: SessionRef): Promise<void> {
     const key = sessionKey(sessionRef);
     if (this.sessionState.loadedTranscriptKeys.has(key)) {
+      const cachedTranscript = this.sessionState.transcriptCache.get(key) ?? [];
+      if (cachedTranscript.length > 0 || !this.shouldReloadEmptyCachedTranscript(sessionRef)) {
+        return;
+      }
+
+      const transcript = await this.driver.getTranscript(sessionRef);
+      this.sessionState.transcriptCache.set(key, transcript);
+      void this.writePersistedTranscript(key, transcript);
       return;
     }
 
@@ -1292,6 +1314,11 @@ export class DesktopAppStore implements AppStoreInternals {
 
     this.sessionState.loadedTranscriptKeys.add(key);
     this.sessionState.transcriptCache.set(key, transcript);
+  }
+
+  private shouldReloadEmptyCachedTranscript(sessionRef: SessionRef): boolean {
+    const session = this.sessionFromState(sessionRef);
+    return Boolean(session && (session.preview.trim() || session.status === "running"));
   }
 
   async reloadTranscriptFromDriver(sessionRef: SessionRef): Promise<void> {

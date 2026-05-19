@@ -36,6 +36,7 @@ interface NewThreadViewProps {
   readonly modelOnboarding: ModelOnboardingState;
   readonly toolAccess: ToolAccessSelection;
   readonly fastMode: FastModeSelection;
+  readonly fastModeAvailable: boolean;
   readonly skillProfileControl?: ReactNode;
   readonly composerRef: RefObject<HTMLTextAreaElement | null>;
   readonly activeSlashCommand?: ComposerSlashCommand;
@@ -87,6 +88,7 @@ export function NewThreadView({
   modelOnboarding,
   toolAccess,
   fastMode,
+  fastModeAvailable,
   skillProfileControl,
   composerRef,
   activeSlashCommand,
@@ -227,6 +229,7 @@ export function NewThreadView({
                   modelOnboarding={modelOnboarding}
                   toolAccess={toolAccess}
                   fastMode={fastMode}
+                  fastModeAvailable={fastModeAvailable}
                   skillProfileControl={skillProfileControl}
                   hasContent={Boolean(prompt.trim() || attachments.length > 0)}
                   fileInputRef={fileInputRef}
@@ -259,6 +262,7 @@ interface NewThreadComposerFooterProps {
   readonly modelOnboarding: ModelOnboardingState;
   readonly toolAccess: ToolAccessSelection;
   readonly fastMode: FastModeSelection;
+  readonly fastModeAvailable: boolean;
   readonly skillProfileControl?: ReactNode;
   readonly hasContent: boolean;
   readonly fileInputRef: RefObject<HTMLInputElement | null>;
@@ -282,6 +286,7 @@ function NewThreadComposerFooter({
   modelOnboarding,
   toolAccess,
   fastMode,
+  fastModeAvailable,
   skillProfileControl,
   hasContent,
   fileInputRef,
@@ -316,7 +321,7 @@ function NewThreadComposerFooter({
             />
           )}
           reasoningControl={<ReasoningSelector thinkingLevel={thinkingLevel} onSetThinking={onSetThinking} />}
-          fastModeControl={<FastModeSelector value={fastMode} onSetFastMode={onSetFastMode} />}
+          fastModeControl={<FastModeSelector available={fastModeAvailable} value={fastMode} onSetFastMode={onSetFastMode} />}
           skillProfileControl={skillProfileControl}
           modeControl={(
             <div className="new-thread__environment-group">

@@ -116,9 +116,9 @@ export function SkillsView({
         <header className="view-header">
           <div>
             <div className="chat-header__eyebrow">Skills</div>
-            <h1 className="view-header__title">Skills</h1>
+            <h1 className="view-header__title">Skill profiles</h1>
             <p className="view-header__body">
-              Build global skill profiles from the skills Pi discovers in the selected project context.
+              Choose which skills Pi may use automatically, manually, or never.
             </p>
           </div>
           <div className="view-header__actions">
@@ -158,8 +158,8 @@ export function SkillsView({
 
         <div className="skill-profile-manager">
           <div>
-            <div className="skill-profile-manager__eyebrow">Active profile: {activeProfile?.name ?? "Default"}</div>
-            <p>Profiles are global. The discovery workspace only changes which project-local skills are visible here.</p>
+            <div className="skill-profile-manager__eyebrow">{activeProfile?.name ?? "Default"}</div>
+            <p>Global profile · workspace only affects project-local discovery</p>
           </div>
           <div className="skill-profile-manager__actions">
             <select
@@ -276,17 +276,19 @@ export function SkillsView({
                       <span className="skill-tag" key={tag} title={tag}>{tag}</span>
                     ))}
                   </span>
-                  <SkillModeControl
-                    compact
-                    mode={model.skill.mode}
-                    onChange={(mode) => onSetSkillMode(model.skill.filePath, mode)}
-                  />
-                  <span className="skill-card__stats">
-                    <SkillUsageStats usage={usageByPath[model.skill.filePath]} compact />
+                  <span className="skill-card__footer">
+                    <SkillModeControl
+                      compact
+                      mode={model.skill.mode}
+                      onChange={(mode) => onSetSkillMode(model.skill.filePath, mode)}
+                    />
+                    <span className="skill-card__stats">
+                      <SkillUsageStats usage={usageByPath[model.skill.filePath]} compact />
+                    </span>
                   </span>
                   <span className="skill-card__meta">
                     <span>{model.sourceLabel}</span>
-                    <span>{model.skill.slashCommand}</span>
+                    <code>{model.skill.slashCommand}</code>
                     {model.skill.mode === "manual" ? <span>slash only</span> : null}
                   </span>
                 </div>
