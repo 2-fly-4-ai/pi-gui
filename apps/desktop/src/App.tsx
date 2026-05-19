@@ -2777,7 +2777,6 @@ export default function App() {
     const previousScrollTop = previousTimelineScrollTopRef.current;
     const nextScrollTop = pane.scrollTop;
     const movedUp = previousScrollTop !== null && nextScrollTop < previousScrollTop - 2;
-    const programmaticScroll = manualTimelineScrollRestoreRef.current || autoAligningTimelineRef.current;
     const explicitUserScrollIntent = userTimelineScrollIntentRef.current && performance.now() - lastUserTimelineScrollIntentAtRef.current < 300;
     const nativeUserScrollIntent = !manualTimelineScrollRestoreRef.current && movedUp;
     const userScrollIntent = explicitUserScrollIntent || nativeUserScrollIntent;
