@@ -627,7 +627,8 @@ export class RuntimeSupervisor implements RuntimeResourceDriver {
       }),
     );
 
-    return records.sort((left: RuntimeSkillRecord, right: RuntimeSkillRecord) => left.name.localeCompare(right.name));
+    return filterVisibleSkillRecords(records)
+      .sort((left: RuntimeSkillRecord, right: RuntimeSkillRecord) => left.name.localeCompare(right.name));
   }
 
   private async buildExtensionRecords(
@@ -874,6 +875,24 @@ function normalizeSkillMetadata(value: unknown): { summary?: string; category?: 
     ...(category ? { category } : {}),
     tags,
   };
+}
+
+function filterVisibleSkillRecords(records: readonly RuntimeSkillRecord[]): RuntimeSkillRecord[] {
+  const names = new Set(records.map((record) => normalizeSkillName(record.name)));
+  return records.filter((record) => !isReadmePseudoSkill(record) && !isShadowedSkillAlias(record, names));
+}
+
+function isReadmePseudoSkill(record: RuntimeSkillRecord): boolean {
+  return basename(record.filePath).toLowerCase() === "readme.md" && normalizeSkillName(record.name) === "readme";
+}
+
+function isShadowedSkillAlias(record: RuntimeSkillRecord, names: ReadonlySet<string>): boolean {
+  const name = normalizeSkillName(record.name);
+  return (name === "test-driven-development" && names.has("tdd")) || (name === "systematic-debugging" && names.has("diagnose"));
+}
+
+function normalizeSkillName(name: string): string {
+  return name.trim().toLowerCase().replace(/[\s_]+/g, "-");
 }
 
 function inferSkillName(filePath: string): string {

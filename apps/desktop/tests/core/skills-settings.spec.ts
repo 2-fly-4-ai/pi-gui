@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test } from "@playwright/test";
-import { createNamedThread, launchDesktop, makeUserDataDir, makeWorkspace } from "../helpers/electron-app";
+import { createNamedThread, getDesktopState, launchDesktop, makeUserDataDir, makeWorkspace } from "../helpers/electron-app";
 
 test("shows skills and settings surfaces from runtime data", async () => {
   test.setTimeout(60_000);
@@ -118,6 +118,59 @@ Use this skill when building Pi extensions, commands, tools, packages, or SDK in
     const slashMenu = window.getByTestId("slash-menu");
     await expect(slashMenu).toContainText("Runtime Commands");
     await expect(slashMenu).toContainText("Demo Skill");
+  } finally {
+    await harness.close();
+  }
+});
+
+test("hides README pseudo-skills and shadowed duplicate skills", async () => {
+  test.setTimeout(60_000);
+  const userDataDir = await makeUserDataDir();
+  const workspacePath = await makeWorkspace("skills-cleanup-workspace");
+  const agentSkillsDir = join(userDataDir, "agent", "skills");
+  await mkdir(agentSkillsDir, { recursive: true });
+  await writeFile(
+    join(agentSkillsDir, "README.md"),
+    `---
+name: README
+description: "# Engineering"
+---
+# Engineering
+`,
+    "utf8",
+  );
+  await mkdir(join(agentSkillsDir, "tdd"), { recursive: true });
+  await writeFile(join(agentSkillsDir, "tdd", "SKILL.md"), `# TDD\n\nUse this skill for test-driven development.\n`, "utf8");
+  await mkdir(join(agentSkillsDir, "test-driven-development"), { recursive: true });
+  await writeFile(join(agentSkillsDir, "test-driven-development", "SKILL.md"), `# Test Driven Development\n\nUse this skill for test-driven development.\n`, "utf8");
+  await mkdir(join(agentSkillsDir, "diagnose"), { recursive: true });
+  await writeFile(join(agentSkillsDir, "diagnose", "SKILL.md"), `# Diagnose\n\nUse this skill to debug hard bugs.\n`, "utf8");
+  await mkdir(join(agentSkillsDir, "systematic-debugging"), { recursive: true });
+  await writeFile(join(agentSkillsDir, "systematic-debugging", "SKILL.md"), `# Systematic Debugging\n\nUse this skill to debug systematically.\n`, "utf8");
+
+  const harness = await launchDesktop(userDataDir, {
+    initialWorkspaces: [workspacePath],
+    testMode: "background",
+  });
+
+  try {
+    const window = await harness.firstWindow();
+    await createNamedThread(window, "Skill cleanup session");
+
+    await expect
+      .poll(async () => {
+        const state = await getDesktopState(window);
+        const runtime = Object.values(state.runtimeByWorkspace)[0];
+        return (runtime?.skills ?? []).map((skill) => skill.name.toLowerCase()).sort();
+      })
+      .toEqual(["diagnose", "tdd"]);
+
+    await window.getByRole("button", { name: "Skills", exact: true }).click();
+    await expect(window.getByTestId("skills-list")).toContainText("Diagnose");
+    await expect(window.getByTestId("skills-list")).toContainText("Tdd");
+    await expect(window.getByTestId("skills-list")).not.toContainText("README");
+    await expect(window.getByTestId("skills-list")).not.toContainText("Test Driven Development");
+    await expect(window.getByTestId("skills-list")).not.toContainText("Systematic Debugging");
   } finally {
     await harness.close();
   }

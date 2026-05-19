@@ -1,5 +1,5 @@
 import { readFile, writeFile, mkdir } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
+import { basename, dirname, resolve } from "node:path";
 import type { Skill } from "@earendil-works/pi-coding-agent";
 
 export type SkillInvocationMode = "auto" | "manual" | "off";
@@ -288,7 +288,11 @@ export class SkillCatalogStore {
   }
 
   applyToSkills(skills: readonly Skill[]): Skill[] {
+    const names = new Set(skills.map((skill) => normalizeSkillName(skill.name)));
     return skills.flatMap((skill) => {
+      if (isReadmePseudoSkill(skill) || isShadowedSkillAlias(skill, names)) {
+        return [];
+      }
       const mode = this.modeForSkill(toCatalogSkill(skill));
       if (mode === "off") {
         return [];
@@ -326,6 +330,19 @@ export function toCatalogSkill(skill: Skill): Pick<Skill, "name" | "filePath" | 
     disableModelInvocation: skill.disableModelInvocation,
     source: skill.sourceInfo.source,
   };
+}
+
+function isReadmePseudoSkill(skill: Pick<Skill, "name" | "filePath">): boolean {
+  return basename(skill.filePath).toLowerCase() === "readme.md" && normalizeSkillName(skill.name) === "readme";
+}
+
+function isShadowedSkillAlias(skill: Pick<Skill, "name">, names: ReadonlySet<string>): boolean {
+  const name = normalizeSkillName(skill.name);
+  return (name === "test-driven-development" && names.has("tdd")) || (name === "systematic-debugging" && names.has("diagnose"));
+}
+
+function normalizeSkillName(name: string): string {
+  return name.trim().toLowerCase().replace(/[\s_]+/g, "-");
 }
 
 function skillProfileKey(skill: Pick<Skill, "name" | "filePath"> & { readonly source?: string }): string {
