@@ -58,6 +58,7 @@ import { Topbar } from "./topbar";
 import { TerminalPanel } from "./terminal-panel";
 import { appendComposerContext } from "./terminal-selection-context";
 import { ConversationTimeline, VIRTUALIZATION_THRESHOLD } from "./conversation-timeline";
+import { useTimelineDiagnostics } from "./timeline-diagnostics";
 import { useSlashMenu } from "./hooks/use-slash-menu";
 import { useMentionMenu } from "./hooks/use-mention-menu";
 import { useThreadSearch } from "./hooks/use-thread-search";
@@ -669,6 +670,14 @@ export default function App() {
     ? rawActiveTranscript
     : rawActiveTranscript.filter((item) => item.kind !== "thinking");
   const activeTranscriptMarker = buildTranscriptChangeMarker(selectedSessionKey, activeTranscript);
+  useTimelineDiagnostics({
+    timelinePaneRef,
+    composerRef,
+    transcript: activeTranscript,
+    selectedSessionKey,
+    followingLatestRef,
+    pinnedToBottomRef,
+  });
   const latestPlan = useMemo(() => detectLatestPlan(rawActiveTranscript), [rawActiveTranscript, activeTranscriptMarker]);
   const planSurfaceAvailable = snapshot?.activeView === "threads" && Boolean(selectedWorkspace && selectedSession && latestPlan);
   const selectedTranscriptMatchesSession = Boolean(
