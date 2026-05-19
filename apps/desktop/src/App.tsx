@@ -262,6 +262,7 @@ export default function App() {
   const pinnedToBottomRef = useRef(true);
   const followingLatestRef = useRef(true);
   const autoAligningTimelineRef = useRef(false);
+  const timelineBottomAlignmentGenerationRef = useRef(0);
   const manualTimelineScrollRestoreRef = useRef(false);
   const userTimelineScrollIntentRef = useRef(false);
   const lastUserTimelineScrollIntentAtRef = useRef(0);
@@ -270,6 +271,7 @@ export default function App() {
   const manualTimelineAnchorRef = useRef<{ rowId: string; offsetTop: number } | null>(null);
   const previousTimelinePaneSizeRef = useRef<{ width: number; height: number } | null>(null);
   const lastTimelineScrollTopBySessionRef = useRef(new Map<string, number>());
+  const previousTimelineScrollTopRef = useRef<number | null>(null);
   const lastTimelinePinnedBySessionRef = useRef(new Map<string, boolean>());
   const preserveBottomOnNextPaneResizeRef = useRef(false);
   const exactBottomRestoreSessionKeyRef = useRef<string | null>(null);
@@ -960,7 +962,14 @@ export default function App() {
       return;
     }
 
+    const alignmentGeneration = timelineBottomAlignmentGenerationRef.current + 1;
+    timelineBottomAlignmentGenerationRef.current = alignmentGeneration;
+
     const align = (remainingChecks: number) => {
+      if (timelineBottomAlignmentGenerationRef.current !== alignmentGeneration) {
+        autoAligningTimelineRef.current = false;
+        return;
+      }
       autoAligningTimelineRef.current = true;
       if (behavior === "auto") {
         pane.scrollTop = pane.scrollHeight;
@@ -975,6 +984,10 @@ export default function App() {
       setShowJumpToLatest(false);
 
       window.requestAnimationFrame(() => {
+        if (timelineBottomAlignmentGenerationRef.current !== alignmentGeneration) {
+          autoAligningTimelineRef.current = false;
+          return;
+        }
         const remaining = pane.scrollHeight - pane.scrollTop - pane.clientHeight;
         if (remainingChecks > 0 && remaining > 1) {
           align(remainingChecks - 1);
@@ -1155,6 +1168,7 @@ export default function App() {
     }
 
     setTimelinePaneMountVersion((current) => current + 1);
+    previousTimelineScrollTopRef.current = node.scrollTop;
 
     const savedPinned = lastTimelinePinnedBySessionRef.current.get(selectedSessionKey);
     const savedScrollTop = lastTimelineScrollTopBySessionRef.current.get(selectedSessionKey);
@@ -1199,8 +1213,13 @@ export default function App() {
   }, [scrollTimelineToBottom, selectedSessionKey, snapshot?.activeView]);
 
   const schedulePinnedBottomRealignment = useCallback((delayFrames = 0) => {
+    const scheduledGeneration = timelineBottomAlignmentGenerationRef.current;
     const waitForFrames = (remainingFrames: number) => {
       window.requestAnimationFrame(() => {
+        if (timelineBottomAlignmentGenerationRef.current !== scheduledGeneration || !pinnedToBottomRef.current) {
+          preserveBottomOnNextPaneResizeRef.current = false;
+          return;
+        }
         if (remainingFrames > 0) {
           waitForFrames(remainingFrames - 1);
           return;
@@ -1208,7 +1227,7 @@ export default function App() {
         requestPinnedBottomAlignment("auto", { preferExactRestore: true });
         window.requestAnimationFrame(() => {
           preserveBottomOnNextPaneResizeRef.current = false;
-          if (pinnedToBottomRef.current) {
+          if (timelineBottomAlignmentGenerationRef.current === scheduledGeneration && pinnedToBottomRef.current) {
             requestPinnedBottomAlignment("auto", { preferExactRestore: true });
           }
         });
@@ -1691,9 +1710,11 @@ export default function App() {
     pinnedToBottomRef.current = shouldFollowLatest;
     followingLatestRef.current = shouldFollowLatest;
     autoAligningTimelineRef.current = false;
+    timelineBottomAlignmentGenerationRef.current += 1;
     manualTimelineScrollRestoreRef.current = false;
     userTimelineScrollIntentRef.current = false;
     manualTimelineScrollTopRef.current = shouldFollowLatest ? null : (savedScrollTop ?? null);
+    previousTimelineScrollTopRef.current = null;
     manualTimelineAnchorRef.current = null;
     previousTimelinePaneSizeRef.current = null;
     preserveBottomOnNextPaneResizeRef.current = false;
@@ -2744,7 +2765,14 @@ export default function App() {
     }
 
     const pinned = isNearBottom(pane);
-    const userScrollIntent = userTimelineScrollIntentRef.current && performance.now() - lastUserTimelineScrollIntentAtRef.current < 120;
+    const previousScrollTop = previousTimelineScrollTopRef.current;
+    const nextScrollTop = pane.scrollTop;
+    const movedUp = previousScrollTop !== null && nextScrollTop < previousScrollTop - 2;
+    const programmaticScroll = manualTimelineScrollRestoreRef.current || autoAligningTimelineRef.current;
+    const explicitUserScrollIntent = userTimelineScrollIntentRef.current && performance.now() - lastUserTimelineScrollIntentAtRef.current < 300;
+    const nativeUserScrollIntent = !manualTimelineScrollRestoreRef.current && movedUp;
+    const userScrollIntent = explicitUserScrollIntent || nativeUserScrollIntent;
+    previousTimelineScrollTopRef.current = nextScrollTop;
     userTimelineScrollIntentRef.current = false;
 
     if (!pinned) {
@@ -2760,6 +2788,8 @@ export default function App() {
       }
       pinnedToBottomRef.current = false;
       followingLatestRef.current = false;
+      autoAligningTimelineRef.current = false;
+      timelineBottomAlignmentGenerationRef.current += 1;
       manualTimelineScrollTopRef.current = pane.scrollTop;
       captureManualTimelineAnchor();
       preserveBottomOnNextPaneResizeRef.current = false;

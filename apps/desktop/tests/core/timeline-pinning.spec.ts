@@ -587,6 +587,55 @@ test("keeps the mid-thread viewport stable when the composer grows away from the
   }
 });
 
+test("native timeline scroll away from bottom disables follow-latest during streaming", async () => {
+  test.setTimeout(90_000);
+  const userDataDir = await makeUserDataDir();
+  const workspacePath = await makeWorkspace("native-scroll-away-workspace");
+  const harness = await launchDesktop(userDataDir, {
+    initialWorkspaces: [workspacePath],
+    testMode: "background",
+  });
+
+  try {
+    const window = await harness.firstWindow();
+    await createTimelineSession(window, "Native scroll away session");
+    const finalSeedMarker = "Native scroll seed row 31";
+    await seedTranscriptMessages(harness, window, {
+      count: 32,
+      textFactory: (index) => `Native scroll seed row ${index} ${"wrapped text ".repeat(12)}`,
+    });
+    await expect(window.getByTestId("transcript")).toContainText(finalSeedMarker);
+
+    await jumpTimelineToBottom(window);
+    await expect.poll(async () => (await getTimelineScrollMetrics(window)).remainingFromBottom).toBeLessThanOrEqual(16);
+
+    await window.evaluate(() => {
+      const pane = document.querySelector<HTMLDivElement>("[data-testid='timeline-pane']");
+      if (!pane) throw new Error("timeline pane missing");
+      pane.scrollTop = Math.max(0, pane.scrollTop - 900);
+      pane.dispatchEvent(new Event("scroll", { bubbles: true }));
+    });
+
+    const awayMetrics = await getTimelineScrollMetrics(window);
+    expect(awayMetrics.remainingFromBottom).toBeGreaterThan(500);
+    const beforeStreamScrollTop = awayMetrics.scrollTop;
+
+    await streamAssistantDeltas(harness, window, [
+      "NATIVE_SCROLL_STREAM_A ",
+      "NATIVE_SCROLL_STREAM_B ",
+      "NATIVE_SCROLL_STREAM_C ",
+    ]);
+
+    await expect.poll(async () => {
+      const metrics = await getTimelineScrollMetrics(window);
+      return Math.abs(metrics.scrollTop - beforeStreamScrollTop);
+    }).toBeLessThanOrEqual(16);
+    await expect(window.getByTestId("timeline-jump")).toHaveCount(1);
+  } finally {
+    await harness.close();
+  }
+});
+
 test("keeps transcript pinning semantics while assistant deltas stream into the same row", async () => {
   test.setTimeout(90_000);
   const userDataDir = await makeUserDataDir();
