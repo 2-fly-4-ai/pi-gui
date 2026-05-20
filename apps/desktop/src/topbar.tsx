@@ -1,7 +1,7 @@
 import type { MouseEvent as ReactMouseEvent, Dispatch, SetStateAction } from "react";
 import type { AppView, DesktopAppState, SessionRecord, WorkspaceRecord, WorktreeRecord } from "./desktop-state";
 import type { ProjectActionRecord } from "./project-actions";
-import { DiffIcon, FolderIcon, PlusIcon, SidebarToggleIcon, TerminalIcon, VSCodeIcon } from "./icons";
+import { DiffIcon, FolderIcon, LogsIcon, PlusIcon, SidebarToggleIcon, TerminalIcon, VSCodeIcon } from "./icons";
 import { getDesktopShortcutLabel, type PiDesktopApi } from "./ipc";
 import { GitQuickActions } from "./git-quick-actions";
 import type { WorkspaceMenuState } from "./hooks/use-workspace-menu";
@@ -35,6 +35,8 @@ interface TopbarProps {
   readonly onTogglePlanPanel: () => void;
   readonly showDiffPanel: boolean;
   readonly onToggleDiffPanel: () => void;
+  readonly logsOpen?: boolean;
+  readonly onToggleLogs?: () => void;
   readonly drawerOpen?: boolean;
   readonly onToggleDrawer?: () => void;
   readonly vsCodeOpen?: boolean;
@@ -70,6 +72,8 @@ export function Topbar(props: TopbarProps) {
     onTogglePlanPanel,
     showDiffPanel,
     onToggleDiffPanel,
+    logsOpen,
+    onToggleLogs,
     drawerOpen,
     onToggleDrawer,
     vsCodeOpen,
@@ -235,6 +239,21 @@ export function Topbar(props: TopbarProps) {
             <kbd>{diffShortcut}</kbd>
           </span>
         </div>
+        {onToggleLogs !== undefined && (
+          <div className="shortcut-tooltip-wrap topbar__tooltip-wrap">
+            <button
+              aria-label="Toggle logs panel"
+              className={`icon-button topbar__icon ${logsOpen ? "icon-button--active" : ""}`}
+              type="button"
+              onClick={onToggleLogs}
+            >
+              <LogsIcon />
+            </button>
+            <span className="shortcut-tooltip topbar__tooltip" role="tooltip">
+              <span>Toggle logs</span>
+            </span>
+          </div>
+        )}
         {onToggleDrawer !== undefined && (
           <div className="shortcut-tooltip-wrap topbar__tooltip-wrap">
             <button

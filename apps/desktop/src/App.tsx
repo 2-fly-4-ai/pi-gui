@@ -27,6 +27,7 @@ import { ComposerPanel } from "./composer-panel";
 import { CheckoutSelector, type CheckoutSelectorOption } from "./checkout-selector";
 import { DiffPanel, type DiffPanelFileRequest } from "./diff-panel";
 import { PlanPanel } from "./plan-panel";
+import { LogsPanel } from "./logs-panel";
 import { buildImplementPlanPrompt, detectLatestPlan } from "./plan-panel-model";
 import { buildModelOptions } from "./composer-commands";
 import { parseTreeComposerCommand } from "./composer-commands";
@@ -288,6 +289,7 @@ export default function App() {
   const [dmDrawerOpen, setDmDrawerOpen] = useState(() => { try { return localStorage.getItem("dm:drawerOpen") !== "false"; } catch { return true; } });
   const toggleDmDrawer = useCallback(() => { setDmDrawerOpen((o) => { try { localStorage.setItem("dm:drawerOpen", String(!o)); } catch {} return !o; }); }, []);
   const [displayModeInitialPinnedThreadKey, setDisplayModeInitialPinnedThreadKey] = useState("");
+  const [logsOpen, setLogsOpen] = useState(() => { try { return localStorage.getItem("logs:open") === "true"; } catch { return false; } });
   const [vsCodeOpen, setVsCodeOpen] = useState(false);
   const [vsCodeWorkspaceId, setVsCodeWorkspaceId] = useState<string | null>(null);
   const [vsCodeFolderPath, setVsCodeFolderPath] = useState<string | null>(null);
@@ -498,6 +500,19 @@ export default function App() {
       return alreadyTargetingSelected ? !open : true;
     });
   }, [selectedWorkspace, vsCodeFolderPath, vsCodeWorkspaceId]);
+
+  const setLogsPanelOpen = useCallback((open: boolean) => {
+    try { localStorage.setItem("logs:open", String(open)); } catch {}
+    setLogsOpen(open);
+  }, []);
+
+  const toggleLogsPanel = useCallback(() => {
+    setLogsOpen((open) => {
+      const next = !open;
+      try { localStorage.setItem("logs:open", String(next)); } catch {}
+      return next;
+    });
+  }, []);
   const {
     activeWorktrees,
     linkedWorktreeByWorkspaceId,
@@ -2009,12 +2024,14 @@ export default function App() {
       : null;
   const showPersistentVsCodePanel = vsCodeOpen && persistentVsCodeTarget !== null && (snapshot.activeView === "threads" || snapshot.activeView === "display-mode");
   const showThreadVsCodePanel = snapshot.activeView === "threads" && showPersistentVsCodePanel && threadVsCodeTarget !== null;
+  const showLogsPanel = logsOpen && (snapshot.activeView === "threads" || snapshot.activeView === "display-mode");
   const showPlanPanel = planPanelOpen && planSurfaceAvailable;
   const mainClassName = [
     "main",
     showDiffPanel ? "main--with-diff" : "",
     showThreadVsCodePanel ? "main--with-vscode" : "",
     showPlanPanel ? "main--with-plan" : "",
+    showLogsPanel ? "main--with-logs" : "",
     isTerminalVisible ? "main--with-terminal" : "",
     showTerminalTakeover ? "main--terminal-takeover" : "",
   ].filter(Boolean).join(" ");
@@ -3165,6 +3182,8 @@ export default function App() {
           onTogglePlanPanel={() => setPlanPanelOpen((open) => !open)}
           showDiffPanel={showDiffPanel}
           onToggleDiffPanel={toggleDiffPanel}
+          logsOpen={snapshot.activeView === "threads" || snapshot.activeView === "display-mode" ? logsOpen : undefined}
+          onToggleLogs={snapshot.activeView === "threads" || snapshot.activeView === "display-mode" ? toggleLogsPanel : undefined}
           drawerOpen={snapshot.activeView === "display-mode" ? dmDrawerOpen : undefined}
           onToggleDrawer={snapshot.activeView === "display-mode" ? toggleDmDrawer : undefined}
           vsCodeOpen={snapshot.activeView === "threads" || snapshot.activeView === "display-mode" ? vsCodeOpen : undefined}
@@ -3486,6 +3505,7 @@ export default function App() {
             fileRequest={diffFileRequest}
           />
         ) : null}
+        {showLogsPanel ? <LogsPanel api={api} onClose={() => setLogsPanelOpen(false)} /> : null}
       </main>
       {addActionDialogOpen ? (
         <AddActionDialog
