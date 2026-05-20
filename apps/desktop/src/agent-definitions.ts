@@ -134,7 +134,7 @@ export function canonicalRoleForAgentName(name: string, configuredRole?: string)
   return isCanonicalSubagentRoleName(configuredRole) ? configuredRole : legacyAgentAliasForName(name) || name;
 }
 
-export const BUILTIN_AGENT_NAMES = [...CANONICAL_SUBAGENT_ROLES, ...LEGACY_AGENT_ALIAS_ORDER] as const;
+export const BUILTIN_AGENT_NAMES = [...CANONICAL_SUBAGENT_ROLES] as const;
 
 export const READ_ONLY_AGENT_TOOLS: readonly AgentToolName[] = ["read", "bash", "grep", "find", "ls"];
 
@@ -649,58 +649,5 @@ export const BUILTIN_AGENT_CONFIGS: readonly AgentDefinitionConfig[] = [
     defaultProgress: "stream",
     enabled: true,
     systemPrompt: DEFAULT_TESTING_PROMPT,
-  },
-  {
-    name: "general-purpose",
-    displayName: "Agent (legacy)",
-    role: "delegate",
-    description: "General-purpose agent for complex, multi-step tasks",
-    modelMode: "inherit",
-    thinkingMode: "inherit",
-    extensions: true,
-    skills: true,
-    promptMode: "append",
-    systemPromptMode: "append",
-    contextMode: "fork",
-    output: "message",
-    defaultProgress: "summary",
-    enabled: true,
-    systemPrompt: DEFAULT_GENERAL_PURPOSE_PROMPT,
-  },
-  {
-    name: "Explore",
-    displayName: "Explore (legacy)",
-    role: "scout",
-    description: "Fast codebase exploration agent (read-only)",
-    modelMode: "inherit",
-    thinkingMode: "inherit",
-    tools: READ_ONLY_AGENT_TOOLS,
-    extensions: true,
-    skills: true,
-    promptMode: "replace",
-    systemPromptMode: "replace",
-    contextMode: "project",
-    output: "artifact",
-    defaultProgress: "summary",
-    enabled: true,
-    systemPrompt: DEFAULT_EXPLORE_PROMPT,
-  },
-  {
-    name: "Plan",
-    displayName: "Plan (legacy)",
-    role: "planner",
-    description: "Software architect for implementation planning (read-only)",
-    modelMode: "inherit",
-    thinkingMode: "inherit",
-    tools: READ_ONLY_AGENT_TOOLS,
-    extensions: true,
-    skills: true,
-    promptMode: "replace",
-    systemPromptMode: "replace",
-    contextMode: "project",
-    output: "artifact",
-    defaultProgress: "summary",
-    enabled: true,
-    systemPrompt: DEFAULT_PLAN_PROMPT,
   },
 ];
