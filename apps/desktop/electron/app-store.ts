@@ -298,6 +298,11 @@ export class DesktopAppStore implements AppStoreInternals {
     const driverOptions: PiSdkDriverConfig = {
       catalogFilePath,
       skillCatalogFilePath,
+      appendSystemPromptProvider: () => {
+        const instructions = this.state.desktopCustomInstructions;
+        const text = instructions.enabled ? instructions.text.trim() : "";
+        return text ? [text] : [];
+      },
       ...(options.generateThreadTitleOverride
         ? { generateThreadTitleOverride: options.generateThreadTitleOverride }
         : {}),

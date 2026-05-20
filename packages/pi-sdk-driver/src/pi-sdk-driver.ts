@@ -52,7 +52,11 @@ export class PiSdkDriver implements SessionDriver {
       ...options,
       modelRegistry: deps.modelRegistry,
       createAgentSessionRuntimeImpl: options.createAgentSessionRuntimeImpl
-        ?? ((createOptions) => createAgentSessionRuntimeWithNpmFallback(createOptions, options.skillCatalogFilePath)),
+        ?? ((createOptions) => createAgentSessionRuntimeWithNpmFallback(
+          createOptions,
+          options.skillCatalogFilePath,
+          options.appendSystemPromptProvider,
+        )),
     });
     this.runtimeSupervisor = new RuntimeSupervisor({ ...options, ...deps });
   }
