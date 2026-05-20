@@ -3519,7 +3519,14 @@ export default function App() {
             fileRequest={diffFileRequest}
           />
         ) : null}
-        {showLogsPanel ? <LogsPanel api={api} onClose={() => setLogsPanelOpen(false)} /> : null}
+        {showLogsPanel ? (
+          <LogsPanel
+            api={api}
+            selectedWorkspace={selectedWorkspace}
+            selectedSession={selectedSession}
+            onClose={() => setLogsPanelOpen(false)}
+          />
+        ) : null}
       </main>
       {addActionDialogOpen ? (
         <AddActionDialog

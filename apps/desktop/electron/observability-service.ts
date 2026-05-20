@@ -1,6 +1,6 @@
 import { app } from "electron";
 import { createHash } from "node:crypto";
-import { existsSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
 import { appendFile, mkdir, readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
@@ -19,19 +19,21 @@ const MAX_LIMIT = 1_000;
 const AGENT_ACTIVITY_LOG = "agent-activity.jsonl";
 const SUBAGENTS_AUDIT_LOG = path.join(homedir(), ".pi", "agent", "logs", "subagents-audit.jsonl");
 
-type RawLogLine = { readonly path: string; readonly line: number; readonly text: string };
+type ObservabilitySource = { readonly path: string; readonly optional?: boolean; readonly global?: boolean };
+type RawLogLine = { readonly path: string; readonly line: number; readonly text: string; readonly global?: boolean };
 
 export async function listObservabilityEvents(input: ObservabilityQuery = {}): Promise<ObservabilityEventPage> {
   const warnings: string[] = [];
   const sources = observabilitySources();
   const pages = await Promise.all(sources.map((source) => readRecentLines(source, warnings)));
   const events = pages.flatMap((lines) => lines.flatMap(normalizeLine));
-  const filtered = filterEvents(events, input)
+  const scoped = input.includeGlobal ? events : filterToCurrentScope(events, input);
+  const filtered = filterEvents(scoped, input)
     .sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp));
   const limit = Math.min(Math.max(input.limit ?? DEFAULT_LIMIT, 1), MAX_LIMIT);
   return {
     events: filtered.slice(0, limit),
-    scannedSources: sources,
+    scannedSources: sources.map((source) => source.path),
     warnings,
   };
 }
@@ -47,19 +49,20 @@ export async function appendAgentActivity(event: Record<string, unknown>): Promi
   }
 }
 
-function observabilitySources(): string[] {
+function observabilitySources(): ObservabilitySource[] {
   const userData = process.env.PI_APP_USER_DATA_DIR || app.getPath("userData");
   const agentDir = process.env.PI_CODING_AGENT_DIR || path.join(homedir(), ".pi", "agent");
   return [
-    getDesktopLogPath(),
-    path.join(userData, "logs", AGENT_ACTIVITY_LOG),
-    process.env.PI_SUBAGENTS_AUDIT_LOG || path.join(agentDir, "logs", "subagents-audit.jsonl") || SUBAGENTS_AUDIT_LOG,
+    { path: getDesktopLogPath() },
+    { path: path.join(userData, "logs", AGENT_ACTIVITY_LOG), optional: true },
+    { path: process.env.PI_SUBAGENTS_AUDIT_LOG || path.join(agentDir, "logs", "subagents-audit.jsonl") || SUBAGENTS_AUDIT_LOG, global: true },
   ];
 }
 
-async function readRecentLines(filePath: string, warnings: string[]): Promise<RawLogLine[]> {
+async function readRecentLines(source: ObservabilitySource, warnings: string[]): Promise<RawLogLine[]> {
+  const filePath = source.path;
   if (!existsSync(filePath)) {
-    warnings.push(`Missing log source: ${filePath}`);
+    if (!source.optional) warnings.push(`Missing log source: ${filePath}`);
     return [];
   }
   try {
@@ -68,7 +71,7 @@ async function readRecentLines(filePath: string, warnings: string[]): Promise<Ra
     const text = buffer.subarray(start).toString("utf8");
     const lines = text.split(/\r?\n/).filter(Boolean);
     const skippedPrefix = start > 0 ? 1 : 0;
-    return lines.slice(skippedPrefix).map((line, index) => ({ path: filePath, line: index + 1, text: line }));
+    return lines.slice(skippedPrefix).map((line, index) => ({ path: filePath, line: index + 1, text: line, global: source.global }));
   } catch (error) {
     warnings.push(`Failed to read log source ${filePath}: ${error instanceof Error ? error.message : String(error)}`);
     return [];
@@ -254,6 +257,43 @@ function normalizeCategory(value: unknown): ObservabilityCategory | undefined {
   return categories.includes(value as ObservabilityCategory) ? value as ObservabilityCategory : undefined;
 }
 
+function filterToCurrentScope(events: readonly ObservabilityEvent[], input: ObservabilityQuery): ObservabilityEvent[] {
+  const workspacePath = input.workspacePath?.trim();
+  const workspaceId = input.workspaceId?.trim();
+  const sessionId = input.sessionId?.trim();
+  if (!workspacePath && !workspaceId && !sessionId) return [...events];
+
+  return events.filter((event) => {
+    if (event.source.kind === "desktop-log") return true;
+    if (workspaceId && event.correlation?.workspaceId === workspaceId) return true;
+    if (sessionId && event.correlation?.sessionId === sessionId) return true;
+    if (!workspacePath) return !isGlobalAuditEvent(event);
+    return eventPathMatchesWorkspace(event.workspace?.workspaceRoot, workspacePath)
+      || eventPathMatchesWorkspace(event.workspace?.repoRoot, workspacePath)
+      || eventPathMatchesWorkspace(event.workspace?.runtimeCwd, workspacePath)
+      || eventPathMatchesWorkspace(event.workspace?.selectedPath, workspacePath);
+  });
+}
+
+function isGlobalAuditEvent(event: ObservabilityEvent): boolean {
+  return event.source.kind === "subagents-audit";
+}
+
+function eventPathMatchesWorkspace(value: string | undefined, workspacePath: string): boolean {
+  if (!value) return false;
+  const normalizedValue = realpathIfExists(value);
+  const normalizedWorkspace = realpathIfExists(workspacePath);
+  return normalizedValue === normalizedWorkspace || normalizedValue.startsWith(`${normalizedWorkspace}${path.sep}`);
+}
+
+function realpathIfExists(value: string): string {
+  try {
+    return realpathSync.native(value);
+  } catch {
+    return path.resolve(value);
+  }
+}
+
 function filterEvents(events: readonly ObservabilityEvent[], input: ObservabilityQuery): ObservabilityEvent[] {
   const query = input.query?.trim().toLowerCase();
   const sinceMs = input.since ? Date.parse(input.since) : undefined;
@@ -261,7 +301,6 @@ function filterEvents(events: readonly ObservabilityEvent[], input: Observabilit
     if (input.severity?.length && !input.severity.includes(event.severity)) return false;
     if (input.category?.length && !input.category.includes(event.category)) return false;
     if (sinceMs && Date.parse(event.timestamp) < sinceMs) return false;
-    if (input.workspaceId && event.correlation?.workspaceId !== input.workspaceId && event.workspace?.id !== input.workspaceId) return false;
     if (query) {
       const haystack = `${event.title} ${event.message ?? ""} ${event.event} ${event.category} ${event.agent?.type ?? ""} ${event.tool?.name ?? ""}`.toLowerCase();
       if (!haystack.includes(query)) return false;

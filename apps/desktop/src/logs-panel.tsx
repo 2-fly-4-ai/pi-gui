@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ObservabilityCategory, ObservabilityEvent, ObservabilityEventPage, ObservabilitySeverity } from "./observability-types";
 import type { PiDesktopApi } from "./ipc";
+import type { SessionRecord, WorkspaceRecord } from "./desktop-state";
 import { CloseIcon, RefreshIcon } from "./icons";
 
 const CATEGORIES: readonly { value: ObservabilityCategory | "all"; label: string }[] = [
@@ -22,7 +23,17 @@ const SEVERITIES: readonly { value: ObservabilitySeverity | "all" | "failures"; 
   { value: "info", label: "Info" },
 ];
 
-export function LogsPanel({ api, onClose }: { readonly api: PiDesktopApi; readonly onClose: () => void }) {
+export function LogsPanel({
+  api,
+  selectedWorkspace,
+  selectedSession,
+  onClose,
+}: {
+  readonly api: PiDesktopApi;
+  readonly selectedWorkspace?: WorkspaceRecord;
+  readonly selectedSession?: SessionRecord;
+  readonly onClose: () => void;
+}) {
   const [page, setPage] = useState<ObservabilityEventPage>({ events: [], scannedSources: [], warnings: [] });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | undefined>();
@@ -35,6 +46,7 @@ export function LogsPanel({ api, onClose }: { readonly api: PiDesktopApi; readon
     return CATEGORIES.some((item) => item.value === value) ? value as ObservabilityCategory | "all" : "all";
   });
   const [query, setQuery] = useState(() => readLocal("logs:query") || "");
+  const [includeGlobal, setIncludeGlobal] = useState(() => readLocal("logs:scope") === "global");
   const [selectedId, setSelectedId] = useState<string>("");
 
   const refresh = useCallback(async () => {
@@ -43,7 +55,16 @@ export function LogsPanel({ api, onClose }: { readonly api: PiDesktopApi; readon
     try {
       const severityFilter = severity === "all" ? undefined : severity === "failures" ? ["error" as const] : [severity];
       const categoryFilter = category === "all" ? undefined : [category];
-      const next = await api.listObservabilityEvents({ severity: severityFilter, category: categoryFilter, query, limit: 500 });
+      const next = await api.listObservabilityEvents({
+        severity: severityFilter,
+        category: categoryFilter,
+        query,
+        limit: 500,
+        includeGlobal,
+        workspaceId: selectedWorkspace?.id,
+        workspacePath: selectedWorkspace?.path,
+        sessionId: selectedSession?.id,
+      });
       setPage(next);
       setSelectedId((current) => current && next.events.some((event) => event.id === current) ? current : next.events[0]?.id ?? "");
     } catch (err) {
@@ -51,12 +72,13 @@ export function LogsPanel({ api, onClose }: { readonly api: PiDesktopApi; readon
     } finally {
       setLoading(false);
     }
-  }, [api, category, query, severity]);
+  }, [api, category, includeGlobal, query, selectedSession?.id, selectedWorkspace?.id, selectedWorkspace?.path, severity]);
 
   useEffect(() => { void refresh(); }, [refresh]);
   useEffect(() => { writeLocal("logs:severity", severity); }, [severity]);
   useEffect(() => { writeLocal("logs:category", category); }, [category]);
   useEffect(() => { writeLocal("logs:query", query); }, [query]);
+  useEffect(() => { writeLocal("logs:scope", includeGlobal ? "global" : "current"); }, [includeGlobal]);
 
   const selected = useMemo(() => page.events.find((event) => event.id === selectedId), [page.events, selectedId]);
   const failureCount = page.events.filter((event) => event.severity === "error").length;
@@ -79,6 +101,10 @@ export function LogsPanel({ api, onClose }: { readonly api: PiDesktopApi; readon
         </select>
         <select aria-label="Log category" value={category} onChange={(event) => setCategory(event.target.value as ObservabilityCategory | "all")}>
           {CATEGORIES.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+        </select>
+        <select aria-label="Log scope" value={includeGlobal ? "global" : "current"} onChange={(event) => setIncludeGlobal(event.target.value === "global")}>
+          <option value="current">Current thread</option>
+          <option value="global">Global logs</option>
         </select>
       </div>
       {error ? <div className="logs-panel__error">{error}</div> : null}

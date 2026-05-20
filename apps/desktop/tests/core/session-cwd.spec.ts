@@ -60,9 +60,11 @@ test("new threads persist the selected workspace cwd, not Electron's launch cwd"
     )?.sessionFilePath;
     expect(sessionFilePath).toBeTruthy();
 
-    const [headerLine] = (await readFile(sessionFilePath!, "utf8")).split("\n");
+    const sessionFileText = await readFile(sessionFilePath!, "utf8");
+    const [headerLine] = sessionFileText.split("\n");
     const header = JSON.parse(headerLine) as { cwd?: string };
     expect(header.cwd).toBe(workspacePath);
+    expect(sessionFileText).not.toContain(process.cwd());
 
     const state = await getDesktopState(window);
     expect(state.selectedWorkspaceId).toBe(workspace.id);

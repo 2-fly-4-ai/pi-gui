@@ -67,6 +67,9 @@ export interface ObservabilityEvent {
 
 export interface ObservabilityQuery {
   readonly workspaceId?: string;
+  readonly workspacePath?: string;
+  readonly sessionId?: string;
+  readonly includeGlobal?: boolean;
   readonly severity?: readonly ObservabilitySeverity[];
   readonly category?: readonly ObservabilityCategory[];
   readonly query?: string;
