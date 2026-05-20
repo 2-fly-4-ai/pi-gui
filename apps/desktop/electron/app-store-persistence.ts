@@ -1,6 +1,7 @@
 import type {
   AppView,
   ExtensionCommandCompatibilityRecord,
+  DesktopCustomInstructionsRecord,
   ModelSettingsScopeMode,
   NotificationPreferences,
 } from "../src/desktop-state";
@@ -11,7 +12,7 @@ import { dirname } from "node:path";
 
 const uiStateWriteQueueByPath = new Map<string, Promise<void>>();
 export interface PersistedUiState {
-  readonly version?: 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
+  readonly version?: 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11;
   readonly selectedWorkspaceId?: string;
   readonly selectedSessionId?: string;
   readonly activeView?: AppView;
@@ -26,6 +27,7 @@ export interface PersistedUiState {
   readonly appGlobalModelSettings?: ModelSettingsSnapshot;
   readonly sidebarCollapsed?: boolean;
   readonly showThinking?: boolean;
+  readonly desktopCustomInstructions?: DesktopCustomInstructionsRecord;
 }
 
 export interface LegacyPersistedUiState extends PersistedUiState {
@@ -39,7 +41,9 @@ export async function readPersistedUiState(uiStateFilePath: string): Promise<Leg
     const parsed = JSON.parse(raw) as LegacyPersistedUiState;
     return {
       version:
-        parsed.version === 10
+        parsed.version === 11
+          ? 11
+          : parsed.version === 10
           ? 10
           : parsed.version === 9
           ? 9
@@ -76,6 +80,7 @@ export async function readPersistedUiState(uiStateFilePath: string): Promise<Leg
       appGlobalModelSettings: toPersistedModelSettingsSnapshot(parsed.appGlobalModelSettings),
       sidebarCollapsed: parsed.sidebarCollapsed === true,
       showThinking: parsed.showThinking === true,
+      desktopCustomInstructions: toPersistedDesktopCustomInstructions(parsed.desktopCustomInstructions),
       composerAttachmentsBySession: parsed.composerAttachmentsBySession,
       transcripts: parsed.transcripts,
     };
@@ -92,7 +97,7 @@ export async function writePersistedUiState(
     await mkdir(dirname(uiStateFilePath), { recursive: true });
     const serialized = `${JSON.stringify(
       {
-        version: 10,
+        version: 11,
         ...payload,
       } satisfies PersistedUiState,
       null,
@@ -126,6 +131,17 @@ export async function writePersistedUiState(
       }
     }
   });
+}
+
+function toPersistedDesktopCustomInstructions(value: unknown): DesktopCustomInstructionsRecord | undefined {
+  if (!value || typeof value !== "object") {
+    return undefined;
+  }
+  const candidate = value as Record<string, unknown>;
+  return {
+    enabled: candidate.enabled === true,
+    text: typeof candidate.text === "string" ? candidate.text : "",
+  };
 }
 
 function toPersistedModelSettingsSnapshot(value: unknown): ModelSettingsSnapshot | undefined {
