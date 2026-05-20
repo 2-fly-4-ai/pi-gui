@@ -153,13 +153,14 @@
     {
       "name": "sub-agent-21.png",
       "role": "stream-shadow",
-      "source": "copied from sub-agent-10.png as requested sub-agent-21 asset placeholder",
-      "width": 875,
-      "height": 712,
-      "bytes": 92866
+      "source": "/tmp/sub-agent-21.png.png",
+      "width": 256,
+      "height": 234,
+      "bytes": 19861,
+      "replacedAt": "2026-05-21T07:22:18.000Z"
     }
   ],
-  "updatedAt": "2026-05-21T00:00:00.000Z",
+  "updatedAt": "2026-05-21T07:22:18.000Z",
   "additions": [
     {
       "sourceFolder": "/Users/brianfarley/Downloads/subagents/extra-subagents",

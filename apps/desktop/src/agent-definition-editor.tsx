@@ -91,7 +91,7 @@ export function AgentDefinitionEditor({ mode, config, agentKey, runtime, default
           <div className="agent-definition-editor__shinobi-portrait">
             <img src={selectedShinobi.imageUrl} alt="" aria-hidden="true" />
           </div>
-          <div>
+          <div className="agent-definition-editor__shinobi-info">
             <div className="agent-definition-editor__shinobi-eyebrow">Role portrait</div>
             <h3>{selectedShinobi.name}</h3>
             <p><em>{selectedShinobi.meaning}</em>{selectedShinobi.customImage ? " · Custom image" : ""}</p>

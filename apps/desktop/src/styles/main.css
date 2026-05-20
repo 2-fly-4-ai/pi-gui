@@ -7389,9 +7389,12 @@ mark.thread-find-active {
 
 .agent-definition-editor__shinobi {
   display: grid;
+  grid-template-areas:
+    "portrait info actions"
+    "portrait color actions";
   grid-template-columns: 96px minmax(0, 1fr) auto;
   align-items: center;
-  gap: 14px;
+  gap: 10px 14px;
   margin: 14px 0;
   padding: 12px;
   border: 1px solid var(--border-subtle);
@@ -7401,6 +7404,7 @@ mark.thread-find-active {
 
 .agent-definition-editor__shinobi-portrait {
   display: grid;
+  grid-area: portrait;
   place-items: end center;
   aspect-ratio: 1;
   overflow: hidden;
@@ -7413,6 +7417,11 @@ mark.thread-find-active {
   height: 88px;
   object-fit: contain;
   filter: drop-shadow(0 10px 10px rgba(23, 28, 42, 0.16));
+}
+
+.agent-definition-editor__shinobi-info {
+  grid-area: info;
+  min-width: 0;
 }
 
 .agent-definition-editor__shinobi-eyebrow {
@@ -7437,8 +7446,33 @@ mark.thread-find-active {
 .agent-definition-editor__shinobi-actions {
   display: flex;
   flex-wrap: wrap;
+  grid-area: actions;
   justify-content: flex-end;
   gap: 8px;
+}
+
+.agent-definition-editor__color-field {
+  display: flex;
+  grid-area: color;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.agent-definition-editor__color-field input[type="color"] {
+  width: 42px;
+  height: 28px;
+  padding: 2px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.agent-definition-editor__color-field .button {
+  min-height: 28px;
+  padding: 4px 10px;
 }
 
 .agent-definition-editor__enabled,
