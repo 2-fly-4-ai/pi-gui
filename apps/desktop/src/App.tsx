@@ -268,6 +268,8 @@ export default function App() {
   const manualTimelineScrollRestoreRef = useRef(false);
   const userTimelineScrollIntentRef = useRef(false);
   const lastUserTimelineScrollIntentAtRef = useRef(0);
+  const lastProgrammaticTimelineScrollAtRef = useRef(0);
+  const suppressNativeTimelineScrollIntentUntilRef = useRef(0);
   const timelineScrollHandlerRef = useRef<() => void>(() => undefined);
   const manualTimelineScrollTopRef = useRef<number | null>(null);
   const manualTimelineAnchorRef = useRef<{ rowId: string; offsetTop: number } | null>(null);
@@ -1003,6 +1005,7 @@ export default function App() {
         return;
       }
       autoAligningTimelineRef.current = true;
+      lastProgrammaticTimelineScrollAtRef.current = performance.now();
       if (behavior === "auto") {
         pane.scrollTop = pane.scrollHeight;
       } else {
@@ -1056,6 +1059,7 @@ export default function App() {
     const savedScrollTop = manualTimelineScrollTopRef.current ?? lastTimelineScrollTopBySessionRef.current.get(selectedSessionKey);
     if (pane && savedScrollTop !== undefined && savedScrollTop !== null && Math.abs(pane.scrollTop - savedScrollTop) > 1) {
       manualTimelineScrollRestoreRef.current = true;
+      lastProgrammaticTimelineScrollAtRef.current = performance.now();
       pane.scrollTop = savedScrollTop;
       window.requestAnimationFrame(() => {
         manualTimelineScrollRestoreRef.current = false;
@@ -1104,6 +1108,7 @@ export default function App() {
     const delta = currentOffset - anchor.offsetTop;
     if (Math.abs(delta) > 1) {
       manualTimelineScrollRestoreRef.current = true;
+      lastProgrammaticTimelineScrollAtRef.current = performance.now();
       pane.scrollTop += delta;
       manualTimelineScrollTopRef.current = pane.scrollTop;
       lastTimelineScrollTopBySessionRef.current.set(selectedSessionKey, pane.scrollTop);
@@ -1211,6 +1216,7 @@ export default function App() {
     const shouldRestoreBottom = followingLatestRef.current || (savedPinned ?? pinnedToBottomRef.current) || preserveBottomOnNextPaneResizeRef.current;
     if (shouldRestoreBottom) {
       preserveBottomOnNextPaneResizeRef.current = true;
+      lastProgrammaticTimelineScrollAtRef.current = performance.now();
       node.scrollTop = node.scrollHeight;
       window.requestAnimationFrame(() => {
         if (timelinePaneRef.current !== node) {
@@ -1228,6 +1234,7 @@ export default function App() {
       return;
     }
 
+    lastProgrammaticTimelineScrollAtRef.current = performance.now();
     node.scrollTop = savedScrollTop;
     pinnedToBottomRef.current = false;
     followingLatestRef.current = false;
@@ -1969,6 +1976,8 @@ export default function App() {
     }
     lastTranscriptMarkerRef.current = marker;
 
+    suppressNativeTimelineScrollIntentUntilRef.current = performance.now() + 250;
+
     if (followingLatestRef.current) {
       requestPinnedBottomAlignment("auto");
       return;
@@ -1979,8 +1988,10 @@ export default function App() {
   }, [activeTranscript, requestPinnedBottomAlignment, restoreManualTimelinePositionAcrossFrames, selectedSession, selectedSessionKey]);
 
   const handleTimelineContentHeightChange = useCallback(() => {
+    suppressNativeTimelineScrollIntentUntilRef.current = performance.now() + 250;
     if (!followingLatestRef.current) {
       restoreManualTimelinePositionAcrossFrames();
+      setShowJumpToLatest(true);
       return;
     }
 
@@ -2806,7 +2817,10 @@ export default function App() {
     const nextScrollTop = pane.scrollTop;
     const movedWithoutExplicitInput = previousScrollTop !== null && Math.abs(nextScrollTop - previousScrollTop) > 2;
     const explicitUserScrollIntent = userTimelineScrollIntentRef.current && performance.now() - lastUserTimelineScrollIntentAtRef.current < 300;
-    const nativeUserScrollIntent = !manualTimelineScrollRestoreRef.current && !autoAligningTimelineRef.current && movedWithoutExplicitInput;
+    const now = performance.now();
+    const recentProgrammaticScroll = now - lastProgrammaticTimelineScrollAtRef.current < 180;
+    const suppressNativeScrollIntent = now < suppressNativeTimelineScrollIntentUntilRef.current;
+    const nativeUserScrollIntent = !manualTimelineScrollRestoreRef.current && !autoAligningTimelineRef.current && !recentProgrammaticScroll && !suppressNativeScrollIntent && movedWithoutExplicitInput;
     const userScrollIntent = explicitUserScrollIntent || nativeUserScrollIntent;
     previousTimelineScrollTopRef.current = nextScrollTop;
     userTimelineScrollIntentRef.current = false;
