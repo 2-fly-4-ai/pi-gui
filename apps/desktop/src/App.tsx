@@ -2804,9 +2804,9 @@ export default function App() {
     const pinned = isNearBottom(pane);
     const previousScrollTop = previousTimelineScrollTopRef.current;
     const nextScrollTop = pane.scrollTop;
-    const movedUp = previousScrollTop !== null && nextScrollTop < previousScrollTop - 2;
+    const movedWithoutExplicitInput = previousScrollTop !== null && Math.abs(nextScrollTop - previousScrollTop) > 2;
     const explicitUserScrollIntent = userTimelineScrollIntentRef.current && performance.now() - lastUserTimelineScrollIntentAtRef.current < 300;
-    const nativeUserScrollIntent = !manualTimelineScrollRestoreRef.current && movedUp;
+    const nativeUserScrollIntent = !manualTimelineScrollRestoreRef.current && !autoAligningTimelineRef.current && movedWithoutExplicitInput;
     const userScrollIntent = explicitUserScrollIntent || nativeUserScrollIntent;
     previousTimelineScrollTopRef.current = nextScrollTop;
     userTimelineScrollIntentRef.current = false;
