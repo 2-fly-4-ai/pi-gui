@@ -285,19 +285,19 @@ export async function submitComposer(
     ? resolveRuntimeSlashCommand(text, runtime, sessionCommands)
     : undefined;
 
-  if (text.startsWith("/") && !runtimeSlashCommand) {
-    const handled = await runComposerCommand(store, sessionRef, text);
-    if (handled) {
-      return handled;
-    }
-  }
-
   const key = sessionKey(sessionRef);
   const selectedSession = store.sessionFromState(sessionRef);
   const isRunning = selectedSession?.status === "running";
   const editingState = store.getQueuedComposerEditState(sessionRef);
   let optimisticSteerMessage: SessionQueuedMessage | undefined;
   try {
+    if (text.startsWith("/") && !runtimeSlashCommand) {
+      const handled = await runComposerCommand(store, sessionRef, text);
+      if (handled) {
+        return handled;
+      }
+    }
+
     if (resolvedRuntimeSlashCommand) {
       const learnedCompatibility = store.getLearnedRuntimeCommandCompatibility(sessionRef.workspaceId, resolvedRuntimeSlashCommand);
       if (learnedCompatibility?.status === "terminal-only") {

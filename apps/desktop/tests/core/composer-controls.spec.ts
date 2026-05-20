@@ -185,6 +185,34 @@ test("supports keyboard shortcuts, slash menus, and topbar controls through the 
   }
 });
 
+test("host slash command failures restore the draft and surface an error", async () => {
+  test.setTimeout(60_000);
+  const userDataDir = await makeUserDataDir();
+  const agentDir = join(userDataDir, "agent");
+  const workspacePath = await makeWorkspace("host-command-failure-workspace");
+  await seedAgentDir(agentDir);
+  const harness = await launchDesktop(userDataDir, {
+    agentDir,
+    initialWorkspaces: [workspacePath],
+    testMode: "background",
+  });
+
+  try {
+    const window = await harness.firstWindow();
+    await createNamedThread(window, "Host command failure session");
+    const composer = window.getByTestId("composer");
+
+    await composer.fill("/compact");
+    await composer.press("Enter");
+
+    await expect(composer).toHaveValue("/compact");
+    await expect(window.getByTestId("composer-error-banner")).toContainText(/Summarization failed|compact|auth|key|model|terminated/i);
+    await expect.poll(async () => (await getDesktopState(window)).composerDraft).toBe("/compact");
+  } finally {
+    await harness.close();
+  }
+});
+
 test("composer keeps narrow widths friendly by collapsing secondary controls", async () => {
   test.setTimeout(60_000);
   const userDataDir = await makeUserDataDir();
