@@ -12,7 +12,12 @@ import type {
   ResetAgentDefinitionInput,
   SaveAgentDefinitionInput,
 } from "../src/agent-definitions";
-import { BUILTIN_AGENT_CONFIGS, CANONICAL_SUBAGENT_ROLES, LEGACY_AGENT_ALIAS_ORDER } from "../src/agent-definitions";
+import {
+  BUILTIN_AGENT_CONFIGS,
+  CANONICAL_SUBAGENT_ROLES,
+  LEGACY_AGENT_ALIAS_ORDER,
+  legacyAgentAliasForName,
+} from "../src/agent-definitions";
 
 type FrontmatterValue = string | boolean | number | readonly string[];
 type FrontmatterRecord = Record<string, FrontmatterValue>;
@@ -63,8 +68,12 @@ export async function listAgentDefinitions(workspacePath: string | undefined): P
       warnings: [],
     });
   }
-  for (const record of globalRecords) merged.set(record.name, record);
-  for (const record of projectRecords) merged.set(record.name, record);
+  for (const record of globalRecords) {
+    if (!isLegacyAgentAlias(record.name)) merged.set(record.name, record);
+  }
+  for (const record of projectRecords) {
+    if (!isLegacyAgentAlias(record.name)) merged.set(record.name, record);
+  }
 
   return {
     globalAgentsDir,
@@ -500,6 +509,10 @@ function fallbackConfig(name: string): AgentDefinitionConfig {
 
 function isBuiltin(name: string): boolean {
   return BUILTIN_AGENT_CONFIGS.some((agent) => agent.name === name);
+}
+
+function isLegacyAgentAlias(name: string): boolean {
+  return legacyAgentAliasForName(name) !== undefined;
 }
 
 function isThinkingLevel(value: string): value is AgentThinkingLevel {

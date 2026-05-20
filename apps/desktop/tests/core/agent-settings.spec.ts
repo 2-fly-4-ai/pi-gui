@@ -34,23 +34,23 @@ test("settings agents page saves built-in subagent model overrides", async () =>
     await expect(window.getByTestId("agent-definition-row-oracle")).toContainText("Oracle");
     await expect(window.getByTestId("agent-definition-row-researcher")).toContainText("Researcher");
     await expect(window.getByTestId("agent-definition-row-context-builder")).toContainText("Context Builder");
-    await expect(window.getByTestId("agent-definition-row-general-purpose")).toContainText("Legacy alias for delegate");
-    await expect(window.getByTestId("agent-definition-row-Explore")).toContainText("Legacy alias for scout");
-    await expect(window.getByTestId("agent-definition-row-Plan")).toContainText("Legacy alias for planner");
+    await expect(window.getByTestId("agent-definition-row-general-purpose")).toHaveCount(0);
+    await expect(window.getByTestId("agent-definition-row-Explore")).toHaveCount(0);
+    await expect(window.getByTestId("agent-definition-row-Plan")).toHaveCount(0);
 
-    await window.getByTestId("agent-definition-row-general-purpose").getByRole("button", { name: "Edit" }).click();
+    await window.getByTestId("agent-definition-row-delegate").getByRole("button", { name: "Edit" }).click();
     const dialog = window.getByTestId("agent-definition-editor");
     await expect(dialog).toBeVisible();
-    await expect(dialog).toHaveAccessibleName("Edit general-purpose");
+    await expect(dialog).toHaveAccessibleName("Edit delegate");
     await dialog.getByLabel("System prompt", { exact: true }).fill("Use the parent context and complete the delegated task.");
     await dialog.getByLabel("Model", { exact: true }).selectOption("openai:gpt-5");
     await dialog.getByLabel("Reasoning").selectOption("medium");
     await dialog.getByRole("button", { name: "Save" }).click();
 
-    await expect(window.getByTestId("agent-definition-row-general-purpose")).toContainText("openai/gpt-5");
-    await expect(window.getByTestId("agent-definition-row-general-purpose")).toContainText("Medium");
+    await expect(window.getByTestId("agent-definition-row-delegate")).toContainText("openai/gpt-5");
+    await expect(window.getByTestId("agent-definition-row-delegate")).toContainText("Medium");
 
-    const saved = await readFile(join(agentDir, "agents", "general-purpose.md"), "utf8");
+    const saved = await readFile(join(agentDir, "agents", "delegate.md"), "utf8");
     expect(saved).toContain("model: openai/gpt-5");
     expect(saved).toContain("thinking: medium");
     expect(saved).toContain("prompt_mode: append");
@@ -186,7 +186,7 @@ test("settings agents page duplicates a built-in agent into a custom agent", asy
     await window.getByRole("button", { name: "Settings", exact: true }).click();
     await window.getByRole("button", { name: "Subagents", exact: true }).click();
 
-    await window.getByTestId("agent-definition-row-Explore").getByRole("button", { name: "Duplicate" }).click();
+    await window.getByTestId("agent-definition-row-scout").getByRole("button", { name: "Duplicate" }).click();
     const dialog = window.getByTestId("agent-definition-editor");
     await expect(dialog).toHaveAccessibleName("New role");
     await dialog.getByLabel("Role name").fill("explore-local");
@@ -195,7 +195,7 @@ test("settings agents page duplicates a built-in agent into a custom agent", asy
 
     await expect(window.getByTestId("agent-definition-row-explore-local")).toContainText("Explore Local");
     const saved = await readFile(join(agentDir, "agents", "explore-local.md"), "utf8");
-    expect(saved).toContain("Fast codebase exploration agent");
+    expect(saved).toContain("Fast read-only codebase reconnaissance");
     expect(saved).toContain("# CRITICAL: READ-ONLY MODE");
   } finally {
     await harness.close();
@@ -209,7 +209,7 @@ test("settings agents page warns for unavailable configured models and resets ov
   const workspacePath = await makeWorkspace("agent-settings-warning-workspace");
   await mkdir(join(agentDir, "agents"), { recursive: true });
   await writeFile(
-    join(agentDir, "agents", "Explore.md"),
+    join(agentDir, "agents", "scout.md"),
     `---
 description: Fast codebase exploration agent (read-only)
 tools: read, bash, grep, find, ls
@@ -235,7 +235,7 @@ prompt_mode: replace
     await window.getByRole("button", { name: "Settings", exact: true }).click();
     await window.getByRole("button", { name: "Subagents", exact: true }).click();
 
-    const row = window.getByTestId("agent-definition-row-Explore");
+    const row = window.getByTestId("agent-definition-row-scout");
     await expect(row).toContainText("unavailable-provider/unavailable-model");
     await expect(row).toContainText("Configured model is not currently available");
     await row.getByRole("button", { name: "Reset" }).click();
@@ -255,9 +255,9 @@ test("settings agents page uses project overrides before global overrides", asyn
   await mkdir(join(agentDir, "agents"), { recursive: true });
   await mkdir(join(workspacePath, ".pi", "agents"), { recursive: true });
   await writeFile(
-    join(agentDir, "agents", "Plan.md"),
+    join(agentDir, "agents", "planner.md"),
     `---
-description: Global Plan override
+description: Global Planner override
 tools: read, bash, grep, find, ls
 model: openai/gpt-4o
 thinking: low
@@ -271,9 +271,9 @@ run_in_background: true
     "utf8",
   );
   await writeFile(
-    join(workspacePath, ".pi", "agents", "Plan.md"),
+    join(workspacePath, ".pi", "agents", "planner.md"),
     `---
-description: Project Plan override
+description: Project Planner override
 tools: read, bash, grep, find, ls
 model: openai/gpt-5
 thinking: high
@@ -301,14 +301,14 @@ isolation: "worktree"
     await window.getByRole("button", { name: "Settings", exact: true }).click();
     await window.getByRole("button", { name: "Subagents", exact: true }).click();
 
-    const row = window.getByTestId("agent-definition-row-Plan");
+    const row = window.getByTestId("agent-definition-row-planner");
     await expect(row).toContainText("Project override");
     await expect(row).toContainText("openai/gpt-5");
     await row.getByRole("button", { name: "Reset" }).click();
     await expect(row).toContainText("Global override");
     await expect(row).toContainText("openai/gpt-4o");
 
-    await rm(join(agentDir, "agents", "Plan.md"));
+    await rm(join(agentDir, "agents", "planner.md"));
   } finally {
     await harness.close();
   }
