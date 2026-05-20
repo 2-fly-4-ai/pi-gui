@@ -21,6 +21,7 @@ import {
 } from "./app-store-utils";
 import type { AppStoreInternals } from "./app-store-internals";
 import { updateSessionRecord } from "./app-store-session-state";
+import { appendAgentActivity } from "./observability-service";
 
 /* ── Public methods ─────────────────────────────────────── */
 
@@ -373,6 +374,17 @@ export async function submitComposer(
       markSelectedSessionViewed: false,
     });
   } catch (error) {
+    if (text.startsWith("/")) {
+      void appendAgentActivity({
+        severity: "error",
+        category: "slash-command",
+        event: "slash_command_failed",
+        title: "Slash command failed",
+        message: error instanceof Error ? error.message : String(error),
+        workspaceId: sessionRef.workspaceId,
+        sessionId: sessionRef.sessionId,
+      });
+    }
     if (resolvedRuntimeSlashCommand) {
       store.finishRuntimeCommandExecution(sessionRef);
     }
