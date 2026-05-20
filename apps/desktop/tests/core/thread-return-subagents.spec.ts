@@ -48,3 +48,56 @@ test("returning from Settings > Subagents keeps selected thread transcript visib
     await harness.close();
   }
 });
+
+test("quick Settings round-trip after reopening a long thread returns to virtualized transcript rows", async () => {
+  test.setTimeout(120_000);
+  const userDataDir = await makeUserDataDir();
+  const agentDir = `${userDataDir}/agent`;
+  const workspacePath = await makeWorkspace("thread-return-long-reopen-workspace");
+  await seedAgentDir(agentDir, { enabledModels: ["openai/gpt-5"] });
+
+  const marker = `LONG_THREAD_RETURN_${Date.now()}`;
+  let harness = await launchDesktop(userDataDir, {
+    agentDir,
+    initialWorkspaces: [workspacePath],
+    testMode: "background",
+  });
+
+  try {
+    const window = await harness.firstWindow();
+    await createNamedThread(window, "Long thread return from settings");
+    await seedTranscriptMessages(harness, window, {
+      count: 130,
+      textFactory: (index) =>
+        index === 129 ? `${marker} visible after reopening settings` : `Long settings return seed row ${index} `.repeat(6),
+    });
+    await expect(window.getByTestId("transcript")).toContainText(marker);
+  } finally {
+    await harness.close();
+  }
+
+  harness = await launchDesktop(userDataDir, {
+    agentDir,
+    testMode: "background",
+  });
+
+  try {
+    const window = await harness.firstWindow();
+    await expect(window.locator(".topbar__session")).toHaveText("Long thread return from settings");
+
+    await window.getByRole("button", { name: "Settings", exact: true }).click();
+    await expect(window.getByTestId("settings-surface")).toBeVisible();
+    await window.getByRole("button", { name: "Back to app" }).click();
+
+    await expect(window.getByTestId("timeline-pane")).toBeVisible();
+    await expect.poll(async () =>
+      window.evaluate(() => document.querySelectorAll(".timeline__virtual-row").length),
+    ).toBeGreaterThan(0);
+    await expect.poll(async () =>
+      window.evaluate(() => document.querySelector("[data-testid='transcript']")?.textContent?.length ?? 0),
+    ).toBeGreaterThan(100);
+    await expect.poll(async () => (await getSelectedTranscript(window))?.transcript.length ?? 0).toBeGreaterThan(100);
+  } finally {
+    await harness.close();
+  }
+});

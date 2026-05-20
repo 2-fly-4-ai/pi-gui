@@ -279,6 +279,7 @@ export default function App() {
   const deferredPinnedBottomAlignmentRef = useRef(false);
   const pendingPinnedBottomBehaviorRef = useRef<ScrollBehavior>("auto");
   const previousActiveViewRef = useRef<AppView | null>(null);
+  const shouldDisableTimelineVirtualizationRef = useRef(false);
   const hydratedComposerSessionKeyRef = useRef("");
   const handledComposerSyncNonceRef = useRef(0);
   const [showJumpToLatest, setShowJumpToLatest] = useState(false);
@@ -689,6 +690,13 @@ export default function App() {
   const isTranscriptLoading = Boolean(selectedSession) && activeTranscript.length === 0 && (
     !selectedTranscriptMatchesSession || selectedSessionLooksHydratable
   );
+  const shouldDisableTimelineVirtualization = Boolean(
+    disableTimelineVirtualization &&
+      snapshot?.activeView === "threads" &&
+      selectedSessionKey &&
+      exactBottomRestoreSessionKeyRef.current === selectedSessionKey,
+  );
+  shouldDisableTimelineVirtualizationRef.current = shouldDisableTimelineVirtualization;
   const selectedSessionCommands = selectedSession ? snapshot?.sessionCommandsBySession[selectedSessionKey] ?? [] : [];
   const selectedExtensionUi = selectedSession ? snapshot?.sessionExtensionUiBySession[selectedSessionKey] : undefined;
   const selectedWorkspaceCommandCompatibility = selectedWorkspace
@@ -1010,7 +1018,11 @@ export default function App() {
   }, [selectedSessionKey]);
 
   const requestPinnedBottomAlignment = useCallback((behavior: ScrollBehavior = "auto") => {
-    if (exactBottomRestoreSessionKeyRef.current === selectedSessionKey && selectedSessionKey) {
+    if (
+      shouldDisableTimelineVirtualizationRef.current &&
+      exactBottomRestoreSessionKeyRef.current === selectedSessionKey &&
+      selectedSessionKey
+    ) {
       pendingPinnedBottomBehaviorRef.current = behavior;
       deferredPinnedBottomAlignmentRef.current = true;
       return;
@@ -1773,6 +1785,7 @@ export default function App() {
     if (snapshot.activeView !== "threads") {
       previousTimelinePaneSizeRef.current = null;
       resetExactBottomRestoreState();
+      setDisableTimelineVirtualization(false);
     }
 
     if (
@@ -3269,7 +3282,7 @@ export default function App() {
                   isTranscriptLoading={isTranscriptLoading}
                   timelinePaneRef={timelinePaneRef}
                   timelinePaneElementRef={setTimelinePaneElement}
-                  disableVirtualization={disableTimelineVirtualization}
+                  disableVirtualization={shouldDisableTimelineVirtualization}
                   onDisableVirtualizationReady={finalizeTimelineVirtualizationDisable}
                   onTimelineScroll={handleTimelineScroll}
                   threadSearch={threadSearch}
