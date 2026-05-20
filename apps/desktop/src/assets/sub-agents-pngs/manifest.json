@@ -2,7 +2,7 @@
   "generatedAt": "2026-05-19T01:21:41.102Z",
   "sourceFolder": "/Users/brianfarley/Downloads/subagents",
   "outputFolder": "/Users/brianfarley/Desktop/Githhub-project/pi-gui/.worktrees/nico-lite-subagents/apps/desktop/src/assets/sub-agents-pngs",
-  "inputFilesMatched": 10,
+  "inputFilesMatched": 21,
   "outputFiles": [
     {
       "name": "sub-agent-01.png",
@@ -149,9 +149,17 @@
       "width": 772,
       "height": 974,
       "bytes": 49272
+    },
+    {
+      "name": "sub-agent-21.png",
+      "role": "stream-shadow",
+      "source": "copied from sub-agent-10.png as requested sub-agent-21 asset placeholder",
+      "width": 875,
+      "height": 712,
+      "bytes": 92866
     }
   ],
-  "updatedAt": "2026-05-19T07:01:27.777Z",
+  "updatedAt": "2026-05-21T00:00:00.000Z",
   "additions": [
     {
       "sourceFolder": "/Users/brianfarley/Downloads/subagents/extra-subagents",

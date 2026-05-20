@@ -34,6 +34,7 @@ test("settings agents page saves built-in subagent model overrides", async () =>
     await expect(window.getByTestId("agent-definition-row-oracle")).toContainText("Oracle");
     await expect(window.getByTestId("agent-definition-row-researcher")).toContainText("Researcher");
     await expect(window.getByTestId("agent-definition-row-context-builder")).toContainText("Context Builder");
+    await expect(window.getByTestId("agent-definition-row-stream-shadow")).toContainText("Nagarekage");
     await expect(window.getByTestId("agent-definition-row-general-purpose")).toHaveCount(0);
     await expect(window.getByTestId("agent-definition-row-Explore")).toHaveCount(0);
     await expect(window.getByTestId("agent-definition-row-Plan")).toHaveCount(0);

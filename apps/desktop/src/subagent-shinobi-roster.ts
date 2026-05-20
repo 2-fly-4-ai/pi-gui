@@ -20,6 +20,7 @@ import subAgent17Url from "./assets/sub-agents-pngs/sub-agent-17.png";
 import subAgent18Url from "./assets/sub-agents-pngs/sub-agent-18.png";
 import subAgent19Url from "./assets/sub-agents-pngs/sub-agent-19.png";
 import subAgent20Url from "./assets/sub-agents-pngs/sub-agent-20.png";
+import subAgent21Url from "./assets/sub-agents-pngs/sub-agent-21.png";
 
 export interface SubagentShinobiOption {
   readonly id: string;
@@ -53,6 +54,7 @@ export const SUBAGENT_SHINOBI_ROSTER: readonly SubagentShinobiOption[] = [
   { id: "sub-agent-14", role: "monitor", name: "Metsuke", meaning: "Eye of the Keep", imageUrl: subAgent14Url },
   { id: "sub-agent-19", role: "docs-writer", name: "TBD", meaning: "Writes and maintains documentation", imageUrl: subAgent19Url },
   { id: "sub-agent-20", role: "testing", name: "TBD", meaning: "Runs tests and surfaces flaky failures", imageUrl: subAgent20Url },
+  { id: "sub-agent-21", role: "stream-shadow", name: "Nagarekage", meaning: "Stream Shadow", imageUrl: subAgent21Url },
 ];
 
 const DEFAULT_SUBAGENT_SHINOBI: SubagentShinobiOption = SUBAGENT_SHINOBI_ROSTER[0] ?? {

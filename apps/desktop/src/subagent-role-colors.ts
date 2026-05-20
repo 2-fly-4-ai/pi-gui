@@ -24,6 +24,7 @@ const DEFAULT_ROLE_COLORS: Readonly<Record<string, string>> = {
   monitor: "#f43f5e",
   "docs-writer": "#c084fc",
   testing: "#2dd4bf",
+  "stream-shadow": "#0f766e",
 };
 
 const FALLBACK_ROLE_COLOR = "#58a6ff";
