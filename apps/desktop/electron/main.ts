@@ -35,6 +35,7 @@ import { checkForUpdate, initUpdateChecker } from "./update-checker";
 import { ThemeManager } from "./theme-manager";
 import { TerminalService } from "./terminal-service";
 import { startMemoryMonitor } from "./memory-monitor";
+import { listObservabilityEvents } from "./observability-service";
 import {
   attachWindowDiagnostics,
   configureDesktopDiagnostics,
@@ -601,6 +602,7 @@ app.whenReady().then(async () => {
   ipcMain.handle(desktopIpc.stateRequest, () => store.getState());
   ipcMain.handle(desktopIpc.selectedTranscriptRequest, () => store.getSelectedTranscript());
   ipcMain.handle(desktopIpc.displayModeThreadsRequest, () => store.getDisplayModeThreads());
+  ipcMain.handle(desktopIpc.listObservabilityEvents, (_event, input) => listObservabilityEvents(input));
   ipcMain.handle(desktopIpc.addWorkspacePath, (_event, workspacePath: string) => store.addWorkspace(workspacePath));
   ipcMain.handle(desktopIpc.pickWorkspace, () => pickWorkspaceViaDialog());
   ipcMain.handle(desktopIpc.selectWorkspace, (_event, workspaceId: string) => store.selectWorkspace(workspaceId));

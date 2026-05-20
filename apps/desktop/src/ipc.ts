@@ -23,6 +23,7 @@ import type {
 import type { AgentDefinitionsSnapshot, DeleteAgentDefinitionInput, ResetAgentDefinitionInput, SaveAgentDefinitionInput } from "./agent-definitions";
 import type { CreateReviewSnapshotOptions, ReviewSnapshot } from "./review/review-types";
 import type { RunSubagentWorkflowInput, SubagentRunRecord } from "./subagent-workflows";
+import type { ObservabilityEventPage, ObservabilityQuery } from "./observability-types";
 
 export type DesktopNotificationPermissionStatus =
   | "granted"
@@ -38,6 +39,7 @@ export const desktopIpc = {
   selectedTranscriptRequest: "pi-gui:selected-transcript-request",
   selectedTranscriptChanged: "pi-gui:selected-transcript-changed",
   displayModeThreadsRequest: "pi-gui:display-mode-threads-request",
+  listObservabilityEvents: "pi-gui:list-observability-events",
   appCommand: "pi-gui:app-command",
   workspacePicked: "pi-gui:workspace-picked",
   clipboardImagePasted: "pi-gui:clipboard-image-pasted",
@@ -276,6 +278,7 @@ export interface PiDesktopApi {
   getSelectedTranscript(): Promise<SelectedTranscriptRecord | null>;
   onSelectedTranscriptChanged(listener: PiDesktopSelectedTranscriptListener): () => void;
   getDisplayModeThreads(): Promise<readonly DisplayModeThreadRecord[]>;
+  listObservabilityEvents(input?: ObservabilityQuery): Promise<ObservabilityEventPage>;
   onCommand(listener: (command: PiDesktopCommand) => void): () => void;
   onWorkspacePicked(listener: (workspaceId: string) => void): () => void;
   onClipboardImagePasted(listener: (attachment: ComposerImageAttachment) => void): () => void;

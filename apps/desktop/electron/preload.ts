@@ -38,6 +38,7 @@ import type {
 import type { AgentDefinitionsSnapshot, DeleteAgentDefinitionInput, ResetAgentDefinitionInput, SaveAgentDefinitionInput } from "../src/agent-definitions";
 import type { CreateReviewSnapshotOptions, ReviewDraftComment, ReviewSnapshot } from "../src/review/review-types";
 import type { RunSubagentWorkflowInput, SubagentRunRecord } from "../src/subagent-workflows";
+import type { ObservabilityEventPage, ObservabilityQuery } from "../src/observability-types";
 
 const devReloadMarkersEnabled = process.env.PI_APP_DEV_RELOAD_MARKERS === "1";
 
@@ -90,6 +91,8 @@ contextBridge.exposeInMainWorld("piApp", {
     ipcRenderer.invoke(desktopIpc.selectedTranscriptRequest) as Promise<SelectedTranscriptRecord | null>,
   getDisplayModeThreads: () =>
     ipcRenderer.invoke(desktopIpc.displayModeThreadsRequest) as Promise<readonly DisplayModeThreadRecord[]>,
+  listObservabilityEvents: (input?: ObservabilityQuery) =>
+    ipcRenderer.invoke(desktopIpc.listObservabilityEvents, input) as Promise<ObservabilityEventPage>,
   onSelectedTranscriptChanged: (listener: (payload: SelectedTranscriptRecord | null) => void) => {
     const handle = (_event: Electron.IpcRendererEvent, payload: SelectedTranscriptRecord | null) => {
       listener(payload);
