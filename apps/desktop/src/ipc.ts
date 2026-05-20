@@ -172,6 +172,12 @@ export interface RendererDiagnosticPayload {
   readonly href?: string;
   readonly userAgent?: string;
   readonly timestamp?: string;
+  readonly details?: unknown;
+}
+
+export interface RendererDiagnosticFlags {
+  readonly layoutMonitor: boolean;
+  readonly perfMonitor: boolean;
 }
 
 export interface TerminalSize {
@@ -262,6 +268,7 @@ export function getDesktopCommandFromShortcut(input: DesktopShortcutInput): PiDe
 export interface PiDesktopApi {
   platform: NodeJS.Platform;
   versions: NodeJS.ProcessVersions;
+  diagnosticFlags: RendererDiagnosticFlags;
   reportRendererDiagnostic(payload: RendererDiagnosticPayload): void;
   ping(): Promise<string>;
   getState(): Promise<DesktopAppState>;

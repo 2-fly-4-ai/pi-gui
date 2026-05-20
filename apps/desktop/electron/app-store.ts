@@ -665,11 +665,17 @@ export class DesktopAppStore implements AppStoreInternals {
       lastError: undefined,
       revision: this.state.revision + 1,
     };
-    if (activeView === "threads") {
+    const sessionRef = activeView === "threads" ? this.selectedSessionRef() : undefined;
+    if (sessionRef) {
+      await this.ensureTranscriptLoaded(sessionRef);
       this.markSelectedSessionViewedIfVisible();
     }
     await this.persistUiState();
-    return this.emit();
+    const snapshot = this.emit();
+    if (sessionRef) {
+      this.publishSelectedTranscriptFor(sessionRef);
+    }
+    return snapshot;
   }
 
   async setSidebarCollapsed(sidebarCollapsed: boolean): Promise<DesktopAppState> {

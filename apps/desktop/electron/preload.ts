@@ -68,6 +68,10 @@ function subscribeIpc<T>(channel: string, listener: (payload: T) => void): () =>
 contextBridge.exposeInMainWorld("piApp", {
   platform: process.platform,
   versions: process.versions,
+  diagnosticFlags: {
+    layoutMonitor: process.env.PI_APP_LAYOUT_MONITOR === "1",
+    perfMonitor: process.env.PI_APP_PERF_MONITOR === "1",
+  },
   reportRendererDiagnostic: (payload: RendererDiagnosticPayload) => {
     ipcRenderer.send(desktopIpc.rendererDiagnostic, payload);
   },

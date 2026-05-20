@@ -4,6 +4,7 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
 import {
   commitAllInGitRepo,
   desktopShortcut,
+  getAppDiagnostics,
   getDesktopState,
   getTimelineScrollMetrics,
   initGitRepo,
@@ -449,6 +450,45 @@ test("keeps a virtualized thread off-bottom after switching sessions", async () 
   }
 });
 
+test("republishes the selected transcript when returning to the thread surface", async () => {
+  test.setTimeout(90_000);
+  const userDataDir = await makeUserDataDir();
+  const workspacePath = await makeWorkspace("timeline-return-thread-republish");
+  const harness = await launchDesktop(userDataDir, {
+    initialWorkspaces: [workspacePath],
+    testMode: "background",
+  });
+
+  try {
+    const window = await harness.firstWindow();
+    await createTimelineSession(window, "Return to thread session");
+
+    const finalMarker = "THREAD_RETURN_FINAL_ROW";
+    await seedTranscriptMessages(harness, window, {
+      count: 12,
+      textFactory: (index) =>
+        index === 11 ? `${finalMarker} ${"visible after returning ".repeat(8)}` : `Return seed row ${index}`,
+    });
+    await expect(window.getByTestId("transcript")).toContainText(finalMarker);
+
+    const beforeReturn = await getAppDiagnostics(harness);
+    await setDesktopActiveView(window, "settings");
+    await expect.poll(async () => (await getDesktopState(window)).activeView).toBe("settings");
+    await expect(window.getByTestId("timeline-pane")).toHaveCount(0);
+
+    await setDesktopActiveView(window, "threads");
+    await expect.poll(async () => (await getDesktopState(window)).activeView).toBe("threads");
+    await expect(window.getByTestId("timeline-pane")).toBeVisible();
+    await expect(window.getByTestId("transcript")).toContainText(finalMarker);
+    await expect.poll(async () => {
+      const diagnostics = await getAppDiagnostics(harness);
+      return diagnostics.selectedTranscriptPublishCount - beforeReturn.selectedTranscriptPublishCount;
+    }).toBeGreaterThanOrEqual(1);
+  } finally {
+    await harness.close();
+  }
+});
+
 test("keeps a reopened virtualized long transcript stable", async () => {
   test.setTimeout(90_000);
   const userDataDir = await makeUserDataDir();
@@ -582,6 +622,96 @@ test("keeps the mid-thread viewport stable when the composer grows away from the
       return Math.abs(metrics.scrollTop - beforeDiffScrollTop);
     }).toBeLessThanOrEqual(12);
     await expect(window.getByTestId("timeline-jump")).toHaveCount(0);
+  } finally {
+    await harness.close();
+  }
+});
+
+test("native timeline scroll away from bottom disables follow-latest during streaming", async () => {
+  test.setTimeout(90_000);
+  const userDataDir = await makeUserDataDir();
+  const workspacePath = await makeWorkspace("native-scroll-away-workspace");
+  const harness = await launchDesktop(userDataDir, {
+    initialWorkspaces: [workspacePath],
+    testMode: "background",
+  });
+
+  try {
+    const window = await harness.firstWindow();
+    await createTimelineSession(window, "Native scroll away session");
+    const finalSeedMarker = "Native scroll seed row 31";
+    await seedTranscriptMessages(harness, window, {
+      count: 32,
+      textFactory: (index) => `Native scroll seed row ${index} ${"wrapped text ".repeat(12)}`,
+    });
+    await expect(window.getByTestId("transcript")).toContainText(finalSeedMarker);
+
+    await jumpTimelineToBottom(window);
+    await expect.poll(async () => (await getTimelineScrollMetrics(window)).remainingFromBottom).toBeLessThanOrEqual(16);
+
+    await window.evaluate(() => {
+      const pane = document.querySelector<HTMLDivElement>("[data-testid='timeline-pane']");
+      if (!pane) throw new Error("timeline pane missing");
+      pane.scrollTop = Math.max(0, pane.scrollTop - 900);
+      pane.dispatchEvent(new Event("scroll", { bubbles: true }));
+    });
+
+    const awayMetrics = await getTimelineScrollMetrics(window);
+    expect(awayMetrics.remainingFromBottom).toBeGreaterThan(500);
+    const beforeStreamScrollTop = awayMetrics.scrollTop;
+
+    await streamAssistantDeltas(harness, window, [
+      "NATIVE_SCROLL_STREAM_A ",
+      "NATIVE_SCROLL_STREAM_B ",
+      "NATIVE_SCROLL_STREAM_C ",
+    ]);
+
+    await expect.poll(async () => {
+      const metrics = await getTimelineScrollMetrics(window);
+      return Math.abs(metrics.scrollTop - beforeStreamScrollTop);
+    }).toBeLessThanOrEqual(16);
+    await expect(window.getByTestId("timeline-jump")).toHaveCount(1);
+  } finally {
+    await harness.close();
+  }
+});
+
+test("pinned streaming keeps the visible bottom stable", async () => {
+  test.setTimeout(90_000);
+  const userDataDir = await makeUserDataDir();
+  const workspacePath = await makeWorkspace("pinned-stream-stability-workspace");
+  const harness = await launchDesktop(userDataDir, {
+    initialWorkspaces: [workspacePath],
+    testMode: "background",
+  });
+
+  try {
+    const window = await harness.firstWindow();
+    await createTimelineSession(window, "Pinned stream stability session");
+    await seedTranscriptMessages(harness, window, {
+      count: 28,
+      textFactory: (index) => `Pinned stability row ${index} ${"content ".repeat(10)}`,
+    });
+    await expect(window.getByTestId("transcript")).toContainText("Pinned stability row 27");
+    await jumpTimelineToBottom(window);
+    await expect.poll(async () => (await getTimelineScrollMetrics(window)).remainingFromBottom).toBeLessThanOrEqual(16);
+
+    const composerShell = window.locator(".composer");
+    const beforeComposerBox = await composerShell.boundingBox();
+    const beforeMetrics = await getTimelineScrollMetrics(window);
+
+    await streamAssistantDeltas(harness, window, [
+      "STABILITY_STREAM_A ",
+      "STABILITY_STREAM_B ",
+      "STABILITY_STREAM_C ",
+      "STABILITY_STREAM_D ",
+    ]);
+
+    const afterComposerBox = await composerShell.boundingBox();
+    const afterMetrics = await getTimelineScrollMetrics(window);
+    expect(afterMetrics.remainingFromBottom).toBeLessThanOrEqual(16);
+    expect(Math.abs((afterComposerBox?.y ?? 0) - (beforeComposerBox?.y ?? 0))).toBeLessThanOrEqual(2);
+    expect(afterMetrics.scrollTop).toBeGreaterThanOrEqual(beforeMetrics.scrollTop);
   } finally {
     await harness.close();
   }

@@ -57,7 +57,8 @@ import { SidebarToggleButton } from "./sidebar-toggle-button";
 import { Topbar } from "./topbar";
 import { TerminalPanel } from "./terminal-panel";
 import { appendComposerContext } from "./terminal-selection-context";
-import { ConversationTimeline, VIRTUALIZATION_THRESHOLD } from "./conversation-timeline";
+import { ConversationTimeline } from "./conversation-timeline";
+import { useTimelineDiagnostics } from "./timeline-diagnostics";
 import { useSlashMenu } from "./hooks/use-slash-menu";
 import { useMentionMenu } from "./hooks/use-mention-menu";
 import { useThreadSearch } from "./hooks/use-thread-search";
@@ -262,6 +263,7 @@ export default function App() {
   const pinnedToBottomRef = useRef(true);
   const followingLatestRef = useRef(true);
   const autoAligningTimelineRef = useRef(false);
+  const timelineBottomAlignmentGenerationRef = useRef(0);
   const manualTimelineScrollRestoreRef = useRef(false);
   const userTimelineScrollIntentRef = useRef(false);
   const lastUserTimelineScrollIntentAtRef = useRef(0);
@@ -270,6 +272,7 @@ export default function App() {
   const manualTimelineAnchorRef = useRef<{ rowId: string; offsetTop: number } | null>(null);
   const previousTimelinePaneSizeRef = useRef<{ width: number; height: number } | null>(null);
   const lastTimelineScrollTopBySessionRef = useRef(new Map<string, number>());
+  const previousTimelineScrollTopRef = useRef<number | null>(null);
   const lastTimelinePinnedBySessionRef = useRef(new Map<string, boolean>());
   const preserveBottomOnNextPaneResizeRef = useRef(false);
   const exactBottomRestoreSessionKeyRef = useRef<string | null>(null);
@@ -667,6 +670,14 @@ export default function App() {
     ? rawActiveTranscript
     : rawActiveTranscript.filter((item) => item.kind !== "thinking");
   const activeTranscriptMarker = buildTranscriptChangeMarker(selectedSessionKey, activeTranscript);
+  useTimelineDiagnostics({
+    timelinePaneRef,
+    composerRef,
+    transcript: activeTranscript,
+    selectedSessionKey,
+    followingLatestRef,
+    pinnedToBottomRef,
+  });
   const latestPlan = useMemo(() => detectLatestPlan(rawActiveTranscript), [rawActiveTranscript, activeTranscriptMarker]);
   const planSurfaceAvailable = snapshot?.activeView === "threads" && Boolean(selectedWorkspace && selectedSession && latestPlan);
   const selectedTranscriptMatchesSession = Boolean(
@@ -960,7 +971,14 @@ export default function App() {
       return;
     }
 
+    const alignmentGeneration = timelineBottomAlignmentGenerationRef.current + 1;
+    timelineBottomAlignmentGenerationRef.current = alignmentGeneration;
+
     const align = (remainingChecks: number) => {
+      if (timelineBottomAlignmentGenerationRef.current !== alignmentGeneration) {
+        autoAligningTimelineRef.current = false;
+        return;
+      }
       autoAligningTimelineRef.current = true;
       if (behavior === "auto") {
         pane.scrollTop = pane.scrollHeight;
@@ -975,6 +993,10 @@ export default function App() {
       setShowJumpToLatest(false);
 
       window.requestAnimationFrame(() => {
+        if (timelineBottomAlignmentGenerationRef.current !== alignmentGeneration) {
+          autoAligningTimelineRef.current = false;
+          return;
+        }
         const remaining = pane.scrollHeight - pane.scrollTop - pane.clientHeight;
         if (remainingChecks > 0 && remaining > 1) {
           align(remainingChecks - 1);
@@ -987,26 +1009,20 @@ export default function App() {
     align(6);
   }, [selectedSessionKey]);
 
-  const requestPinnedBottomAlignment = useCallback((
-    behavior: ScrollBehavior = "auto",
-    options?: { readonly preferExactRestore?: boolean },
-  ) => {
+  const requestPinnedBottomAlignment = useCallback((behavior: ScrollBehavior = "auto") => {
     if (exactBottomRestoreSessionKeyRef.current === selectedSessionKey && selectedSessionKey) {
       pendingPinnedBottomBehaviorRef.current = behavior;
       deferredPinnedBottomAlignmentRef.current = true;
       return;
     }
 
-    if (options?.preferExactRestore && selectedSessionKey && activeTranscript.length > VIRTUALIZATION_THRESHOLD) {
-      exactBottomRestoreSessionKeyRef.current = selectedSessionKey;
-      pendingPinnedBottomBehaviorRef.current = behavior;
-      preserveBottomOnNextPaneResizeRef.current = true;
-      setDisableTimelineVirtualization(true);
-      return;
-    }
-
+    // Exact restore is only for the initial thread hydration window, where
+    // virtualization is already disabled by the session-change path. Starting a
+    // new exact restore during routine pinned-bottom layout changes forces the
+    // whole transcript to swap between full and virtualized rendering, which is
+    // visible as chat jiggle on long active threads.
     scrollTimelineToBottom(behavior);
-  }, [activeTranscript.length, scrollTimelineToBottom, selectedSessionKey]);
+  }, [scrollTimelineToBottom, selectedSessionKey]);
 
   const restoreManualTimelineScrollTop = useCallback(() => {
     const pane = timelinePaneRef.current;
@@ -1155,6 +1171,7 @@ export default function App() {
     }
 
     setTimelinePaneMountVersion((current) => current + 1);
+    previousTimelineScrollTopRef.current = node.scrollTop;
 
     const savedPinned = lastTimelinePinnedBySessionRef.current.get(selectedSessionKey);
     const savedScrollTop = lastTimelineScrollTopBySessionRef.current.get(selectedSessionKey);
@@ -1173,7 +1190,7 @@ export default function App() {
           return;
         }
         if (pinnedToBottomRef.current || preserveBottomOnNextPaneResizeRef.current) {
-          requestPinnedBottomAlignment("auto", { preferExactRestore: true });
+          requestPinnedBottomAlignment("auto");
         }
       });
       return;
@@ -1199,17 +1216,22 @@ export default function App() {
   }, [scrollTimelineToBottom, selectedSessionKey, snapshot?.activeView]);
 
   const schedulePinnedBottomRealignment = useCallback((delayFrames = 0) => {
+    const scheduledGeneration = timelineBottomAlignmentGenerationRef.current;
     const waitForFrames = (remainingFrames: number) => {
       window.requestAnimationFrame(() => {
+        if (timelineBottomAlignmentGenerationRef.current !== scheduledGeneration || !pinnedToBottomRef.current) {
+          preserveBottomOnNextPaneResizeRef.current = false;
+          return;
+        }
         if (remainingFrames > 0) {
           waitForFrames(remainingFrames - 1);
           return;
         }
-        requestPinnedBottomAlignment("auto", { preferExactRestore: true });
+        requestPinnedBottomAlignment("auto");
         window.requestAnimationFrame(() => {
           preserveBottomOnNextPaneResizeRef.current = false;
-          if (pinnedToBottomRef.current) {
-            requestPinnedBottomAlignment("auto", { preferExactRestore: true });
+          if (timelineBottomAlignmentGenerationRef.current === scheduledGeneration && pinnedToBottomRef.current) {
+            requestPinnedBottomAlignment("auto");
           }
         });
       });
@@ -1691,9 +1713,11 @@ export default function App() {
     pinnedToBottomRef.current = shouldFollowLatest;
     followingLatestRef.current = shouldFollowLatest;
     autoAligningTimelineRef.current = false;
+    timelineBottomAlignmentGenerationRef.current += 1;
     manualTimelineScrollRestoreRef.current = false;
     userTimelineScrollIntentRef.current = false;
     manualTimelineScrollTopRef.current = shouldFollowLatest ? null : (savedScrollTop ?? null);
+    previousTimelineScrollTopRef.current = null;
     manualTimelineAnchorRef.current = null;
     previousTimelinePaneSizeRef.current = null;
     preserveBottomOnNextPaneResizeRef.current = false;
@@ -1798,12 +1822,12 @@ export default function App() {
     const nextHeight = composer.getBoundingClientRect().height;
     if (Math.abs(nextHeight - previousHeight) >= 1 && shouldPreserveBottom) {
       preserveBottomOnNextPaneResizeRef.current = true;
-      requestPinnedBottomAlignment("auto", { preferExactRestore: true });
+      requestPinnedBottomAlignment("auto");
       window.requestAnimationFrame(() => {
         window.requestAnimationFrame(() => {
           preserveBottomOnNextPaneResizeRef.current = false;
           if (pinnedToBottomRef.current) {
-            requestPinnedBottomAlignment("auto", { preferExactRestore: true });
+            requestPinnedBottomAlignment("auto");
           }
         });
       });
@@ -1865,10 +1889,10 @@ export default function App() {
       pinnedToBottomRef.current = true;
       followingLatestRef.current = true;
       window.requestAnimationFrame(() => {
-        requestPinnedBottomAlignment("auto", { preferExactRestore: true });
+        requestPinnedBottomAlignment("auto");
         window.requestAnimationFrame(() => {
           if (pinnedToBottomRef.current) {
-            requestPinnedBottomAlignment("auto", { preferExactRestore: true });
+            requestPinnedBottomAlignment("auto");
           }
         });
       });
@@ -2748,7 +2772,13 @@ export default function App() {
     }
 
     const pinned = isNearBottom(pane);
-    const userScrollIntent = userTimelineScrollIntentRef.current && performance.now() - lastUserTimelineScrollIntentAtRef.current < 120;
+    const previousScrollTop = previousTimelineScrollTopRef.current;
+    const nextScrollTop = pane.scrollTop;
+    const movedUp = previousScrollTop !== null && nextScrollTop < previousScrollTop - 2;
+    const explicitUserScrollIntent = userTimelineScrollIntentRef.current && performance.now() - lastUserTimelineScrollIntentAtRef.current < 300;
+    const nativeUserScrollIntent = !manualTimelineScrollRestoreRef.current && movedUp;
+    const userScrollIntent = explicitUserScrollIntent || nativeUserScrollIntent;
+    previousTimelineScrollTopRef.current = nextScrollTop;
     userTimelineScrollIntentRef.current = false;
 
     if (!pinned) {
@@ -2764,6 +2794,8 @@ export default function App() {
       }
       pinnedToBottomRef.current = false;
       followingLatestRef.current = false;
+      autoAligningTimelineRef.current = false;
+      timelineBottomAlignmentGenerationRef.current += 1;
       manualTimelineScrollTopRef.current = pane.scrollTop;
       captureManualTimelineAnchor();
       preserveBottomOnNextPaneResizeRef.current = false;
@@ -2786,7 +2818,7 @@ export default function App() {
 
   const jumpToLatest = () => {
     followingLatestRef.current = true;
-    requestPinnedBottomAlignment("smooth", { preferExactRestore: true });
+    requestPinnedBottomAlignment("smooth");
   };
 
   const handleComposerKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
