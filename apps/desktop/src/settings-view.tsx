@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import type { RuntimeSettingsSnapshot, RuntimeSnapshot } from "@pi-gui/session-driver/runtime-types";
 import type { AgentDefinitionsSnapshot, DeleteAgentDefinitionInput, ResetAgentDefinitionInput, SaveAgentDefinitionInput } from "./agent-definitions";
-import type { ModelSettingsScopeMode, NotificationPreferences, WorkspaceRecord } from "./desktop-state";
+import type { DesktopCustomInstructionsRecord, ModelSettingsScopeMode, NotificationPreferences, WorkspaceRecord } from "./desktop-state";
 import type { DesktopNotificationPermissionStatus } from "./ipc";
 import type { RunSubagentWorkflowInput, SubagentRunRecord } from "./subagent-workflows";
 import { SettingsAgentsSection } from "./settings-agents-section";
@@ -30,6 +30,7 @@ interface SettingsViewProps {
   readonly subagentRunsError?: string;
   readonly modelSettingsScopeMode: ModelSettingsScopeMode;
   readonly integratedTerminalShell: string;
+  readonly desktopCustomInstructions: DesktopCustomInstructionsRecord;
   readonly themeMode: "system" | "light" | "dark";
   readonly headerAccessory?: ReactNode;
   readonly onSetModelSettingsScopeMode: (mode: ModelSettingsScopeMode) => void;
@@ -43,6 +44,7 @@ interface SettingsViewProps {
   readonly onRemoveProviderApiKey: (providerId: string) => Promise<string | undefined>;
   readonly onSetNotificationPreferences: (preferences: Partial<NotificationPreferences>) => void;
   readonly onSetIntegratedTerminalShell: (shellPath: string) => void;
+  readonly onSetDesktopCustomInstructions: (input: Partial<DesktopCustomInstructionsRecord>) => void;
   readonly onRequestNotificationPermission: () => void;
   readonly onOpenSystemNotificationSettings: () => void;
   readonly onSetThemeMode: (mode: "system" | "light" | "dark") => void;
@@ -70,6 +72,7 @@ export function SettingsView({
   subagentRunsError,
   modelSettingsScopeMode,
   integratedTerminalShell,
+  desktopCustomInstructions,
   themeMode,
   headerAccessory,
   onSetModelSettingsScopeMode,
@@ -83,6 +86,7 @@ export function SettingsView({
   onRemoveProviderApiKey,
   onSetNotificationPreferences,
   onSetIntegratedTerminalShell,
+  onSetDesktopCustomInstructions,
   onRequestNotificationPermission,
   onOpenSystemNotificationSettings,
   onSetThemeMode,
@@ -132,8 +136,10 @@ export function SettingsView({
               runtime={runtime}
               modelSettingsScopeMode={modelSettingsScopeMode}
               integratedTerminalShell={integratedTerminalShell}
+              desktopCustomInstructions={desktopCustomInstructions}
               onSetModelSettingsScopeMode={onSetModelSettingsScopeMode}
               onSetIntegratedTerminalShell={onSetIntegratedTerminalShell}
+              onSetDesktopCustomInstructions={onSetDesktopCustomInstructions}
               onToggleSkillCommands={onToggleSkillCommands}
             />
           ) : null}

@@ -2614,6 +2614,10 @@ export default function App() {
     void updateSnapshot(api, setSnapshot, () => api.setIntegratedTerminalShell(shellPath));
   };
 
+  const handleSetDesktopCustomInstructions = (input: Partial<DesktopAppState["desktopCustomInstructions"]>) => {
+    void updateSnapshot(api, setSnapshot, () => api.setDesktopCustomInstructions(input));
+  };
+
   const handleRequestNotificationPermission = () => {
     if (!api?.requestNotificationPermission) {
       return;
@@ -2892,6 +2896,7 @@ export default function App() {
           notificationPermissionPending={notificationPermissionPending}
           modelSettingsScopeMode={snapshot.modelSettingsScopeMode}
           integratedTerminalShell={snapshot.integratedTerminalShell}
+          desktopCustomInstructions={snapshot.desktopCustomInstructions}
           themeMode={themeMode}
           headerAccessory={settingsSection === "providers" || settingsSection === "agents" || (settingsSection === "models" && snapshot.modelSettingsScopeMode === "per-repo") ? (
             <label className="surface-toolbar__field surface-toolbar__field--inline">
@@ -2916,6 +2921,7 @@ export default function App() {
           onSetDefaultModel={handleSetDefaultModel}
           onSetNotificationPreferences={handleSetNotificationPreferences}
           onSetIntegratedTerminalShell={handleSetIntegratedTerminalShell}
+          onSetDesktopCustomInstructions={handleSetDesktopCustomInstructions}
           onRequestNotificationPermission={handleRequestNotificationPermission}
           onOpenSystemNotificationSettings={handleOpenSystemNotificationSettings}
           onSetScopedModelPatterns={handleSetScopedModelPatterns}
