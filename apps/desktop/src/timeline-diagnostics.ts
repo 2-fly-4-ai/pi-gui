@@ -2,6 +2,9 @@ import { useEffect, type MutableRefObject, type RefObject } from "react";
 import type { TranscriptMessage } from "./desktop-state";
 import { reportRendererDiagnostic } from "./renderer-diagnostics";
 
+const SCROLL_FRAME_SAMPLE_INTERVAL_MS = 1_000;
+const SCROLL_FRAME_SAMPLE_DURATION_MS = 10_000;
+
 interface TimelineDiagnosticsOptions {
   readonly timelinePaneRef: MutableRefObject<HTMLDivElement | null>;
   readonly composerRef: RefObject<HTMLTextAreaElement | null>;
@@ -84,7 +87,7 @@ function useLayoutShiftDiagnostics({ selectedSessionKey }: TimelineDiagnosticsOp
     });
 
     try {
-      observer.observe({ type: "layout-shift", buffered: true });
+      observer.observe({ type: "layout-shift" });
     } catch {
       return undefined;
     }
@@ -113,9 +116,17 @@ function useRowResizeDiagnostics({ timelinePaneRef, transcript, selectedSessionK
           continue;
         }
         const nextHeight = Math.round(entry.contentRect.height);
+        // Virtualized rows legitimately report a transient 0px height while React
+        // unmounts/recycles them. Treat that as observation cleanup rather than
+        // as a row resize; otherwise normal virtualization floods the log with
+        // false collapse signals.
+        if (nextHeight <= 1) {
+          heights.delete(rowId);
+          continue;
+        }
         const previousHeight = heights.get(rowId);
         heights.set(rowId, nextHeight);
-        if (previousHeight === undefined || Math.abs(nextHeight - previousHeight) < 2) {
+        if (previousHeight === undefined || previousHeight <= 1 || Math.abs(nextHeight - previousHeight) < 2) {
           continue;
         }
         const item = transcript.find((candidate) => candidate.id === rowId);
@@ -139,7 +150,10 @@ function useRowResizeDiagnostics({ timelinePaneRef, transcript, selectedSessionK
           continue;
         }
         observed.add(row);
-        heights.set(row.dataset.timelineRowId ?? "", Math.round(row.getBoundingClientRect().height));
+        const initialHeight = Math.round(row.getBoundingClientRect().height);
+        if (initialHeight > 1) {
+          heights.set(row.dataset.timelineRowId ?? "", initialHeight);
+        }
         resizeObserver.observe(row);
       }
     };
@@ -183,7 +197,7 @@ function useScrollFrameDiagnostics({
       }
 
       const now = performance.now();
-      if (now - lastEmitAt >= 250) {
+      if (now - lastEmitAt >= SCROLL_FRAME_SAMPLE_INTERVAL_MS) {
         lastEmitAt = now;
         emitTimelineDiagnostic("timeline-scroll-frame", {
           sessionKey: selectedSessionKey,
@@ -200,7 +214,7 @@ function useScrollFrameDiagnostics({
       }
 
       frame += 1;
-      if (now - startedAt < 30_000) {
+      if (now - startedAt < SCROLL_FRAME_SAMPLE_DURATION_MS) {
         window.requestAnimationFrame(sample);
       }
     };
@@ -266,7 +280,7 @@ function useLongTaskDiagnostics({ selectedSessionKey }: TimelineDiagnosticsOptio
     });
 
     try {
-      observer.observe({ type: "longtask", buffered: true });
+      observer.observe({ type: "longtask" });
     } catch {
       return undefined;
     }
