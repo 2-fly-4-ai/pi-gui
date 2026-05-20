@@ -1,14 +1,16 @@
 import { useEffect, useState } from "react";
 import type { RuntimeSnapshot } from "@pi-gui/session-driver/runtime-types";
-import type { ModelSettingsScopeMode } from "./desktop-state";
+import type { DesktopCustomInstructionsRecord, ModelSettingsScopeMode } from "./desktop-state";
 import { SettingsGroup, SettingsInfoRow, SettingsRow } from "./settings-utils";
 
 interface SettingsGeneralSectionProps {
   readonly runtime?: RuntimeSnapshot;
   readonly modelSettingsScopeMode: ModelSettingsScopeMode;
   readonly integratedTerminalShell: string;
+  readonly desktopCustomInstructions: DesktopCustomInstructionsRecord;
   readonly onSetModelSettingsScopeMode: (mode: ModelSettingsScopeMode) => void;
   readonly onSetIntegratedTerminalShell: (shellPath: string) => void;
+  readonly onSetDesktopCustomInstructions: (input: Partial<DesktopCustomInstructionsRecord>) => void;
   readonly onToggleSkillCommands: (enabled: boolean) => void;
 }
 
@@ -16,20 +18,33 @@ export function SettingsGeneralSection({
   runtime,
   modelSettingsScopeMode,
   integratedTerminalShell,
+  desktopCustomInstructions,
   onSetModelSettingsScopeMode,
   onSetIntegratedTerminalShell,
+  onSetDesktopCustomInstructions,
   onToggleSkillCommands,
 }: SettingsGeneralSectionProps) {
   const connectedCount = runtime?.providers.filter((p) => p.hasAuth).length ?? 0;
   const [terminalShellDraft, setTerminalShellDraft] = useState(integratedTerminalShell);
+  const [customInstructionsDraft, setCustomInstructionsDraft] = useState(desktopCustomInstructions.text);
 
   useEffect(() => {
     setTerminalShellDraft(integratedTerminalShell);
   }, [integratedTerminalShell]);
 
+  useEffect(() => {
+    setCustomInstructionsDraft(desktopCustomInstructions.text);
+  }, [desktopCustomInstructions.text]);
+
   const commitTerminalShellDraft = () => {
     if (terminalShellDraft !== integratedTerminalShell) {
       onSetIntegratedTerminalShell(terminalShellDraft);
+    }
+  };
+
+  const commitCustomInstructionsDraft = () => {
+    if (customInstructionsDraft !== desktopCustomInstructions.text) {
+      onSetDesktopCustomInstructions({ text: customInstructionsDraft });
     }
   };
 
@@ -84,6 +99,35 @@ export function SettingsGeneralSection({
                 event.currentTarget.blur();
               }
             }}
+          />
+        </SettingsRow>
+      </SettingsGroup>
+
+      <SettingsGroup title="Desktop custom instructions">
+        <SettingsRow
+          title="Use desktop custom instructions"
+          description="Append these instructions only to sessions launched from the desktop app. This does not edit ~/.pi/agent/APPEND_SYSTEM.md."
+        >
+          <input
+            aria-label="Use desktop custom instructions"
+            checked={desktopCustomInstructions.enabled}
+            type="checkbox"
+            onChange={(event) => onSetDesktopCustomInstructions({ enabled: event.target.checked })}
+          />
+        </SettingsRow>
+        <SettingsRow
+          title="Instructions"
+          description="Keep this short. These instructions are appended after Pi's normal system prompt sources for new desktop sessions."
+        >
+          <textarea
+            aria-label="Desktop custom instructions"
+            className="settings-textarea"
+            disabled={!desktopCustomInstructions.enabled}
+            placeholder={"Conversation style:\n\n- Keep answers short and concise."}
+            spellCheck={false}
+            value={customInstructionsDraft}
+            onBlur={commitCustomInstructionsDraft}
+            onChange={(event) => setCustomInstructionsDraft(event.target.value)}
           />
         </SettingsRow>
       </SettingsGroup>

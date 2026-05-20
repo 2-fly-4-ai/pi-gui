@@ -94,6 +94,7 @@ export const desktopIpc = {
   runSubagentWorkflow: "pi-gui:run-subagent-workflow",
   respondToHostUiRequest: "pi-gui:respond-to-host-ui-request",
   setNotificationPreferences: "pi-gui:set-notification-preferences",
+  setDesktopCustomInstructions: "pi-gui:set-desktop-custom-instructions",
   setIntegratedTerminalShell: "pi-gui:set-integrated-terminal-shell",
   terminalEnsurePanel: "pi-gui:terminal-ensure-panel",
   terminalCreateSession: "pi-gui:terminal-create-session",
@@ -348,6 +349,7 @@ export interface PiDesktopApi {
       | { readonly requestId: string; readonly cancelled: true },
   ): Promise<DesktopAppState>;
   setNotificationPreferences(preferences: Partial<NotificationPreferences>): Promise<DesktopAppState>;
+  setDesktopCustomInstructions(input: Partial<DesktopAppState["desktopCustomInstructions"]>): Promise<DesktopAppState>;
   setIntegratedTerminalShell(shell: string): Promise<DesktopAppState>;
   ensureTerminalPanel(
     workspaceId: string,

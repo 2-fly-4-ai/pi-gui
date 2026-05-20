@@ -227,6 +227,8 @@ contextBridge.exposeInMainWorld("piApp", {
     ipcRenderer.invoke(desktopIpc.respondToHostUiRequest, workspaceId, sessionId, response) as Promise<DesktopAppState>,
   setNotificationPreferences: (preferences: Partial<NotificationPreferences>) =>
     ipcRenderer.invoke(desktopIpc.setNotificationPreferences, preferences) as Promise<DesktopAppState>,
+  setDesktopCustomInstructions: (input: Partial<DesktopAppState["desktopCustomInstructions"]>) =>
+    ipcRenderer.invoke(desktopIpc.setDesktopCustomInstructions, input) as Promise<DesktopAppState>,
   setIntegratedTerminalShell: (shellPath: string) =>
     ipcRenderer.invoke(desktopIpc.setIntegratedTerminalShell, shellPath) as Promise<DesktopAppState>,
   ensureTerminalPanel: (workspaceId: string, terminalScopeId: string, size?: Partial<TerminalSize>) =>

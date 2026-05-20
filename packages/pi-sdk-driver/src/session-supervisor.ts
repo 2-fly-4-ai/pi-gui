@@ -77,6 +77,7 @@ import { createPtyBashToolDefinition } from "./pty-bash-tool.js";
 
 export interface PiSdkDriverOptions {
   readonly catalogFilePath?: string;
+  readonly appendSystemPromptProvider?: () => readonly string[];
   readonly createAgentSessionRuntimeImpl?: (options?: CreateAgentSessionOptions) => Promise<AgentSessionRuntime>;
   readonly modelRegistry?: ModelRegistry;
   readonly generateThreadTitleOverride?: (
@@ -148,6 +149,7 @@ interface SkillAdapter {
 export class SessionSupervisor {
   private readonly catalogs: SessionFileCatalogStorage;
   private readonly createAgentSessionRuntimeImpl: (options?: CreateAgentSessionOptions) => Promise<AgentSessionRuntime>;
+  private readonly appendSystemPromptProvider: (() => readonly string[]) | undefined;
   private readonly modelRegistry: ModelRegistry | undefined;
   private readonly records = new Map<string, ManagedSessionRecord>();
 
@@ -155,8 +157,14 @@ export class SessionSupervisor {
     this.catalogs = options.catalogFilePath
       ? new JsonCatalogStore({ catalogFilePath: options.catalogFilePath })
       : new JsonCatalogStore();
+    this.appendSystemPromptProvider = options.appendSystemPromptProvider;
     this.createAgentSessionRuntimeImpl =
-      options.createAgentSessionRuntimeImpl ?? ((createOptions) => createAgentSessionRuntimeWithNpmFallback(createOptions));
+      options.createAgentSessionRuntimeImpl
+      ?? ((createOptions) => createAgentSessionRuntimeWithNpmFallback(
+        createOptions,
+        undefined,
+        this.appendSystemPromptProvider,
+      ));
     this.modelRegistry = options.modelRegistry;
   }
 

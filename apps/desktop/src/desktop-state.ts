@@ -167,6 +167,11 @@ export interface FastModeStateRecord {
   readonly configPath: string;
 }
 
+export interface DesktopCustomInstructionsRecord {
+  readonly enabled: boolean;
+  readonly text: string;
+}
+
 export interface DesktopAppState {
   readonly workspaces: readonly WorkspaceRecord[];
   readonly worktreesByWorkspace: Readonly<Record<string, readonly WorktreeRecord[]>>;
@@ -192,6 +197,7 @@ export interface DesktopAppState {
   readonly fastMode: FastModeStateRecord;
   readonly sidebarCollapsed: boolean;
   readonly showThinking: boolean;
+  readonly desktopCustomInstructions: DesktopCustomInstructionsRecord;
   readonly reviewRequest?: CreateReviewSnapshotOptions & { readonly nonce: number };
   readonly revision: number;
   readonly lastError?: string;
@@ -243,6 +249,10 @@ export function createEmptyDesktopAppState(): DesktopAppState {
     },
     sidebarCollapsed: false,
     showThinking: false,
+    desktopCustomInstructions: {
+      enabled: false,
+      text: "",
+    },
     reviewRequest: undefined,
     revision: 0,
   };

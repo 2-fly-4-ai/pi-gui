@@ -45,6 +45,7 @@ import {
   type CreateSessionInput,
   type CreateWorktreeInput,
   type DesktopAppState,
+  type DesktopCustomInstructionsRecord,
   type DisplayModeThreadRecord,
   type NotificationPreferences,
   type QueuedComposerMessage,
@@ -297,6 +298,11 @@ export class DesktopAppStore implements AppStoreInternals {
     const driverOptions: PiSdkDriverConfig = {
       catalogFilePath,
       skillCatalogFilePath,
+      appendSystemPromptProvider: () => {
+        const instructions = this.state.desktopCustomInstructions;
+        const text = instructions.enabled ? instructions.text.trim() : "";
+        return text ? [text] : [];
+      },
       ...(options.generateThreadTitleOverride
         ? { generateThreadTitleOverride: options.generateThreadTitleOverride }
         : {}),
@@ -739,6 +745,22 @@ export class DesktopAppStore implements AppStoreInternals {
     return this.emit();
   }
 
+  async setDesktopCustomInstructions(input: Partial<DesktopCustomInstructionsRecord>): Promise<DesktopAppState> {
+    await this.initialize();
+    const text = typeof input.text === "string" ? input.text.slice(0, 200_000) : this.state.desktopCustomInstructions.text;
+    this.state = {
+      ...this.state,
+      desktopCustomInstructions: {
+        enabled: input.enabled ?? this.state.desktopCustomInstructions.enabled,
+        text,
+      },
+      lastError: undefined,
+      revision: this.state.revision + 1,
+    };
+    await this.persistUiState();
+    return this.emit();
+  }
+
   async setModelSettingsScopeMode(modelSettingsScopeMode: ModelSettingsScopeMode): Promise<DesktopAppState> {
     await this.initialize();
     if (this.state.modelSettingsScopeMode === modelSettingsScopeMode) {
@@ -1025,6 +1047,7 @@ export class DesktopAppStore implements AppStoreInternals {
         workspaceOrder: persisted.workspaceOrder ?? [],
         sidebarCollapsed: persisted.sidebarCollapsed ?? this.state.sidebarCollapsed,
         showThinking: persisted.showThinking ?? this.state.showThinking,
+        desktopCustomInstructions: persisted.desktopCustomInstructions ?? this.state.desktopCustomInstructions,
       };
       await this.migrateLegacyPersistence(persisted);
       this.sessionState.lastViewedAtBySession.clear();
@@ -2037,6 +2060,7 @@ export class DesktopAppStore implements AppStoreInternals {
       appGlobalModelSettings: hasStoredModelSettings(this.state.globalModelSettings) ? this.state.globalModelSettings : undefined,
       sidebarCollapsed: this.state.sidebarCollapsed || undefined,
       showThinking: this.state.showThinking || undefined,
+      desktopCustomInstructions: this.state.desktopCustomInstructions,
     };
 
     await writePersistedUiState(this.uiStateFilePath, payload);

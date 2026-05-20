@@ -47,6 +47,7 @@ async function createAgentSessionServicesWithNpmFallback(
   agentDir: string,
   options?: Pick<CreateAgentSessionOptions, "authStorage" | "settingsManager" | "modelRegistry">,
   skillCatalog?: SkillCatalogStore,
+  appendSystemPromptProvider?: () => readonly string[],
 ) {
   try {
     if (skillCatalog) {
@@ -58,7 +59,7 @@ async function createAgentSessionServicesWithNpmFallback(
       ...(options?.authStorage ? { authStorage: options.authStorage } : {}),
       ...(options?.settingsManager ? { settingsManager: options.settingsManager } : {}),
       ...(options?.modelRegistry ? { modelRegistry: options.modelRegistry } : {}),
-      ...(skillCatalog ? { resourceLoaderOptions: createSkillCatalogResourceLoaderOptions(skillCatalog) } : {}),
+      ...createResourceLoaderOptions(skillCatalog, appendSystemPromptProvider),
     });
   } catch (error) {
     if (!isGlobalNpmLookupError(error)) {
@@ -83,7 +84,7 @@ async function createAgentSessionServicesWithNpmFallback(
       ...(options?.authStorage ? { authStorage: options.authStorage } : {}),
       settingsManager: fallbackSettingsManager,
       ...(options?.modelRegistry ? { modelRegistry: options.modelRegistry } : {}),
-      ...(skillCatalog ? { resourceLoaderOptions: createSkillCatalogResourceLoaderOptions(skillCatalog) } : {}),
+      ...createResourceLoaderOptions(skillCatalog, appendSystemPromptProvider),
     });
   }
 }
@@ -94,8 +95,15 @@ async function createAgentSessionResultWithNpmFallback(
   sessionManager: SessionManager,
   options?: CreateAgentSessionOptions,
   skillCatalog?: SkillCatalogStore,
+  appendSystemPromptProvider?: () => readonly string[],
 ): Promise<CreateAgentSessionRuntimeResult> {
-  const services = await createAgentSessionServicesWithNpmFallback(cwd, agentDir, options, skillCatalog);
+  const services = await createAgentSessionServicesWithNpmFallback(
+    cwd,
+    agentDir,
+    options,
+    skillCatalog,
+    appendSystemPromptProvider,
+  );
   return {
     ...(await createAgentSessionFromServices({
       services,
@@ -119,18 +127,39 @@ export async function createAgentSessionWithNpmFallback(options?: CreateAgentSes
   return createAgentSessionResultWithNpmFallback(cwd, agentDir, sessionManager, options);
 }
 
-function createSkillCatalogResourceLoaderOptions(skillCatalog: SkillCatalogStore) {
+function createResourceLoaderOptions(
+  skillCatalog: SkillCatalogStore | undefined,
+  appendSystemPromptProvider: (() => readonly string[]) | undefined,
+) {
+  if (!skillCatalog && !appendSystemPromptProvider) {
+    return {};
+  }
   return {
-    skillsOverride: (base: { skills: Skill[]; diagnostics: any[] }) => ({
-      skills: skillCatalog.applyToSkills(base.skills),
-      diagnostics: base.diagnostics,
-    }),
+    resourceLoaderOptions: {
+      ...(skillCatalog
+        ? {
+            skillsOverride: (base: { skills: Skill[]; diagnostics: any[] }) => ({
+              skills: skillCatalog.applyToSkills(base.skills),
+              diagnostics: base.diagnostics,
+            }),
+          }
+        : {}),
+      ...(appendSystemPromptProvider
+        ? {
+            appendSystemPromptOverride: (base: string[]) => [
+              ...base,
+              ...appendSystemPromptProvider().map((entry) => entry.trim()).filter(Boolean),
+            ],
+          }
+        : {}),
+    },
   };
 }
 
 export async function createAgentSessionRuntimeWithNpmFallback(
   options?: CreateAgentSessionOptions,
   skillCatalogFilePath?: string,
+  appendSystemPromptProvider?: () => readonly string[],
 ): Promise<AgentSessionRuntime> {
   const cwd = options?.cwd ?? process.cwd();
   const agentDir = options?.agentDir ?? getAgentDir();
@@ -158,7 +187,7 @@ export async function createAgentSessionRuntimeWithNpmFallback(
         ...(sessionStartEvent ? { sessionStartEvent } : {}),
         ...(includeInitialSessionOptions && initialModel ? { model: initialModel } : {}),
         ...(includeInitialSessionOptions && initialThinkingLevel ? { thinkingLevel: initialThinkingLevel } : {}),
-      }, skillCatalog);
+      }, skillCatalog, appendSystemPromptProvider);
     },
     {
       cwd,

@@ -3858,7 +3858,8 @@
 
 .settings-select,
 .settings-search,
-.settings-text-input {
+.settings-text-input,
+.settings-textarea {
   width: min(420px, 100%);
   min-height: 40px;
   padding: 10px 12px;
@@ -3867,6 +3868,11 @@
   background: #fff;
   color: var(--text-strong);
   font: inherit;
+}
+
+.settings-textarea {
+  min-height: 140px;
+  resize: vertical;
 }
 
 .settings-option-list {
@@ -5394,7 +5400,8 @@ mark.thread-find-active {
 
 :root.dark .settings-select,
 :root.dark .settings-search,
-:root.dark .settings-text-input {
+:root.dark .settings-text-input,
+:root.dark .settings-textarea {
   border-color: var(--line);
   background: var(--surface);
 }

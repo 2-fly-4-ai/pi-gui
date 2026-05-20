@@ -723,6 +723,9 @@ app.whenReady().then(async () => {
   ipcMain.handle(desktopIpc.setNotificationPreferences, (_event, preferences) =>
     store.setNotificationPreferences(preferences),
   );
+  ipcMain.handle(desktopIpc.setDesktopCustomInstructions, (_event, input) =>
+    store.setDesktopCustomInstructions(input),
+  );
   ipcMain.handle(desktopIpc.setIntegratedTerminalShell, (_event, shellPath: string) =>
     store.setIntegratedTerminalShell(shellPath),
   );
