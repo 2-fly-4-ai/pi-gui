@@ -13,6 +13,15 @@ async function seedLogs(userDataDir: string, agentDir: string, workspacePath: st
       timestamp: "2026-05-21T08:31:31.000Z",
       event: "main-unhandled-rejection",
       message: "Summarization failed: terminated",
+    })}\n${JSON.stringify({
+      timestamp: "2026-05-21T08:31:32.000Z",
+      event: "renderer-diagnostic",
+      payload: {
+        payload: {
+          kind: "timeline-long-task",
+          message: "Timeline render took 120ms",
+        },
+      },
     })}\n`,
     "utf8",
   );
@@ -58,6 +67,24 @@ test("logs panel opens on threads and shows current-scope seeded failures", asyn
     await expect(page.locator(".logs-panel__event-message", { hasText: "Other repo failure" })).toHaveCount(0);
     await expect(page.locator(".logs-panel__warning", { hasText: "agent-activity.jsonl" })).toHaveCount(0);
     await expect(page.getByTestId("logs-failure-count")).toContainText("2 failures");
+  } finally {
+    await app.close();
+  }
+});
+
+test("logs panel renders object payloads as useful messages", async () => {
+  const userDataDir = await mkdtemp(join(tmpdir(), "pi-gui-observability-object-"));
+  const agentDir = join(userDataDir, "agent");
+  await seedLogs(userDataDir, agentDir, userDataDir);
+  const app = await launchDesktop(userDataDir, { agentDir, initialWorkspaces: [userDataDir], testMode: "background" });
+
+  try {
+    const page = await app.firstWindow();
+    await page.getByLabel("Toggle logs panel").click();
+    await page.getByLabel("Log severity").selectOption("all");
+    await expect(page.locator(".logs-panel__event-message", { hasText: "Timeline render took 120ms" })).toBeVisible();
+    await expect(page.locator(".logs-panel__event-message", { hasText: "Timeline render took 120ms" })).toBeVisible();
+    await expect(page.locator(".logs-panel__event-message", { hasText: "[object Object]" })).toHaveCount(0);
   } finally {
     await app.close();
   }

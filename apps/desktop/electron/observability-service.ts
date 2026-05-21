@@ -83,10 +83,27 @@ function stableId(source: RawLogLine, event: string, timestamp: string): string 
 }
 
 function excerpt(value: unknown, max = 700): string | undefined {
-  if (typeof value !== "string") return undefined;
-  const compact = value.replace(/\s+/g, " ").trim();
+  const text = stringifyExcerptValue(value);
+  if (!text) return undefined;
+  const compact = text.replace(/\s+/g, " ").trim();
   if (!compact) return undefined;
   return compact.length > max ? `${compact.slice(0, max)}…` : compact;
+}
+
+function stringifyExcerptValue(value: unknown): string | undefined {
+  if (typeof value === "string") return value;
+  if (value === undefined || value === null) return undefined;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  if (typeof value !== "object") return undefined;
+  const record = value as Record<string, unknown>;
+  for (const key of ["message", "kind", "event", "reason", "error", "title"]) {
+    if (typeof record[key] === "string" && record[key].trim()) return record[key];
+  }
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return undefined;
+  }
 }
 
 function normalizeLine(line: RawLogLine): ObservabilityEvent[] {
@@ -169,9 +186,10 @@ function titleForSubagentEvent(event: string, raw: Record<string, unknown>): str
 
 function normalizeDesktopLog(source: RawLogLine, parsed: Record<string, unknown> | undefined): ObservabilityEvent {
   const payload = typeof parsed?.payload === "object" && parsed.payload !== null ? parsed.payload as Record<string, unknown> : undefined;
-  const rawEvent = parsed?.event ?? parsed?.kind ?? payload?.kind ?? detectDesktopEventFromText(source.text);
+  const rendererPayload = typeof payload?.payload === "object" && payload.payload !== null ? payload.payload as Record<string, unknown> : undefined;
+  const rawEvent = parsed?.event ?? parsed?.kind ?? rendererPayload?.kind ?? payload?.kind ?? detectDesktopEventFromText(source.text);
   const event = String(rawEvent ?? "desktop-log-line");
-  const timestamp = String(parsed?.timestamp ?? parsed?.ts ?? payload?.timestamp ?? extractTimestamp(source.text) ?? new Date(0).toISOString());
+  const timestamp = String(parsed?.timestamp ?? parsed?.ts ?? rendererPayload?.timestamp ?? payload?.timestamp ?? extractTimestamp(source.text) ?? new Date(0).toISOString());
   const severity = severityForDesktopEvent(event, parsed, source.text);
   return {
     id: stableId(source, event, timestamp),
@@ -180,7 +198,7 @@ function normalizeDesktopLog(source: RawLogLine, parsed: Record<string, unknown>
     category: event.startsWith("renderer") || event.startsWith("timeline") ? "renderer" : "desktop",
     event,
     title: titleForDesktopEvent(event),
-    message: excerpt(String(parsed?.message ?? payload?.message ?? parsed?.payload ?? source.text)),
+    message: excerpt(parsed?.message ?? rendererPayload?.message ?? payload?.message ?? parsed?.payload ?? source.text),
     source: { kind: "desktop-log", path: source.path, line: source.line },
     raw: parsed ?? source.text,
   };
@@ -235,7 +253,7 @@ function extractTimestamp(text: string): string | undefined {
 
 function severityForDesktopEvent(event: string, parsed: Record<string, unknown> | undefined, text: string): ObservabilitySeverity {
   if (/uncaught|unhandled|gone|fail|error/i.test(event) || /error|failed|terminated/i.test(text)) return "error";
-  if (/unresponsive|warning|long-task|layout-shift/i.test(event) || parsed?.level === 2) return "warning";
+  if (/unresponsive|warning|long-task|layout-shift/i.test(event) || /long-task|layout-shift/i.test(text) || parsed?.level === 2) return "warning";
   return "info";
 }
 
