@@ -19,12 +19,32 @@ const MAX_LIMIT = 1_000;
 const AGENT_ACTIVITY_LOG = "agent-activity.jsonl";
 const SUBAGENTS_AUDIT_LOG = path.join(homedir(), ".pi", "agent", "logs", "subagents-audit.jsonl");
 
-type ObservabilitySource = { readonly path: string; readonly optional?: boolean; readonly global?: boolean };
-type RawLogLine = { readonly path: string; readonly line: number; readonly text: string; readonly global?: boolean };
+type ObservabilitySource = {
+  readonly path: string;
+  readonly optional?: boolean;
+  readonly global?: boolean;
+  readonly kind?: "desktop-log" | "subagents-audit" | "ledger" | "session-jsonl";
+  readonly workspaceId?: string;
+  readonly workspacePath?: string;
+  readonly sessionId?: string;
+};
+type RawLogLine = {
+  readonly path: string;
+  readonly line: number;
+  readonly text: string;
+  readonly global?: boolean;
+  readonly kind?: "desktop-log" | "subagents-audit" | "ledger" | "session-jsonl";
+  readonly workspaceId?: string;
+  readonly workspacePath?: string;
+  readonly sessionId?: string;
+};
 
 export async function listObservabilityEvents(input: ObservabilityQuery = {}): Promise<ObservabilityEventPage> {
   const warnings: string[] = [];
-  const sources = observabilitySources();
+  const sources = [
+    ...observabilitySources(),
+    ...(await sessionObservabilitySources(input, warnings)),
+  ];
   const pages = await Promise.all(sources.map((source) => readRecentLines(source, warnings)));
   const events = pages.flatMap((lines) => lines.flatMap(normalizeLine));
   const scoped = input.includeGlobal ? events : filterToCurrentScope(events, input);
@@ -53,10 +73,57 @@ function observabilitySources(): ObservabilitySource[] {
   const userData = process.env.PI_APP_USER_DATA_DIR || app.getPath("userData");
   const agentDir = process.env.PI_CODING_AGENT_DIR || path.join(homedir(), ".pi", "agent");
   return [
-    { path: getDesktopLogPath() },
-    { path: path.join(userData, "logs", AGENT_ACTIVITY_LOG), optional: true },
-    { path: process.env.PI_SUBAGENTS_AUDIT_LOG || path.join(agentDir, "logs", "subagents-audit.jsonl") || SUBAGENTS_AUDIT_LOG, global: true },
+    { path: getDesktopLogPath(), kind: "desktop-log" },
+    { path: path.join(userData, "logs", AGENT_ACTIVITY_LOG), optional: true, kind: "ledger" },
+    { path: process.env.PI_SUBAGENTS_AUDIT_LOG || path.join(agentDir, "logs", "subagents-audit.jsonl") || SUBAGENTS_AUDIT_LOG, global: true, kind: "subagents-audit" },
   ];
+}
+
+async function sessionObservabilitySources(input: ObservabilityQuery, warnings: string[]): Promise<ObservabilitySource[]> {
+  const workspaceId = input.workspaceId?.trim();
+  const sessionId = input.sessionId?.trim();
+  if (!workspaceId || !sessionId) return [];
+
+  const sessionFile = await findSessionFile(workspaceId, sessionId, warnings);
+  if (!sessionFile) return [];
+  return [{
+    path: sessionFile,
+    kind: "session-jsonl",
+    workspaceId,
+    workspacePath: input.workspacePath,
+    sessionId,
+  }];
+}
+
+async function findSessionFile(workspaceId: string, sessionId: string, warnings: string[]): Promise<string | undefined> {
+  const userData = process.env.PI_APP_USER_DATA_DIR || app.getPath("userData");
+  const catalogPath = path.join(userData, "catalogs.json");
+  if (!existsSync(catalogPath)) return undefined;
+  try {
+    const raw = JSON.parse(await readFile(catalogPath, "utf8")) as Record<string, unknown>;
+    const key = `${workspaceId}:${sessionId}`;
+    const sessionFiles = isRecord(raw.sessionFiles) ? raw.sessionFiles : undefined;
+    const fromSessionFiles = typeof sessionFiles?.[key] === "string" ? sessionFiles[key] : undefined;
+    if (fromSessionFiles) return fromSessionFiles;
+
+    const sessions = Array.isArray(raw.sessions) ? raw.sessions : [];
+    for (const entry of sessions) {
+      if (!isRecord(entry)) continue;
+      const ref = isRecord(entry.sessionRef) ? entry.sessionRef : undefined;
+      const matchesRef = ref?.workspaceId === workspaceId && ref?.sessionId === sessionId;
+      const matchesFlat = entry.workspaceId === workspaceId && entry.sessionId === sessionId;
+      if ((matchesRef || matchesFlat) && typeof entry.sessionFilePath === "string") {
+        return entry.sessionFilePath;
+      }
+    }
+  } catch (error) {
+    warnings.push(`Failed to read session catalog ${catalogPath}: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  return undefined;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
 }
 
 async function readRecentLines(source: ObservabilitySource, warnings: string[]): Promise<RawLogLine[]> {
@@ -71,7 +138,16 @@ async function readRecentLines(source: ObservabilitySource, warnings: string[]):
     const text = buffer.subarray(start).toString("utf8");
     const lines = text.split(/\r?\n/).filter(Boolean);
     const skippedPrefix = start > 0 ? 1 : 0;
-    return lines.slice(skippedPrefix).map((line, index) => ({ path: filePath, line: index + 1, text: line, global: source.global }));
+    return lines.slice(skippedPrefix).map((line, index) => ({
+      path: filePath,
+      line: index + 1,
+      text: line,
+      global: source.global,
+      kind: source.kind,
+      workspaceId: source.workspaceId,
+      workspacePath: source.workspacePath,
+      sessionId: source.sessionId,
+    }));
   } catch (error) {
     warnings.push(`Failed to read log source ${filePath}: ${error instanceof Error ? error.message : String(error)}`);
     return [];
@@ -108,10 +184,14 @@ function stringifyExcerptValue(value: unknown): string | undefined {
 
 function normalizeLine(line: RawLogLine): ObservabilityEvent[] {
   const parsed = parseJson(line.text);
-  if (line.path.endsWith("subagents-audit.jsonl")) {
+  if (line.kind === "session-jsonl") {
+    const event = parsed ? normalizeSessionJsonl(line, parsed) : undefined;
+    return event ? [event] : [];
+  }
+  if (line.kind === "subagents-audit" || line.path.endsWith("subagents-audit.jsonl")) {
     return parsed ? [normalizeSubagentAudit(line, parsed)] : [parseWarning(line, "subagents-audit")];
   }
-  if (line.path.endsWith(AGENT_ACTIVITY_LOG)) {
+  if (line.kind === "ledger" || line.path.endsWith(AGENT_ACTIVITY_LOG)) {
     return parsed ? [normalizeLedger(line, parsed)] : [parseWarning(line, "ledger")];
   }
   return [normalizeDesktopLog(line, parsed)];
@@ -190,7 +270,7 @@ function normalizeDesktopLog(source: RawLogLine, parsed: Record<string, unknown>
   const rawEvent = parsed?.event ?? parsed?.kind ?? rendererPayload?.kind ?? payload?.kind ?? detectDesktopEventFromText(source.text);
   const event = String(rawEvent ?? "desktop-log-line");
   const timestamp = String(parsed?.timestamp ?? parsed?.ts ?? rendererPayload?.timestamp ?? payload?.timestamp ?? extractTimestamp(source.text) ?? new Date(0).toISOString());
-  const severity = severityForDesktopEvent(event, parsed, source.text);
+  const severity = severityForDesktopEvent(event, parsed, payload, rendererPayload, source.text);
   return {
     id: stableId(source, event, timestamp),
     timestamp,
@@ -251,10 +331,68 @@ function extractTimestamp(text: string): string | undefined {
   return text.match(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z/)?.[0];
 }
 
-function severityForDesktopEvent(event: string, parsed: Record<string, unknown> | undefined, text: string): ObservabilitySeverity {
+function normalizeSessionJsonl(source: RawLogLine, raw: Record<string, unknown>): ObservabilityEvent | undefined {
+  if (raw.type !== "message" || !isRecord(raw.message)) return undefined;
+  const message = raw.message;
+  if (message.role !== "toolResult" || message.isError !== true) return undefined;
+
+  const toolName = typeof message.toolName === "string" ? message.toolName : "tool";
+  const toolCallId = typeof message.toolCallId === "string" ? message.toolCallId : undefined;
+  const timestamp = String(raw.timestamp ?? message.timestamp ?? new Date(0).toISOString());
+  return {
+    id: stableId(source, `session-tool-failed:${toolName}`, timestamp),
+    timestamp,
+    severity: "error",
+    category: "tool",
+    event: "session_tool_failed",
+    title: `Tool failed: ${toolName}`,
+    message: excerpt(sessionToolResultText(message.content)),
+    source: { kind: "session-jsonl", path: source.path, line: source.line },
+    correlation: {
+      workspaceId: source.workspaceId,
+      sessionId: source.sessionId,
+      toolCallId,
+    },
+    workspace: {
+      id: source.workspaceId,
+      selectedPath: source.workspacePath,
+      runtimeCwd: source.workspacePath,
+      workspaceRoot: source.workspacePath,
+    },
+    tool: {
+      name: toolName,
+      isError: true,
+    },
+    raw,
+  };
+}
+
+function sessionToolResultText(content: unknown): string | undefined {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return undefined;
+  return content
+    .map((part) => isRecord(part) && typeof part.text === "string" ? part.text : undefined)
+    .filter(Boolean)
+    .join("\n");
+}
+
+function severityForDesktopEvent(
+  event: string,
+  parsed: Record<string, unknown> | undefined,
+  payload: Record<string, unknown> | undefined,
+  rendererPayload: Record<string, unknown> | undefined,
+  text: string,
+): ObservabilitySeverity {
+  const level = numericLogLevel(parsed?.level ?? payload?.level ?? rendererPayload?.level);
+  if (level !== undefined && level >= 3) return "error";
+  if (/maximum update depth exceeded|cannot update a component|minified react error/i.test(text)) return "error";
   if (/uncaught|unhandled|gone|fail|error/i.test(event) || /error|failed|terminated/i.test(text)) return "error";
-  if (/unresponsive|warning|long-task|layout-shift/i.test(event) || /long-task|layout-shift/i.test(text) || parsed?.level === 2) return "warning";
+  if (/unresponsive|warning|long-task|layout-shift/i.test(event) || /long-task|layout-shift/i.test(text) || level === 2) return "warning";
   return "info";
+}
+
+function numericLogLevel(value: unknown): number | undefined {
+  return typeof value === "number" ? value : undefined;
 }
 
 function titleForDesktopEvent(event: string): string {
