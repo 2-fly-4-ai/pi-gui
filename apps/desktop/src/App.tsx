@@ -269,6 +269,7 @@ export default function App() {
   const manualTimelineScrollRestoreRef = useRef(false);
   const userTimelineScrollIntentRef = useRef(false);
   const lastUserTimelineScrollIntentAtRef = useRef(0);
+  const timelineScrollbarDragActiveRef = useRef(false);
   const lastProgrammaticTimelineScrollAtRef = useRef(0);
   const suppressNativeTimelineScrollIntentUntilRef = useRef(0);
   const timelineScrollHandlerRef = useRef<() => void>(() => undefined);
@@ -1887,20 +1888,41 @@ export default function App() {
       lastUserTimelineScrollIntentAtRef.current = performance.now();
     };
 
+    const markPointerScrollIntent = (event: PointerEvent) => {
+      markUserScrollIntent();
+      const paneRect = pane.getBoundingClientRect();
+      if (event.clientX >= paneRect.right - 16) {
+        timelineScrollbarDragActiveRef.current = true;
+      }
+    };
+
+    const clearScrollbarDragIntent = () => {
+      timelineScrollbarDragActiveRef.current = false;
+    };
+
     const handleNativeScroll = () => {
       timelineScrollHandlerRef.current();
     };
 
     pane.addEventListener("wheel", markUserScrollIntent, { passive: true });
     pane.addEventListener("touchstart", markUserScrollIntent, { passive: true });
-    pane.addEventListener("pointerdown", markUserScrollIntent, { passive: true });
+    pane.addEventListener("pointerdown", markPointerScrollIntent, { passive: true });
     pane.addEventListener("scroll", handleNativeScroll, { passive: true });
+    window.addEventListener("pointerup", clearScrollbarDragIntent, { passive: true });
+    window.addEventListener("pointercancel", clearScrollbarDragIntent, { passive: true });
+    window.addEventListener("mouseup", clearScrollbarDragIntent, { passive: true });
+    window.addEventListener("blur", clearScrollbarDragIntent);
 
     return () => {
       pane.removeEventListener("wheel", markUserScrollIntent);
       pane.removeEventListener("touchstart", markUserScrollIntent);
-      pane.removeEventListener("pointerdown", markUserScrollIntent);
+      pane.removeEventListener("pointerdown", markPointerScrollIntent);
       pane.removeEventListener("scroll", handleNativeScroll);
+      window.removeEventListener("pointerup", clearScrollbarDragIntent);
+      window.removeEventListener("pointercancel", clearScrollbarDragIntent);
+      window.removeEventListener("mouseup", clearScrollbarDragIntent);
+      window.removeEventListener("blur", clearScrollbarDragIntent);
+      clearScrollbarDragIntent();
     };
   }, [selectedSession, selectedSessionKey, snapshot?.activeView, timelinePaneMountVersion]);
 
@@ -1995,7 +2017,13 @@ export default function App() {
   }, [activeTranscript, requestPinnedBottomAlignment, restoreManualTimelinePositionAcrossFrames, selectedSession, selectedSessionKey]);
 
   const handleTimelineContentHeightChange = useCallback(() => {
-    suppressNativeTimelineScrollIntentUntilRef.current = performance.now() + 250;
+    const now = performance.now();
+    const recentUserScroll = now - lastUserTimelineScrollIntentAtRef.current < 350;
+    if (timelineScrollbarDragActiveRef.current || recentUserScroll) {
+      return;
+    }
+
+    suppressNativeTimelineScrollIntentUntilRef.current = now + 250;
     if (!followingLatestRef.current) {
       restoreManualTimelinePositionAcrossFrames();
       setShowJumpToLatest(true);
@@ -2829,6 +2857,9 @@ export default function App() {
     const suppressNativeScrollIntent = now < suppressNativeTimelineScrollIntentUntilRef.current;
     const nativeUserScrollIntent = !manualTimelineScrollRestoreRef.current && !autoAligningTimelineRef.current && !recentProgrammaticScroll && !suppressNativeScrollIntent && movedWithoutExplicitInput;
     const userScrollIntent = explicitUserScrollIntent || nativeUserScrollIntent;
+    if (userScrollIntent) {
+      lastUserTimelineScrollIntentAtRef.current = now;
+    }
     previousTimelineScrollTopRef.current = nextScrollTop;
     userTimelineScrollIntentRef.current = false;
 
