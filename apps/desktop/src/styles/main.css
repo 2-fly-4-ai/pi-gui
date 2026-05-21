@@ -7792,35 +7792,35 @@ mark.thread-find-active {
 /* Observability logs panel */
 
 .main--with-logs {
-  grid-template-columns: minmax(0, 1fr) var(--logs-panel-width, 380px);
+  grid-template-columns: minmax(0, 1fr) var(--logs-panel-width, 440px);
 }
 
 .main--with-diff.main--with-logs {
-  grid-template-columns: minmax(0, 1fr) 400px var(--logs-panel-width, 380px);
+  grid-template-columns: minmax(0, 1fr) 400px var(--logs-panel-width, 440px);
 }
 
 .main--with-vscode.main--with-logs {
-  grid-template-columns: minmax(0, 1fr) 5px var(--thread-vscode-width, 520px) var(--logs-panel-width, 380px);
+  grid-template-columns: minmax(0, 1fr) 5px var(--thread-vscode-width, 520px) var(--logs-panel-width, 440px);
 }
 
 .main--with-plan.main--with-logs {
-  grid-template-columns: minmax(0, 1fr) minmax(320px, 30vw) var(--logs-panel-width, 380px);
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 30vw) var(--logs-panel-width, 440px);
 }
 
 .main--with-diff.main--with-vscode.main--with-logs {
-  grid-template-columns: minmax(0, 1fr) 400px 5px var(--thread-vscode-width, 520px) var(--logs-panel-width, 380px);
+  grid-template-columns: minmax(0, 1fr) 400px 5px var(--thread-vscode-width, 520px) var(--logs-panel-width, 440px);
 }
 
 .main--with-diff.main--with-plan.main--with-logs {
-  grid-template-columns: minmax(0, 1fr) minmax(320px, 30vw) 400px var(--logs-panel-width, 380px);
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 30vw) 400px var(--logs-panel-width, 440px);
 }
 
 .main--with-vscode.main--with-plan.main--with-logs {
-  grid-template-columns: minmax(0, 1fr) minmax(320px, 30vw) 5px var(--thread-vscode-width, 520px) var(--logs-panel-width, 380px);
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 30vw) 5px var(--thread-vscode-width, 520px) var(--logs-panel-width, 440px);
 }
 
 .main--with-diff.main--with-vscode.main--with-plan.main--with-logs {
-  grid-template-columns: minmax(0, 1fr) minmax(320px, 24vw) 360px 5px var(--thread-vscode-width, 520px) var(--logs-panel-width, 380px);
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 24vw) 360px 5px var(--thread-vscode-width, 520px) var(--logs-panel-width, 440px);
 }
 
 .main--with-logs > .topbar {
@@ -7877,8 +7877,8 @@ mark.thread-find-active {
 }
 
 .logs-panel {
-  width: var(--logs-panel-width, 380px);
-  min-width: 320px;
+  width: var(--logs-panel-width, 440px);
+  min-width: 360px;
   border-left: 1px solid var(--border);
   background: #0f141d;
   color: #e8edf7;

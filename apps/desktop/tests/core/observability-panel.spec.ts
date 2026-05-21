@@ -52,6 +52,27 @@ async function seedLogs(userDataDir: string, agentDir: string, workspacePath: st
       reason: "Prompt references /repo/lago outside workspace",
       path: "/repo/lago",
     })}\n${JSON.stringify({
+      ts: "2026-05-21T08:32:41.000Z",
+      event: "subagent_tool_blocked",
+      agentId: "agent-1",
+      type: "scout",
+      toolName: "bash",
+      toolCallId: "blocked-bash-call",
+      cwd: workspacePath,
+      workspaceRoot: workspacePath,
+      reason: "Blocked bash command path outside workspace root: /dev/null",
+      path: "/dev/null",
+    })}\n${JSON.stringify({
+      ts: "2026-05-21T08:32:41.000Z",
+      event: "subagent_tool_end",
+      agentId: "agent-1",
+      type: "scout",
+      toolName: "bash",
+      toolCallId: "blocked-bash-call",
+      cwd: workspacePath,
+      workspaceRoot: workspacePath,
+      isError: true,
+    })}\n${JSON.stringify({
       ts: "2026-05-21T08:33:31.000Z",
       event: "subagent_tool_blocked",
       agentId: "agent-2",
@@ -94,13 +115,17 @@ test("logs panel opens on threads and shows current-scope seeded failures", asyn
     const page = await app.firstWindow();
     await page.getByLabel("Toggle logs panel").click();
     await expect(page.getByTestId("logs-panel")).toBeVisible();
+    const logsPanelBox = await page.getByTestId("logs-panel").boundingBox();
+    expect(logsPanelBox?.width).toBeGreaterThanOrEqual(430);
     await expect(page.locator(".logs-panel__event-title", { hasText: "Subagent blocked: prompt targets another repo" })).toBeVisible();
     await expect(page.locator(".logs-panel__event-title", { hasText: "Main process unhandled rejection" })).toBeVisible();
+    await expect(page.locator(".logs-panel__event-title", { hasText: "Tool blocked: bash" })).toBeVisible();
+    await expect(page.locator(".logs-panel__event-title", { hasText: "Tool failed: bash" })).toHaveCount(0);
     await expect(page.locator(".logs-panel__event-message", { hasText: "Other repo failure" })).toHaveCount(0);
     await expect(page.locator(".logs-panel__warning", { hasText: "agent-activity.jsonl" })).toHaveCount(0);
     await expect(page.locator(".logs-panel__event-title", { hasText: "React render loop" })).toBeVisible();
     await expect(page.locator(".logs-panel__event-message", { hasText: "Maximum update depth exceeded" })).toBeVisible();
-    await expect(page.getByTestId("logs-failure-count")).toContainText("3 failures");
+    await expect(page.getByTestId("logs-failure-count")).toContainText("4 failures");
   } finally {
     await app.close();
   }
@@ -135,7 +160,7 @@ test("logs panel can opt into global subagent audit history", async () => {
     await page.getByLabel("Toggle logs panel").click();
     await page.getByLabel("Log scope").selectOption("global");
     await expect(page.locator(".logs-panel__event-message", { hasText: "Other repo failure" })).toBeVisible();
-    await expect(page.getByTestId("logs-failure-count")).toContainText("4 failures");
+    await expect(page.getByTestId("logs-failure-count")).toContainText("5 failures");
   } finally {
     await app.close();
   }
@@ -171,7 +196,7 @@ test("logs panel includes current thread tool failures", async () => {
     await page.getByLabel("Toggle logs panel").click();
     await expect(page.locator(".logs-panel__event-title", { hasText: "Tool failed: bash" })).toBeVisible();
     await expect(page.locator(".logs-panel__event-message", { hasText: "Command failed with exit code 1" })).toBeVisible();
-    await expect(page.getByTestId("logs-failure-count")).toContainText("4 failures");
+    await expect(page.getByTestId("logs-failure-count")).toContainText("5 failures");
   } finally {
     await app.close();
   }

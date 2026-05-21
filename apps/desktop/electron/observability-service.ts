@@ -46,7 +46,7 @@ export async function listObservabilityEvents(input: ObservabilityQuery = {}): P
     ...(await sessionObservabilitySources(input, warnings)),
   ];
   const pages = await Promise.all(sources.map((source) => readRecentLines(source, warnings)));
-  const events = pages.flatMap((lines) => lines.flatMap(normalizeLine));
+  const events = collapseBlockedToolEchoes(pages.flatMap((lines) => lines.flatMap(normalizeLine)));
   const scoped = input.includeGlobal ? events : filterToCurrentScope(events, input);
   const filtered = filterEvents(scoped, input)
     .sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp));
@@ -180,6 +180,21 @@ function stringifyExcerptValue(value: unknown): string | undefined {
   } catch {
     return undefined;
   }
+}
+
+function collapseBlockedToolEchoes(events: readonly ObservabilityEvent[]): ObservabilityEvent[] {
+  const blockedToolCallIds = new Set<string>();
+  for (const event of events) {
+    const toolCallId = event.correlation?.toolCallId;
+    if (event.event === "subagent_tool_blocked" && toolCallId) {
+      blockedToolCallIds.add(toolCallId);
+    }
+  }
+
+  return events.filter((event) => {
+    const toolCallId = event.correlation?.toolCallId;
+    return !(event.event === "subagent_tool_end" && event.tool?.isError === true && toolCallId && blockedToolCallIds.has(toolCallId));
+  });
 }
 
 function normalizeLine(line: RawLogLine): ObservabilityEvent[] {
