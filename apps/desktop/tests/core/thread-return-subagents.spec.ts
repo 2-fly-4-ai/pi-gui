@@ -69,9 +69,9 @@ test("quick Settings round-trip after reopening a long thread returns to virtual
     const window = await harness.firstWindow();
     await createNamedThread(window, "Long thread return from settings");
     await seedTranscriptMessages(harness, window, {
-      count: 260,
+      count: 700,
       textFactory: (index) =>
-        index === 259 ? `${marker} visible after reopening settings` : `Long settings return seed row ${index} `.repeat(6),
+        index === 699 ? `${marker} visible after reopening settings` : `Long settings return seed row ${index} `.repeat(6),
     });
     await expect(window.getByTestId("transcript")).toContainText(marker);
   } finally {
@@ -94,6 +94,17 @@ test("quick Settings round-trip after reopening a long thread returns to virtual
     await expect(window.getByTestId("timeline-pane")).toBeVisible();
     await expect.poll(async () =>
       window.evaluate(() => document.querySelectorAll(".timeline__virtual-row").length),
+    ).toBeGreaterThan(0);
+    await expect.poll(async () =>
+      window.evaluate(() => {
+        const pane = document.querySelector("[data-testid='timeline-pane']");
+        const paneRect = pane?.getBoundingClientRect();
+        if (!paneRect) return 0;
+        return Array.from(document.querySelectorAll(".timeline__virtual-row")).filter((row) => {
+          const rect = row.getBoundingClientRect();
+          return rect.bottom > paneRect.top && rect.top < paneRect.bottom;
+        }).length;
+      }),
     ).toBeGreaterThan(0);
     await expect.poll(async () =>
       window.evaluate(() => document.querySelector("[data-testid='transcript']")?.textContent?.length ?? 0),

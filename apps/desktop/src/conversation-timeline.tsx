@@ -301,21 +301,25 @@ function VirtualizedTranscriptList({
   const previousTotalHeightRef = useRef(0);
   void measurementVersion;
 
+  const syncViewport = useCallback(() => {
+    const pane = timelinePaneRef.current;
+    if (!pane) {
+      return;
+    }
+    const nextScrollTop = pane.scrollTop;
+    const nextHeight = pane.clientHeight;
+    setViewport((current) =>
+      current.scrollTop === nextScrollTop && current.height === nextHeight
+        ? current
+        : { scrollTop: nextScrollTop, height: nextHeight },
+    );
+  }, [timelinePaneRef]);
+
   useLayoutEffect(() => {
     const pane = timelinePaneRef.current;
     if (!pane) {
       return undefined;
     }
-
-    const syncViewport = () => {
-      const nextScrollTop = pane.scrollTop;
-      const nextHeight = pane.clientHeight;
-      setViewport((current) =>
-        current.scrollTop === nextScrollTop && current.height === nextHeight
-          ? current
-          : { scrollTop: nextScrollTop, height: nextHeight },
-      );
-    };
 
     syncViewport();
     pane.addEventListener("scroll", syncViewport, { passive: true });
@@ -328,7 +332,7 @@ function VirtualizedTranscriptList({
       pane.removeEventListener("scroll", syncViewport);
       resizeObserver.disconnect();
     };
-  }, [timelinePaneRef]);
+  }, [syncViewport, timelinePaneRef]);
 
   const rowHeights = transcript.map((item) => measuredHeightsRef.current.get(item.id) ?? estimateTimelineItemHeight(item));
   const rowOffsets: number[] = [];
@@ -347,7 +351,26 @@ function VirtualizedTranscriptList({
     }
     previousTotalHeightRef.current = totalHeight;
     onContentHeightChange();
-  }, [onContentHeightChange, totalHeight]);
+
+    // Parent scroll restoration can run well after virtualization computes its
+    // first viewport on long transcripts. Sample for a short settling window so
+    // the rendered slice follows the pane's restored scrollTop even when the
+    // programmatic scroll does not emit a native scroll event.
+    let frame = 0;
+    let animationFrame = 0;
+    const syncDuringRestore = () => {
+      syncViewport();
+      frame += 1;
+      if (frame < 60) {
+        animationFrame = window.requestAnimationFrame(syncDuringRestore);
+      }
+    };
+    animationFrame = window.requestAnimationFrame(syncDuringRestore);
+
+    return () => {
+      window.cancelAnimationFrame(animationFrame);
+    };
+  }, [onContentHeightChange, syncViewport, totalHeight]);
 
   const startOffset = Math.max(0, viewport.scrollTop - OVERSCAN_PX);
   const endOffset = viewport.scrollTop + viewport.height + OVERSCAN_PX;
