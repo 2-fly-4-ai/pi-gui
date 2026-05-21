@@ -1,3 +1,5 @@
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import { expect, test } from "@playwright/test";
 import {
   createNamedThread,
@@ -67,9 +69,9 @@ test("quick Settings round-trip after reopening a long thread returns to virtual
     const window = await harness.firstWindow();
     await createNamedThread(window, "Long thread return from settings");
     await seedTranscriptMessages(harness, window, {
-      count: 130,
+      count: 260,
       textFactory: (index) =>
-        index === 129 ? `${marker} visible after reopening settings` : `Long settings return seed row ${index} `.repeat(6),
+        index === 259 ? `${marker} visible after reopening settings` : `Long settings return seed row ${index} `.repeat(6),
     });
     await expect(window.getByTestId("transcript")).toContainText(marker);
   } finally {
@@ -97,6 +99,9 @@ test("quick Settings round-trip after reopening a long thread returns to virtual
       window.evaluate(() => document.querySelector("[data-testid='transcript']")?.textContent?.length ?? 0),
     ).toBeGreaterThan(100);
     await expect.poll(async () => (await getSelectedTranscript(window))?.transcript.length ?? 0).toBeGreaterThan(100);
+
+    const desktopLog = await readFile(join(userDataDir, "logs", "desktop.log"), "utf8").catch(() => "");
+    expect(desktopLog).not.toContain("Maximum update depth exceeded");
   } finally {
     await harness.close();
   }

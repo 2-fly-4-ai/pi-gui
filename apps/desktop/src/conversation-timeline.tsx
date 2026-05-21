@@ -69,7 +69,25 @@ export function ConversationTimeline({
   const [expandedToolCallIds, setExpandedToolCallIds] = useState<Set<string>>(() => new Set());
   const userCollapsedRunningToolIdsRef = useRef(new Set<string>());
   const measuredHeightsRef = useRef(new Map<string, number>());
+  const measurementUpdateFrameRef = useRef<number | null>(null);
   const [measurementVersion, setMeasurementVersion] = useState(0);
+
+  const scheduleMeasurementVersionUpdate = useCallback(() => {
+    if (measurementUpdateFrameRef.current !== null) {
+      return;
+    }
+    measurementUpdateFrameRef.current = window.requestAnimationFrame(() => {
+      measurementUpdateFrameRef.current = null;
+      setMeasurementVersion((current) => current + 1);
+    });
+  }, []);
+
+  useEffect(() => () => {
+    if (measurementUpdateFrameRef.current !== null) {
+      window.cancelAnimationFrame(measurementUpdateFrameRef.current);
+      measurementUpdateFrameRef.current = null;
+    }
+  }, []);
 
   useLayoutEffect(() => {
     const availableToolCallIds = new Set(
@@ -136,9 +154,9 @@ export function ConversationTimeline({
       removedAny = true;
     }
     if (removedAny) {
-      setMeasurementVersion((current) => current + 1);
+      scheduleMeasurementVersionUpdate();
     }
-  }, [stableTranscript]);
+  }, [scheduleMeasurementVersionUpdate, stableTranscript]);
 
   useEffect(() => {
     if (!disableVirtualization || isTranscriptLoading || stableTranscript.length <= VIRTUALIZATION_THRESHOLD) {
@@ -188,8 +206,8 @@ export function ConversationTimeline({
       return;
     }
     measuredHeightsRef.current.set(id, nextHeight);
-    setMeasurementVersion((current) => current + 1);
-  }, []);
+    scheduleMeasurementVersionUpdate();
+  }, [scheduleMeasurementVersionUpdate]);
 
   const assignTimelinePaneRef = useCallback((node: HTMLDivElement | null) => {
     timelinePaneRef.current = node;

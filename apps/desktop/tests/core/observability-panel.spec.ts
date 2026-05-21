@@ -29,6 +29,13 @@ async function seedLogs(userDataDir: string, agentDir: string, workspacePath: st
         level: 3,
         message: "Maximum update depth exceeded. This can happen when a component repeatedly calls setState.",
       },
+    })}\n${JSON.stringify({
+      timestamp: "2026-05-21T08:31:34.000Z",
+      event: "renderer-console-message",
+      payload: {
+        level: 2,
+        message: "%cElectron Security Warning (Insecure Content-Security-Policy) font-weight: bold; This renderer process has either no Content Security Policy set or a policy with unsafe-eval enabled.",
+      },
     })}\n`,
     "utf8",
   );
@@ -91,7 +98,7 @@ test("logs panel opens on threads and shows current-scope seeded failures", asyn
     await expect(page.locator(".logs-panel__event-title", { hasText: "Main process unhandled rejection" })).toBeVisible();
     await expect(page.locator(".logs-panel__event-message", { hasText: "Other repo failure" })).toHaveCount(0);
     await expect(page.locator(".logs-panel__warning", { hasText: "agent-activity.jsonl" })).toHaveCount(0);
-    await expect(page.locator(".logs-panel__event-title", { hasText: "Renderer console error" })).toBeVisible();
+    await expect(page.locator(".logs-panel__event-title", { hasText: "React render loop" })).toBeVisible();
     await expect(page.locator(".logs-panel__event-message", { hasText: "Maximum update depth exceeded" })).toBeVisible();
     await expect(page.getByTestId("logs-failure-count")).toContainText("3 failures");
   } finally {
@@ -110,7 +117,7 @@ test("logs panel renders object payloads as useful messages", async () => {
     await page.getByLabel("Toggle logs panel").click();
     await page.getByLabel("Log severity").selectOption("all");
     await expect(page.locator(".logs-panel__event-message", { hasText: "Timeline render took 120ms" })).toBeVisible();
-    await expect(page.locator(".logs-panel__event-message", { hasText: "Timeline render took 120ms" })).toBeVisible();
+    await expect(page.locator(".logs-panel__event-title", { hasText: "Electron security warning" }).first()).toBeVisible();
     await expect(page.locator(".logs-panel__event-message", { hasText: "[object Object]" })).toHaveCount(0);
   } finally {
     await app.close();

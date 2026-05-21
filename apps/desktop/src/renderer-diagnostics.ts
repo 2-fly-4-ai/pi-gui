@@ -1,8 +1,18 @@
 import type { RendererDiagnosticPayload } from "./ipc";
 
 const MAX_FIELD_LENGTH = 8_000;
+const CONSOLE_DIAGNOSTIC_DEDUPE_MS = 10_000;
+const diagnosticConsole = console as Console & {
+  __piOriginalConsoleError?: typeof console.error;
+  __piConsoleDiagnosticsInstalled?: boolean;
+};
+const originalConsoleError = (diagnosticConsole.__piOriginalConsoleError ?? console.error).bind(console);
+diagnosticConsole.__piOriginalConsoleError = originalConsoleError;
+const lastConsoleDiagnosticAtByMessage = new Map<string, number>();
 
 export function installRendererDiagnostics(): void {
+  installConsoleErrorDiagnostics();
+
   window.addEventListener("error", (event) => {
     reportRendererDiagnostic({
       kind: "window-error",
@@ -21,6 +31,31 @@ export function installRendererDiagnostics(): void {
   });
 }
 
+function installConsoleErrorDiagnostics(): void {
+  if (diagnosticConsole.__piConsoleDiagnosticsInstalled) {
+    return;
+  }
+  diagnosticConsole.__piConsoleDiagnosticsInstalled = true;
+  console.error = (...args: unknown[]) => {
+    originalConsoleError(...args);
+    const message = truncate(args.map(formatConsoleArgument).join(" ").trim() || "console.error");
+    const now = Date.now();
+    const previous = lastConsoleDiagnosticAtByMessage.get(message) ?? 0;
+    if (now - previous < CONSOLE_DIAGNOSTIC_DEDUPE_MS) {
+      return;
+    }
+    lastConsoleDiagnosticAtByMessage.set(message, now);
+
+    const componentStack = args.find((arg): arg is string => typeof arg === "string" && /\n\s+at\s+/.test(arg));
+    reportRendererDiagnostic({
+      kind: "console-error",
+      message,
+      stack: truncate(new Error("console.error caller").stack ?? ""),
+      ...(componentStack ? { componentStack: truncate(componentStack) } : {}),
+    });
+  };
+}
+
 export function reportRendererDiagnostic(payload: RendererDiagnosticPayload): void {
   const enrichedPayload: RendererDiagnosticPayload = {
     ...payload,
@@ -32,7 +67,7 @@ export function reportRendererDiagnostic(payload: RendererDiagnosticPayload): vo
   try {
     window.piApp?.reportRendererDiagnostic(enrichedPayload);
   } catch (error) {
-    console.error("[renderer-diagnostics] failed to report diagnostic", error);
+    originalConsoleError("[renderer-diagnostics] failed to report diagnostic", error);
   }
 }
 
@@ -46,6 +81,20 @@ export function serializeErrorLike(error: unknown): Pick<RendererDiagnosticPaylo
   return {
     message: truncate(String(error)),
   };
+}
+
+function formatConsoleArgument(value: unknown): string {
+  if (typeof value === "string") {
+    return value;
+  }
+  if (value instanceof Error) {
+    return value.stack || value.message || value.name;
+  }
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
 }
 
 function truncate(value: string): string {

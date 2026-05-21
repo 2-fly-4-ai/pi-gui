@@ -260,6 +260,7 @@ export default function App() {
   const newThreadComposerRef = useRef<HTMLTextAreaElement | null>(null);
   const mainRef = useRef<HTMLElement | null>(null);
   const timelinePaneRef = useRef<HTMLDivElement | null>(null);
+  const timelinePaneElementRef = useRef<HTMLDivElement | null>(null);
   const lastTranscriptMarkerRef = useRef("");
   const pinnedToBottomRef = useRef(true);
   const followingLatestRef = useRef(true);
@@ -1197,6 +1198,12 @@ export default function App() {
   }, [scrollTimelineToBottom, selectedSessionKey, snapshot?.activeView]);
 
   const setTimelinePaneElement = useCallback((node: HTMLDivElement | null) => {
+    if (timelinePaneElementRef.current === node) {
+      timelinePaneRef.current = node;
+      return;
+    }
+
+    timelinePaneElementRef.current = node;
     timelinePaneRef.current = node;
     if (!node) {
       return;

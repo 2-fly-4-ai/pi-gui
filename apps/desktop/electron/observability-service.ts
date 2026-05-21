@@ -271,14 +271,15 @@ function normalizeDesktopLog(source: RawLogLine, parsed: Record<string, unknown>
   const event = String(rawEvent ?? "desktop-log-line");
   const timestamp = String(parsed?.timestamp ?? parsed?.ts ?? rendererPayload?.timestamp ?? payload?.timestamp ?? extractTimestamp(source.text) ?? new Date(0).toISOString());
   const severity = severityForDesktopEvent(event, parsed, payload, rendererPayload, source.text);
+  const message = excerpt(parsed?.message ?? rendererPayload?.message ?? payload?.message ?? parsed?.payload ?? source.text);
   return {
     id: stableId(source, event, timestamp),
     timestamp,
     severity,
     category: event.startsWith("renderer") || event.startsWith("timeline") ? "renderer" : "desktop",
     event,
-    title: titleForDesktopEvent(event),
-    message: excerpt(parsed?.message ?? rendererPayload?.message ?? payload?.message ?? parsed?.payload ?? source.text),
+    title: titleForDesktopEvent(event, severity, message ?? source.text),
+    message,
     source: { kind: "desktop-log", path: source.path, line: source.line },
     raw: parsed ?? source.text,
   };
@@ -395,11 +396,17 @@ function numericLogLevel(value: unknown): number | undefined {
   return typeof value === "number" ? value : undefined;
 }
 
-function titleForDesktopEvent(event: string): string {
+function titleForDesktopEvent(event: string, severity: ObservabilitySeverity, text: string): string {
   if (event === "main-unhandled-rejection") return "Main process unhandled rejection";
   if (event === "main-uncaught-exception") return "Main process uncaught exception";
   if (event === "render-process-gone") return "Renderer process gone";
-  if (event === "renderer-console-message") return "Renderer console error";
+  if (event === "renderer-console-message") {
+    if (/electron security warning/i.test(text)) return "Electron security warning";
+    if (/maximum update depth exceeded/i.test(text)) return "React render loop";
+    if (severity === "warning") return "Renderer console warning";
+    if (severity === "info") return "Renderer console message";
+    return "Renderer console error";
+  }
   if (event === "renderer-diagnostic") return "Renderer diagnostic";
   return event.replace(/-/g, " ");
 }
