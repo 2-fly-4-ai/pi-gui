@@ -3,6 +3,7 @@ import { join } from "node:path";
 import {
   createNamedThread,
   desktopShortcut,
+  emitTestSessionEvent,
   getDesktopState,
   launchDesktop,
   makeUserDataDir,
@@ -180,6 +181,64 @@ test("supports keyboard shortcuts, slash menus, and topbar controls through the 
         harness.electronApp.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.isMaximized() ?? false),
       )
       .toBe(!maximizedBefore);
+  } finally {
+    await harness.close();
+  }
+});
+
+test("run failures appear in the timeline without duplicating inside the composer", async () => {
+  test.setTimeout(60_000);
+  const userDataDir = await makeUserDataDir();
+  const agentDir = join(userDataDir, "agent");
+  const workspacePath = await makeWorkspace("run-failure-composer-workspace");
+  await seedAgentDir(agentDir);
+  const harness = await launchDesktop(userDataDir, {
+    agentDir,
+    initialWorkspaces: [workspacePath],
+    testMode: "background",
+  });
+
+  try {
+    const window = await harness.firstWindow();
+    await createNamedThread(window, "Run failure composer session");
+    const state = await getDesktopState(window);
+    const workspace = state.workspaces.find((entry) => entry.id === state.selectedWorkspaceId);
+    const session = workspace?.sessions.find((entry) => entry.id === state.selectedSessionId);
+    if (!workspace || !session) {
+      throw new Error("Expected a selected session");
+    }
+
+    const sessionRef = { workspaceId: workspace.id, sessionId: session.id };
+    const runId = "overload-test-run";
+    const startedAt = new Date().toISOString();
+    await emitTestSessionEvent(harness, {
+      type: "sessionUpdated",
+      sessionRef,
+      timestamp: startedAt,
+      runId,
+      snapshot: {
+        ref: sessionRef,
+        workspace: { workspaceId: workspace.id, path: workspace.path, displayName: workspace.name },
+        title: session.title,
+        status: "running",
+        updatedAt: startedAt,
+        preview: "Running",
+        runningRunId: runId,
+      },
+    });
+
+    const message = "Codex error: server is overloaded";
+    const failedAt = new Date(Date.now() + 1_000).toISOString();
+    await emitTestSessionEvent(harness, {
+      type: "runFailed",
+      sessionRef,
+      timestamp: failedAt,
+      runId,
+      error: { message, code: "server_is_overloaded" },
+    });
+
+    await expect(window.locator(".timeline")).toContainText(message);
+    await expect(window.getByTestId("composer-error-banner")).toHaveCount(0);
   } finally {
     await harness.close();
   }

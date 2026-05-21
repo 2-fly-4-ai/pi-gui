@@ -1733,10 +1733,6 @@ export class DesktopAppStore implements AppStoreInternals {
         }
         break;
       case "runFailed":
-        this.state = {
-          ...this.state,
-          lastError: event.error.message,
-        };
         await this.refreshSessionCommands(event.sessionRef);
         break;
       case "extensionCompatibilityIssue":
@@ -1767,9 +1763,7 @@ export class DesktopAppStore implements AppStoreInternals {
       this.sessionState.sessionSubscriptions.delete(key);
     }
 
-    if (event.type === "runFailed") {
-      this.sessionState.sessionErrorsBySession.set(key, event.error.message);
-    } else if (event.type === "runCompleted" || event.type === "sessionClosed") {
+    if (event.type === "runCompleted" || event.type === "sessionClosed") {
       this.sessionState.sessionErrorsBySession.delete(key);
     }
 
