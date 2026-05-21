@@ -13,7 +13,7 @@ import {
   waitForWorkspaceByPath,
 } from "../helpers/electron-app";
 
-test("reopens persisted folders and thread state while a saved running session keeps streaming updates", async () => {
+test("reopens persisted folders and reconciles stale running status before live streaming updates", async () => {
   test.setTimeout(90_000);
   const userDataDir = await makeUserDataDir();
   const workspacePath = await makeWorkspace("reopen-state-workspace");
@@ -98,6 +98,30 @@ test("reopens persisted folders and thread state while a saved running session k
       });
     await expect(window.locator(".topbar__session")).toHaveText("Reopen reliability session");
     await expect(window.getByTestId("transcript")).toContainText(/Model |No session overrides set/);
+
+    await expect
+      .poll(async () => {
+        const state = await getDesktopState(window);
+        const workspace = state.workspaces.find((entry) => entry.id === workspaceId);
+        const session = workspace?.sessions.find((entry) => entry.id === sessionId);
+        return {
+          status: session?.status,
+          queuedMessages: state.queuedComposerMessages.length,
+        };
+      }, { timeout: 15_000 })
+      .toEqual({
+        status: "idle",
+        queuedMessages: 0,
+      });
+
+    await expect
+      .poll(async () => {
+        const latestCatalogs = JSON.parse(await readFile(catalogsPath, "utf8")) as typeof catalogs;
+        return latestCatalogs.sessions.find(
+          (session) => session.sessionRef.workspaceId === workspaceId && session.sessionRef.sessionId === sessionId,
+        )?.status;
+      }, { timeout: 15_000 })
+      .toBe("idle");
 
     await emitTestSessionEvent(secondRun, {
       type: "sessionUpdated",

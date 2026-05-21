@@ -449,6 +449,22 @@ export class SessionSupervisor {
     const session = this.requireSession(record);
     session.clearQueue();
 
+    if (!session.isStreaming) {
+      const hadStaleRunningState =
+        record.status === "running" || record.runningRunId !== undefined || record.queuedMessages.length > 0;
+      record.status = record.status === "running" ? "idle" : record.status;
+      record.runningRunId = undefined;
+      record.queuedMessages = [];
+      if (hadStaleRunningState) {
+        await this.persistSnapshot(record);
+        await this.emit(record, sessionUpdatedEvent(record));
+      }
+      if (messages.length > 0) {
+        throw new Error("Cannot queue messages because the session is no longer running.");
+      }
+      return;
+    }
+
     record.queuedMessages = messages.map((message) => cloneQueuedMessage(message));
     for (const message of record.queuedMessages) {
       const images = message.attachments?.flatMap((attachment: NonNullable<SessionQueuedMessage["attachments"]>[number]) =>
@@ -663,6 +679,7 @@ export class SessionSupervisor {
     const key = sessionKey(sessionRef);
     const existing = this.records.get(key);
     if (existing && existing.session && !existing.closed) {
+      await this.reconcileRecordStreamingState(existing);
       return existing;
     }
 
@@ -703,6 +720,7 @@ export class SessionSupervisor {
 
     this.records.set(key, record);
     await this.bindSessionRuntime(record);
+    await this.reconcileRecordStreamingState(record);
     return record;
   }
 
@@ -1257,6 +1275,36 @@ export class SessionSupervisor {
         }),
       ).catch(() => {});
     }
+  }
+
+  private async reconcileRecordStreamingState(record: ManagedSessionRecord): Promise<void> {
+    const session = record.session;
+    if (!session) {
+      return;
+    }
+
+    if (session.isStreaming) {
+      if (record.status !== "running" || !record.runningRunId) {
+        record.status = "running";
+        record.runningRunId = record.runningRunId ?? crypto.randomUUID();
+        record.config = mergeSessionConfigWithToolAccess(record.config, session.sessionManager.buildSessionContext());
+        await this.persistSnapshot(record);
+      }
+      return;
+    }
+
+    if (record.status !== "running") {
+      return;
+    }
+
+    session.clearQueue();
+    record.status = "idle";
+    record.runningRunId = undefined;
+    record.queuedMessages = [];
+    record.config = mergeSessionConfigWithToolAccess(record.config, session.sessionManager.buildSessionContext());
+    record.preview = latestSessionPreview(session) ?? record.preview;
+    record.sessionCommands = this.collectSessionCommands(session);
+    await this.persistSnapshot(record);
   }
 
   private async syncRecordAfterSessionMutation(
@@ -1982,6 +2030,16 @@ const extensionUiThemeStub = new Proxy(
     },
   },
 ) as ExtensionUIContext["theme"];
+
+function latestSessionPreview(session: AgentSession): string | undefined {
+  for (let index = session.messages.length - 1; index >= 0; index -= 1) {
+    const preview = extractPreview(session.messages[index]);
+    if (preview) {
+      return preview;
+    }
+  }
+  return undefined;
+}
 
 function cloneQueuedMessage(message: SessionQueuedMessage): SessionQueuedMessage {
   return {
