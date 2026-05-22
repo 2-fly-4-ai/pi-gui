@@ -8,6 +8,7 @@ interface PtyBashOptions {
   readonly shellPath?: string;
   readonly cols?: number;
   readonly rows?: number;
+  readonly killGraceMs?: number;
 }
 
 export function createPtyBashToolDefinition(cwd: string, options: PtyBashOptions = {}) {
@@ -20,6 +21,41 @@ export function createPtyBashToolDefinition(cwd: string, options: PtyBashOptions
 function isPowerShell(shell: string): boolean {
   const executable = basename(shell).toLowerCase();
   return executable === "powershell.exe" || executable === "powershell" || executable === "pwsh.exe" || executable === "pwsh";
+}
+
+const DEFAULT_KILL_GRACE_MS = 1_500;
+
+function buildPtyEnv(env: NodeJS.ProcessEnv | undefined): NodeJS.ProcessEnv {
+  return {
+    ...process.env,
+    // Tool runs are non-interactive. Prevent commands like `git show` from
+    // opening `less` inside the PTY and waiting forever at a pager prompt.
+    PAGER: "cat",
+    GIT_PAGER: "cat",
+    LESS: "FRX",
+    ...env,
+  };
+}
+
+function trySignalProcessGroup(pid: number | undefined, signal: NodeJS.Signals): boolean {
+  if (platform() === "win32" || pid === undefined || pid <= 0) return false;
+  try {
+    process.kill(-pid, signal);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function trySignalPty(pty: IPty | undefined, signal: NodeJS.Signals): boolean {
+  if (!pty) return false;
+  if (trySignalProcessGroup(pty.pid, signal)) return true;
+  try {
+    pty.kill(signal);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export function createPtyBashOperations(options: PtyBashOptions = {}): BashOperations {
@@ -37,6 +73,7 @@ export function createPtyBashOperations(options: PtyBashOptions = {}): BashOpera
         let settled = false;
         let timedOut = false;
         let timeoutHandle: NodeJS.Timeout | undefined;
+        let killEscalationHandle: NodeJS.Timeout | undefined;
 
         const finish = (callback: () => void) => {
           if (settled) {
@@ -46,16 +83,21 @@ export function createPtyBashOperations(options: PtyBashOptions = {}): BashOpera
           if (timeoutHandle) {
             clearTimeout(timeoutHandle);
           }
+          if (killEscalationHandle) {
+            clearTimeout(killEscalationHandle);
+          }
           signal?.removeEventListener("abort", abort);
           callback();
         };
 
         const abort = () => {
-          try {
-            pty?.kill();
-          } catch {
-            // node-pty kill can throw if process already exited; ignore because exit handles settlement.
-          }
+          if (settled) return;
+          trySignalPty(pty, "SIGTERM");
+          if (killEscalationHandle) return;
+          killEscalationHandle = setTimeout(() => {
+            if (!settled) trySignalPty(pty, "SIGKILL");
+          }, options.killGraceMs ?? DEFAULT_KILL_GRACE_MS);
+          killEscalationHandle.unref?.();
         };
 
         try {
@@ -64,7 +106,7 @@ export function createPtyBashOperations(options: PtyBashOptions = {}): BashOpera
             cols: options.cols ?? 120,
             rows: options.rows ?? 40,
             cwd,
-            env: { ...process.env, ...env },
+            env: buildPtyEnv(env),
           });
         } catch (error) {
           finish(() => reject(error instanceof Error ? error : new Error(String(error))));
