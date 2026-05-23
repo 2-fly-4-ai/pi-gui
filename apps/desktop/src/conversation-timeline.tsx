@@ -1,11 +1,10 @@
+import { LegendList, type LegendListRef } from "@legendapp/list/react";
 import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState, type MutableRefObject, type RefCallback, type RefObject } from "react";
 import type { TranscriptMessage } from "./desktop-state";
 import { ThreadSearchBar } from "./thread-search";
 import { TimelineItem } from "./timeline-item";
 import { useStableTranscriptRows } from "./conversation-timeline-rows";
 
-const OVERSCAN_PX = 720;
-const ROW_GAP_PX = 14;
 export const VIRTUALIZATION_THRESHOLD = 80;
 
 function isCommandTool(item: TranscriptMessage): item is Extract<TranscriptMessage, { kind: "tool" }> {
@@ -214,6 +213,27 @@ export function ConversationTimeline({
     timelinePaneElementRef?.(node);
   }, [timelinePaneElementRef, timelinePaneRef]);
 
+  if (shouldVirtualize && !isTranscriptLoading && stableTranscript.length > 0) {
+    return (
+      <div className="timeline-pane-frame timeline-pane-frame--thread" data-testid="transcript">
+        <LegendTranscriptList
+          transcript={stableTranscript}
+          assignTimelinePaneRef={assignTimelinePaneRef}
+          onTimelineScroll={onTimelineScroll}
+          expandedToolCallIds={expandedToolCallIds}
+          onToggleToolCall={toggleToolCall}
+          onViewFileInDiff={onViewFileInDiff}
+          onContentHeightChange={onContentHeightChange}
+        />
+        {showJumpToLatest ? (
+          <button className="timeline-jump" data-testid="timeline-jump" type="button" onClick={onJumpToLatest}>
+            New activity below
+          </button>
+        ) : null}
+      </div>
+    );
+  }
+
   return (
     <div
       className="timeline-pane timeline-pane--thread"
@@ -241,18 +261,6 @@ export function ConversationTimeline({
         <div className="timeline" data-testid="transcript">
           <div className="timeline-empty">Send a prompt to start the session.</div>
         </div>
-      ) : shouldVirtualize ? (
-        <VirtualizedTranscriptList
-          transcript={stableTranscript}
-          timelinePaneRef={timelinePaneRef}
-          onContentHeightChange={onContentHeightChange}
-          measuredHeightsRef={measuredHeightsRef}
-          measurementVersion={measurementVersion}
-          expandedToolCallIds={expandedToolCallIds}
-          onHeightChange={updateMeasuredHeight}
-          onToggleToolCall={toggleToolCall}
-          onViewFileInDiff={onViewFileInDiff}
-        />
       ) : (
         <div className="timeline" data-testid="transcript">
           {stableTranscript.map((item) => (
@@ -276,140 +284,74 @@ export function ConversationTimeline({
   );
 }
 
-function VirtualizedTranscriptList({
+function LegendTranscriptList({
   transcript,
-  timelinePaneRef,
-  onContentHeightChange,
-  measuredHeightsRef,
-  measurementVersion,
+  assignTimelinePaneRef,
+  onTimelineScroll,
   expandedToolCallIds,
-  onHeightChange,
   onToggleToolCall,
   onViewFileInDiff,
+  onContentHeightChange,
 }: {
   readonly transcript: readonly TranscriptMessage[];
-  readonly timelinePaneRef: MutableRefObject<HTMLDivElement | null>;
-  readonly onContentHeightChange: () => void;
-  readonly measuredHeightsRef: MutableRefObject<Map<string, number>>;
-  readonly measurementVersion: number;
+  readonly assignTimelinePaneRef: RefCallback<HTMLDivElement>;
+  readonly onTimelineScroll: () => void;
   readonly expandedToolCallIds: ReadonlySet<string>;
-  readonly onHeightChange: (id: string, height: number) => void;
   readonly onToggleToolCall: (callId: string) => void;
   readonly onViewFileInDiff?: (path: string) => void;
+  readonly onContentHeightChange: () => void;
 }) {
-  const [viewport, setViewport] = useState({ scrollTop: 0, height: 0 });
-  const previousTotalHeightRef = useRef(0);
-  void measurementVersion;
-
-  const syncViewport = useCallback(() => {
-    const pane = timelinePaneRef.current;
-    if (!pane) {
-      return;
-    }
-    const nextScrollTop = pane.scrollTop;
-    const nextHeight = pane.clientHeight;
-    setViewport((current) =>
-      current.scrollTop === nextScrollTop && current.height === nextHeight
-        ? current
-        : { scrollTop: nextScrollTop, height: nextHeight },
-    );
-  }, [timelinePaneRef]);
+  const legendListRef = useRef<LegendListRef | null>(null);
 
   useLayoutEffect(() => {
-    const pane = timelinePaneRef.current;
-    if (!pane) {
-      return undefined;
-    }
-
-    syncViewport();
-    pane.addEventListener("scroll", syncViewport, { passive: true });
-    const resizeObserver = new ResizeObserver(() => {
-      syncViewport();
-    });
-    resizeObserver.observe(pane);
-
+    const node = legendListRef.current?.getScrollableNode?.();
+    assignTimelinePaneRef(node instanceof HTMLDivElement ? node : null);
     return () => {
-      pane.removeEventListener("scroll", syncViewport);
-      resizeObserver.disconnect();
+      assignTimelinePaneRef(null);
     };
-  }, [syncViewport, timelinePaneRef]);
+  }, [assignTimelinePaneRef]);
 
-  const rowHeights = transcript.map((item) => measuredHeightsRef.current.get(item.id) ?? estimateTimelineItemHeight(item));
-  const rowOffsets: number[] = [];
-  let totalHeight = 0;
-  for (const [index, rowHeight] of rowHeights.entries()) {
-    rowOffsets[index] = totalHeight;
-    totalHeight += rowHeight;
-    if (index < rowHeights.length - 1) {
-      totalHeight += ROW_GAP_PX;
-    }
-  }
-
-  useLayoutEffect(() => {
-    if (previousTotalHeightRef.current === totalHeight) {
-      return;
-    }
-    previousTotalHeightRef.current = totalHeight;
-    onContentHeightChange();
-
-    // Parent scroll restoration can run well after virtualization computes its
-    // first viewport on long transcripts. Sample for a short settling window so
-    // the rendered slice follows the pane's restored scrollTop even when the
-    // programmatic scroll does not emit a native scroll event.
-    let frame = 0;
-    let animationFrame = 0;
-    const syncDuringRestore = () => {
-      syncViewport();
-      frame += 1;
-      if (frame < 60) {
-        animationFrame = window.requestAnimationFrame(syncDuringRestore);
-      }
-    };
-    animationFrame = window.requestAnimationFrame(syncDuringRestore);
-
-    return () => {
-      window.cancelAnimationFrame(animationFrame);
-    };
-  }, [onContentHeightChange, syncViewport, totalHeight]);
-
-  const startOffset = Math.max(0, viewport.scrollTop - OVERSCAN_PX);
-  const endOffset = viewport.scrollTop + viewport.height + OVERSCAN_PX;
-  const startIndex = findStartIndex(rowOffsets, rowHeights, startOffset);
-  const endIndex = findEndIndex(rowOffsets, endOffset);
+  const renderItem = useCallback(({ item }: { item: TranscriptMessage }) => (
+    <div className="timeline__legend-row" data-timeline-row-id={item.id}>
+      <TimelineItem
+        item={item}
+        expandedToolCallIds={expandedToolCallIds}
+        onToggleToolCall={onToggleToolCall}
+        onViewFileInDiff={onViewFileInDiff}
+      />
+    </div>
+  ), [expandedToolCallIds, onToggleToolCall, onViewFileInDiff]);
 
   return (
-    <div className="timeline timeline--virtualized" data-testid="transcript" style={{ height: `${totalHeight}px` }}>
-      {transcript.slice(startIndex, endIndex).map((item, offsetIndex) => {
-        const index = startIndex + offsetIndex;
-        return (
-          <MeasuredTimelineItem
-            item={item}
-            key={item.id}
-            className="timeline__virtual-row"
-            top={rowOffsets[index] ?? 0}
-            onHeightChange={onHeightChange}
-            expandedToolCallIds={expandedToolCallIds}
-            onToggleToolCall={onToggleToolCall}
-            onViewFileInDiff={onViewFileInDiff}
-          />
-        );
-      })}
-    </div>
+    <LegendList<TranscriptMessage>
+      ref={legendListRef}
+      data={transcript}
+      keyExtractor={(item) => item.id}
+      renderItem={renderItem}
+      estimatedItemSize={90}
+      getEstimatedItemSize={estimateLegendTimelineItemHeightForRow}
+      drawDistance={2_400}
+      maintainScrollAtEnd
+      maintainScrollAtEndThreshold={0.1}
+      maintainVisibleContentPosition
+      recycleItems
+      extraData={expandedToolCallIds}
+      onItemSizeChanged={onContentHeightChange}
+      onScroll={onTimelineScroll}
+      data-testid="timeline-pane"
+      className="timeline-pane timeline-pane--thread timeline-pane--legend"
+    />
   );
 }
 
 const MeasuredTimelineItem = memo(function MeasuredTimelineItem({
   item,
-  className,
-  top,
   onHeightChange,
   expandedToolCallIds,
   onToggleToolCall,
   onViewFileInDiff,
 }: {
   readonly item: TranscriptMessage;
-  readonly className?: string;
-  readonly top?: number;
   readonly onHeightChange: (id: string, height: number) => void;
   readonly expandedToolCallIds: ReadonlySet<string>;
   readonly onToggleToolCall: (callId: string) => void;
@@ -439,12 +381,7 @@ const MeasuredTimelineItem = memo(function MeasuredTimelineItem({
   }, [item.id, onHeightChange]);
 
   return (
-    <div
-      className={className}
-      data-timeline-row-id={item.id}
-      ref={rowRef}
-      style={top == null ? undefined : { transform: `translateY(${top}px)` }}
-    >
+    <div data-timeline-row-id={item.id} ref={rowRef}>
       <TimelineItem
         item={item}
         expandedToolCallIds={expandedToolCallIds}
@@ -458,8 +395,6 @@ const MeasuredTimelineItem = memo(function MeasuredTimelineItem({
 function areMeasuredTimelineItemPropsEqual(
   previous: Readonly<{
     item: TranscriptMessage;
-    className?: string;
-    top?: number;
     onHeightChange: (id: string, height: number) => void;
     expandedToolCallIds: ReadonlySet<string>;
     onToggleToolCall: (callId: string) => void;
@@ -467,8 +402,6 @@ function areMeasuredTimelineItemPropsEqual(
   }>,
   next: Readonly<{
     item: TranscriptMessage;
-    className?: string;
-    top?: number;
     onHeightChange: (id: string, height: number) => void;
     expandedToolCallIds: ReadonlySet<string>;
     onToggleToolCall: (callId: string) => void;
@@ -477,8 +410,6 @@ function areMeasuredTimelineItemPropsEqual(
 ): boolean {
   if (
     previous.item !== next.item ||
-    previous.className !== next.className ||
-    previous.top !== next.top ||
     previous.onHeightChange !== next.onHeightChange ||
     previous.onToggleToolCall !== next.onToggleToolCall ||
     previous.onViewFileInDiff !== next.onViewFileInDiff
@@ -497,45 +428,11 @@ function areMeasuredTimelineItemPropsEqual(
 }
 
 
-function findStartIndex(offsets: readonly number[], heights: readonly number[], targetOffset: number): number {
-  let low = 0;
-  let high = offsets.length - 1;
-
-  while (low <= high) {
-    const mid = Math.floor((low + high) / 2);
-    const end = (offsets[mid] ?? 0) + (heights[mid] ?? 0);
-    if (end < targetOffset) {
-      low = mid + 1;
-      continue;
-    }
-    high = mid - 1;
-  }
-
-  return Math.max(0, Math.min(offsets.length - 1, low));
+function estimateLegendTimelineItemHeightForRow(item: TranscriptMessage): number {
+  return estimateLegendTimelineItemHeight(item);
 }
 
-function findEndIndex(offsets: readonly number[], targetOffset: number): number {
-  if (offsets.length === 0) {
-    return 0;
-  }
-
-  let low = 0;
-  let high = offsets.length - 1;
-
-  while (low <= high) {
-    const mid = Math.floor((low + high) / 2);
-    if ((offsets[mid] ?? 0) <= targetOffset) {
-      low = mid + 1;
-      continue;
-    }
-    high = mid - 1;
-  }
-
-  const lastVisibleIndex = Math.max(0, low);
-  return Math.min(offsets.length, Math.max(lastVisibleIndex + 1, 1));
-}
-
-function estimateTimelineItemHeight(item: TranscriptMessage): number {
+function estimateLegendTimelineItemHeight(item: TranscriptMessage): number {
   if (item.kind === "message") {
     const attachmentHeight = item.attachments?.some((attachment) => attachment.kind === "image")
       ? 120

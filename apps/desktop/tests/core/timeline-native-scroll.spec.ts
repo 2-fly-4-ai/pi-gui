@@ -1,6 +1,8 @@
+import type { SessionDriverEvent } from "@pi-gui/session-driver";
 import { expect, test } from "@playwright/test";
 import {
   createNamedThread,
+  emitTestSessionEvent,
   getTimelineScrollMetrics,
   initGitRepo,
   jumpTimelineToBottom,
@@ -66,6 +68,121 @@ test("dragging the timeline scrollbar thumb keeps the dragged scroll position", 
     await window.waitForTimeout(250);
     const afterSettling = await getTimelineScrollMetrics(window);
     expect(Math.abs(afterSettling.scrollTop - afterDrag.scrollTop)).toBeLessThanOrEqual(24);
+  } finally {
+    await harness.close();
+  }
+});
+
+test("fast virtualized timeline scrolling keeps a visible rendered row", async () => {
+  test.setTimeout(90_000);
+  const userDataDir = await makeUserDataDir();
+  const workspacePath = await makeWorkspace("virtual-scroll-no-blank-workspace");
+  await initGitRepo(workspacePath);
+  const harness = await launchDesktop(userDataDir, {
+    initialWorkspaces: [workspacePath],
+    testMode: "background",
+  });
+
+  try {
+    const window = await harness.firstWindow();
+    await createNamedThread(window, "Virtual scroll no blank session");
+    await seedTranscriptMessages(harness, window, {
+      count: 320,
+      textFactory: (index) => `No blank row ${index} ${"variable markdown content ".repeat(index % 11 === 0 ? 90 : 10)}`,
+    });
+    await expect(window.getByTestId("transcript")).toContainText("No blank row 319");
+    await jumpTimelineToBottom(window);
+
+    const result = await window.evaluate(async () => {
+      const pane = document.querySelector<HTMLDivElement>("[data-testid='timeline-pane']");
+      if (!pane) throw new Error("Timeline pane was unavailable");
+
+      const waitFrame = () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+      const visibleRows = () => {
+        const paneRect = pane.getBoundingClientRect();
+        return Array.from(pane.querySelectorAll<HTMLElement>("[data-timeline-row-id]")).filter((row) => {
+          const rect = row.getBoundingClientRect();
+          return rect.bottom > paneRect.top + 8 && rect.top < paneRect.bottom - 8;
+        }).length;
+      };
+
+      let blankFrames = 0;
+      let maxBlankFrames = 0;
+      const maxScrollTop = Math.max(0, pane.scrollHeight - pane.clientHeight);
+      const targets = [
+        maxScrollTop * 0.75,
+        maxScrollTop * 0.35,
+        maxScrollTop * 0.9,
+        maxScrollTop * 0.15,
+        maxScrollTop * 0.6,
+      ];
+
+      for (const target of targets) {
+        pane.scrollTop = target;
+        pane.dispatchEvent(new Event("scroll", { bubbles: true }));
+        await waitFrame();
+        const count = visibleRows();
+        if (count === 0) {
+          blankFrames += 1;
+          maxBlankFrames = Math.max(maxBlankFrames, blankFrames);
+        } else {
+          blankFrames = 0;
+        }
+      }
+
+      return { maxBlankFrames, finalVisibleRows: visibleRows() };
+    });
+
+    expect(result.maxBlankFrames).toBe(0);
+    expect(result.finalVisibleRows).toBeGreaterThan(0);
+  } finally {
+    await harness.close();
+  }
+});
+
+test("virtualized tool rows expand after scrolling", async () => {
+  test.setTimeout(90_000);
+  const userDataDir = await makeUserDataDir();
+  const workspacePath = await makeWorkspace("virtual-tool-expand-workspace");
+  await initGitRepo(workspacePath);
+  const harness = await launchDesktop(userDataDir, {
+    initialWorkspaces: [workspacePath],
+    testMode: "background",
+  });
+
+  try {
+    const window = await harness.firstWindow();
+    await createNamedThread(window, "Virtual tool expand session");
+    const seeded = await seedTranscriptMessages(harness, window, {
+      count: 120,
+      textFactory: (index) => `Virtual expand row ${index} ${"wrapped content ".repeat(8)}`,
+    });
+    const timestamp = new Date().toISOString();
+    await emitTestSessionEvent(harness, {
+      type: "toolStarted",
+      sessionRef: seeded.sessionRef,
+      timestamp,
+      toolName: "Read",
+      callId: "virtual-read-expand-1",
+      input: { path: "virtual-file.txt" },
+    } satisfies Extract<SessionDriverEvent, { type: "toolStarted" }>);
+    await emitTestSessionEvent(harness, {
+      type: "toolFinished",
+      sessionRef: seeded.sessionRef,
+      timestamp,
+      callId: "virtual-read-expand-1",
+      success: true,
+      output: "expanded virtual output is visible",
+    } satisfies Extract<SessionDriverEvent, { type: "toolFinished" }>);
+
+    await expect(window.getByTestId("transcript")).toContainText("virtual-file.txt");
+    await jumpTimelineToBottom(window);
+
+    const toolHeader = window.locator(".timeline-tool__header", { hasText: "virtual-file.txt" }).last();
+    await expect(toolHeader).toHaveAttribute("aria-expanded", "false");
+    await toolHeader.click();
+    await expect(toolHeader).toHaveAttribute("aria-expanded", "true");
+    await expect(window.locator(".timeline-tool__pre")).toContainText("expanded virtual output is visible");
   } finally {
     await harness.close();
   }

@@ -602,17 +602,27 @@
   margin: 0 auto;
 }
 
-.timeline--virtualized {
-  display: block;
+.timeline-pane-frame {
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
   position: relative;
 }
 
-.timeline__virtual-row {
-  left: 0;
-  min-width: 0;
-  position: absolute;
-  top: 0;
+.timeline-pane-frame--thread {
+  display: flex;
+  flex-direction: column;
+}
+
+.timeline--legend {
+  margin: 0;
   width: 100%;
+}
+
+.timeline__legend-row {
+  margin: 0 auto 14px;
+  min-width: 0;
+  width: min(920px, 100%);
 }
 
 .timeline-pane {
@@ -636,6 +646,11 @@
   max-height: none;
   padding: 0 28px;
   scroll-padding-inline: 28px;
+}
+
+.timeline-pane--legend {
+  height: 100%;
+  overscroll-behavior-y: contain;
 }
 
 
