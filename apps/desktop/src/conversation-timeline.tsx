@@ -59,12 +59,14 @@ export function ConversationTimeline({
   onViewFileInDiff,
 }: ConversationTimelineProps) {
   const stableTranscript = useStableTranscriptRows(transcript);
-  // Attachment-heavy rows can make estimated restore positions imperfect, but rendering
-  // every historical row is much worse for long active transcripts.
+  // Long transcripts must never fall back to full DOM rendering. The parent may
+  // temporarily request disabled virtualization while restoring scroll position,
+  // but rendering thousands of historical rows is what makes the renderer memory
+  // spike and eventually crash. For long threads, stay virtualized and let the
+  // parent finish its scroll restore against the virtual scroller.
   const shouldVirtualize =
     !threadSearch.isOpen &&
-    stableTranscript.length > VIRTUALIZATION_THRESHOLD &&
-    !disableVirtualization;
+    stableTranscript.length > VIRTUALIZATION_THRESHOLD;
   const [expandedToolCallIds, setExpandedToolCallIds] = useState<Set<string>>(() => new Set());
   const userCollapsedRunningToolIdsRef = useRef(new Set<string>());
   const measuredHeightsRef = useRef(new Map<string, number>());
@@ -161,10 +163,10 @@ export function ConversationTimeline({
     if (!disableVirtualization || isTranscriptLoading || stableTranscript.length <= VIRTUALIZATION_THRESHOLD) {
       return undefined;
     }
-    const timeout = window.setTimeout(() => {
+    const frame = window.requestAnimationFrame(() => {
       onDisableVirtualizationReady?.();
-    }, 250);
-    return () => window.clearTimeout(timeout);
+    });
+    return () => window.cancelAnimationFrame(frame);
   }, [disableVirtualization, isTranscriptLoading, onDisableVirtualizationReady, stableTranscript.length]);
 
   useLayoutEffect(() => {

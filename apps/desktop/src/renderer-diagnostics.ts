@@ -2,6 +2,7 @@ import type { RendererDiagnosticPayload } from "./ipc";
 
 const MAX_FIELD_LENGTH = 8_000;
 const CONSOLE_DIAGNOSTIC_DEDUPE_MS = 10_000;
+const WINDOW_ERROR_DIAGNOSTIC_DEDUPE_MS = 60_000;
 const diagnosticConsole = console as Console & {
   __piOriginalConsoleError?: typeof console.error;
   __piConsoleDiagnosticsInstalled?: boolean;
@@ -9,14 +10,27 @@ const diagnosticConsole = console as Console & {
 const originalConsoleError = (diagnosticConsole.__piOriginalConsoleError ?? console.error).bind(console);
 diagnosticConsole.__piOriginalConsoleError = originalConsoleError;
 const lastConsoleDiagnosticAtByMessage = new Map<string, number>();
+const lastWindowDiagnosticAtByMessage = new Map<string, number>();
 
 export function installRendererDiagnostics(): void {
   installConsoleErrorDiagnostics();
 
   window.addEventListener("error", (event) => {
+    const serialized = serializeErrorLike(event.error ?? event.message);
+    if (isResizeObserverLoopMessage(serialized.message)) {
+      event.preventDefault();
+      return;
+    }
+    const message = serialized.message ?? "window-error";
+    const now = Date.now();
+    const previous = lastWindowDiagnosticAtByMessage.get(message) ?? 0;
+    if (now - previous < WINDOW_ERROR_DIAGNOSTIC_DEDUPE_MS) {
+      return;
+    }
+    lastWindowDiagnosticAtByMessage.set(message, now);
     reportRendererDiagnostic({
       kind: "window-error",
-      ...serializeErrorLike(event.error ?? event.message),
+      ...serialized,
       ...(event.filename ? { filename: event.filename } : {}),
       ...(typeof event.lineno === "number" ? { lineno: event.lineno } : {}),
       ...(typeof event.colno === "number" ? { colno: event.colno } : {}),
@@ -99,4 +113,9 @@ function formatConsoleArgument(value: unknown): string {
 
 function truncate(value: string): string {
   return value.length > MAX_FIELD_LENGTH ? `${value.slice(0, MAX_FIELD_LENGTH)}…` : value;
+}
+
+function isResizeObserverLoopMessage(message: string | undefined): boolean {
+  return message === "ResizeObserver loop completed with undelivered notifications." ||
+    message === "ResizeObserver loop limit exceeded";
 }

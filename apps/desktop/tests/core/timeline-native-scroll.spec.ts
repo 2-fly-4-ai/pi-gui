@@ -73,6 +73,49 @@ test("dragging the timeline scrollbar thumb keeps the dragged scroll position", 
   }
 });
 
+test("long transcripts stay virtualized during restore", async () => {
+  test.setTimeout(90_000);
+  const userDataDir = await makeUserDataDir();
+  const workspacePath = await makeWorkspace("long-transcript-virtualized-restore-workspace");
+  await initGitRepo(workspacePath);
+  const harness = await launchDesktop(userDataDir, {
+    initialWorkspaces: [workspacePath],
+    testMode: "background",
+  });
+
+  try {
+    const window = await harness.firstWindow();
+    await createNamedThread(window, "Long transcript restore session");
+    await window.evaluate(() => {
+      const testWindow = window as typeof window & { __maxTimelineRows?: number; __timelineRowObserver?: MutationObserver };
+      const sample = () => {
+        const rowCount = document.querySelectorAll("[data-timeline-row-id]").length;
+        testWindow.__maxTimelineRows = Math.max(testWindow.__maxTimelineRows ?? 0, rowCount);
+      };
+      testWindow.__maxTimelineRows = 0;
+      testWindow.__timelineRowObserver?.disconnect();
+      testWindow.__timelineRowObserver = new MutationObserver(sample);
+      testWindow.__timelineRowObserver.observe(document.body, { childList: true, subtree: true });
+      sample();
+    });
+
+    await seedTranscriptMessages(harness, window, {
+      count: 360,
+      textFactory: (index) => `Virtualized restore row ${index} ${"wrapped content ".repeat(18)}`,
+    });
+    await expect(window.getByTestId("transcript")).toContainText("Virtualized restore row 359");
+
+    const maxRenderedRows = await window.evaluate(() => {
+      const testWindow = window as typeof window & { __maxTimelineRows?: number; __timelineRowObserver?: MutationObserver };
+      testWindow.__timelineRowObserver?.disconnect();
+      return testWindow.__maxTimelineRows ?? 0;
+    });
+    expect(maxRenderedRows).toBeLessThan(220);
+  } finally {
+    await harness.close();
+  }
+});
+
 test("fast virtualized timeline scrolling keeps a visible rendered row", async () => {
   test.setTimeout(90_000);
   const userDataDir = await makeUserDataDir();
