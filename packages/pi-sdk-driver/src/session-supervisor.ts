@@ -117,9 +117,20 @@ interface ManagedSessionRecord {
     }
   >;
   extensionUiState: ExtensionUiState;
+  renderedExtensionWidgetDisposers: Map<string, () => void>;
   bindingExtensions: boolean;
   sessionCommands: RuntimeCommandRecord[];
 }
+
+interface RenderableExtensionComponent {
+  render: (width?: number) => string[] | string;
+  dispose?: () => void;
+}
+
+type ExtensionWidgetFactory = (
+  tui: { terminal: { columns: number; rows: number }; requestRender: () => void },
+  theme: ExtensionUIContext["theme"],
+) => unknown;
 
 interface RegisteredCommandAdapter {
   readonly name: string;
@@ -751,6 +762,7 @@ export class SessionSupervisor {
       unsubscribeAgent: undefined,
       pendingHostUiRequests: new Map(),
       extensionUiState: createEmptyExtensionUiState(),
+      renderedExtensionWidgetDisposers: new Map(),
       bindingExtensions: false,
       sessionCommands: [],
     };
@@ -1005,6 +1017,8 @@ export class SessionSupervisor {
       setWorkingIndicator: () => {},
       setHiddenThinkingLabel: () => {},
       setWidget: (key, content: unknown, options?: ExtensionWidgetOptions) => {
+        const placement = options?.placement === "belowEditor" ? "belowComposer" : "aboveComposer";
+        this.disposeRenderedExtensionWidget(record, key);
         if (content === undefined || Array.isArray(content)) {
           const lines = content as readonly string[] | undefined;
           this.emitHostUiRequest(record, {
@@ -1012,9 +1026,16 @@ export class SessionSupervisor {
             requestId: crypto.randomUUID(),
             key,
             ...(lines ? { lines } : {}),
-            placement: options?.placement === "belowEditor" ? "belowComposer" : "aboveComposer",
+            placement,
           });
+          return;
         }
+
+        if (typeof content !== "function") {
+          return;
+        }
+
+        this.mountRenderedExtensionWidget(record, key, content as ExtensionWidgetFactory, placement, noOpTheme);
       },
       setFooter: () => {},
       setHeader: () => {},
@@ -1188,10 +1209,89 @@ export class SessionSupervisor {
   }
 
   private clearExtensionUiState(record: ManagedSessionRecord): void {
+    this.disposeRenderedExtensionWidgets(record);
     record.extensionUiState.statuses.clear();
     record.extensionUiState.widgets.clear();
     record.extensionUiState.title = undefined;
     record.extensionUiState.editorText = undefined;
+  }
+
+  private disposeRenderedExtensionWidgets(record: ManagedSessionRecord): void {
+    for (const key of [...record.renderedExtensionWidgetDisposers.keys()]) {
+      this.disposeRenderedExtensionWidget(record, key);
+    }
+  }
+
+  private disposeRenderedExtensionWidget(record: ManagedSessionRecord, key: string): void {
+    const dispose = record.renderedExtensionWidgetDisposers.get(key);
+    if (!dispose) {
+      return;
+    }
+    record.renderedExtensionWidgetDisposers.delete(key);
+    try {
+      dispose();
+    } catch {
+      // Extension widget cleanup is best-effort.
+    }
+  }
+
+  private mountRenderedExtensionWidget(
+    record: ManagedSessionRecord,
+    key: string,
+    factory: ExtensionWidgetFactory,
+    placement: "aboveComposer" | "belowComposer",
+    theme: ExtensionUIContext["theme"],
+  ): void {
+    let component: RenderableExtensionComponent | undefined;
+    let disposed = false;
+    let lastSignature: string | undefined;
+
+    const render = () => {
+      if (disposed || !component) {
+        return;
+      }
+      let lines: string[];
+      try {
+        lines = normalizeRenderedWidgetLines(component.render(100));
+      } catch (error) {
+        void this.emitExtensionError(record, "<extension-widget>", `render:${key}`, error instanceof Error ? error.message : String(error));
+        return;
+      }
+      const signature = lines.join("\n");
+      if (signature === lastSignature) {
+        return;
+      }
+      lastSignature = signature;
+      this.emitHostUiRequest(record, {
+        kind: "widget",
+        requestId: crypto.randomUUID(),
+        key,
+        ...(lines.length > 0 ? { lines } : {}),
+        placement,
+      });
+    };
+
+    const tui = {
+      terminal: { columns: 100, rows: 24 },
+      requestRender: render,
+    };
+
+    try {
+      const created = factory(tui, theme);
+      if (!isRenderableExtensionComponent(created)) {
+        return;
+      }
+      component = created;
+    } catch (error) {
+      void this.emitExtensionError(record, "<extension-widget>", `setWidget:${key}`, error instanceof Error ? error.message : String(error));
+      return;
+    }
+
+    record.renderedExtensionWidgetDisposers.set(key, () => {
+      disposed = true;
+      component?.dispose?.();
+    });
+    render();
   }
 
   private resetExtensionUi(record: ManagedSessionRecord): void {
@@ -1997,6 +2097,15 @@ function shortenHomePath(path: string): string {
     return `~${path.slice(homePath.length)}`;
   }
   return path;
+}
+
+function isRenderableExtensionComponent(value: unknown): value is RenderableExtensionComponent {
+  return typeof value === "object" && value !== null && "render" in value && typeof value.render === "function";
+}
+
+function normalizeRenderedWidgetLines(value: string[] | string): string[] {
+  const lines = Array.isArray(value) ? value : [value];
+  return lines.map((line) => String(line)).filter((line) => line.trim().length > 0);
 }
 
 function previewForTreeContent(content: unknown): string | undefined {

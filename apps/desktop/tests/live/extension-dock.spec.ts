@@ -69,6 +69,25 @@ export default function tickingExtension(pi) {
 }
 `;
 
+const functionWidgetExtensionSource = String.raw`
+export default function functionWidgetExtension(pi) {
+  pi.on("session_start", async (_event, ctx) => {
+    ctx.ui.setWidget("function-widget", (tui, theme) => {
+      let tick = 0;
+      const interval = setInterval(() => {
+        tick += 1;
+        tui.requestRender();
+        if (tick >= 2) clearInterval(interval);
+      }, 150);
+      return {
+        render: () => [theme.fg("accent", "Function widget tick " + tick)],
+        dispose: () => clearInterval(interval),
+      };
+    });
+  });
+}
+`;
+
 test("renders a single collapsed dock inside the composer surface and expands to one text body", async () => {
   test.setTimeout(60_000);
   const userDataDir = await makeUserDataDir();
@@ -188,6 +207,30 @@ test("uses literal fallback summaries for status-only and widget-only extension 
     await dockToggle.click();
     await expect(dockBody).toContainText("Widget only line");
     await expect(dockBody).not.toContainText("Only status");
+  } finally {
+    await harness.close();
+  }
+});
+
+test("renders TUI function widgets as composer dock text and responds to requestRender", async () => {
+  test.setTimeout(60_000);
+  const userDataDir = await makeUserDataDir();
+  const workspacePath = await makeWorkspace("extension-dock-function-widget-workspace");
+  await writeProjectExtension(workspacePath, "function-widget-extension.ts", functionWidgetExtensionSource);
+
+  const harness = await launchDesktop(userDataDir, {
+    initialWorkspaces: [workspacePath],
+    testMode: "background",
+  });
+
+  try {
+    const window = await harness.firstWindow();
+    await createNamedThread(window, "Function widget session");
+
+    await expect(window.getByTestId("extension-dock")).toBeVisible();
+    await expect(window.getByTestId("extension-dock-summary")).toHaveText("Function widget tick 2", { timeout: 10_000 });
+    await window.getByTestId("extension-dock-toggle").click();
+    await expect(window.getByTestId("extension-dock-body")).toContainText("Function widget tick 2");
   } finally {
     await harness.close();
   }
