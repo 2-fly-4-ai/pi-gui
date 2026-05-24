@@ -9,10 +9,70 @@ import {
   makeUserDataDir,
   makeWorkspace,
   openNewThread,
+  seedTranscriptMessages,
   stubNextOpenDialog,
   writeTextFile,
   writeTinyPng,
 } from "../helpers/electron-app";
+
+test("typing in a long bottom-pinned thread keeps the composer and timeline stable", async () => {
+  test.setTimeout(60_000);
+  const userDataDir = await makeUserDataDir();
+  const workspacePath = await makeWorkspace("composer-typing-stability");
+
+  const harness = await launchDesktop(userDataDir, {
+    initialWorkspaces: [workspacePath],
+    testMode: "background",
+  });
+
+  try {
+    const window = await harness.firstWindow();
+    await createNamedThread(window, "Typing stability");
+    await seedTranscriptMessages(harness, window, {
+      count: 80,
+      textFactory: (index) => `seeded transcript row ${index} with enough text to fill the visible conversation pane`,
+    });
+    await window.evaluate(() => {
+      const pane = document.querySelector<HTMLElement>(".timeline-pane");
+      if (pane) {
+        pane.scrollTop = pane.scrollHeight;
+      }
+    });
+
+    const before = await window.evaluate(() => {
+      const pane = document.querySelector<HTMLElement>(".timeline-pane");
+      const composer = document.querySelector<HTMLTextAreaElement>("[data-testid='composer']");
+      if (!pane || !composer) {
+        throw new Error("Composer or timeline pane was unavailable");
+      }
+      return {
+        composerHeight: composer.getBoundingClientRect().height,
+        remaining: pane.scrollHeight - pane.scrollTop - pane.clientHeight,
+      };
+    });
+
+    const composer = window.getByTestId("composer");
+    const prompt = "one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen twenty";
+    const remainingAfterEachKey: number[] = [];
+    for (const character of prompt) {
+      await composer.type(character, { delay: 1 });
+      await window.waitForTimeout(20);
+      remainingAfterEachKey.push(await window.evaluate(() => {
+        const pane = document.querySelector<HTMLElement>(".timeline-pane");
+        if (!pane) {
+          throw new Error("Timeline pane was unavailable");
+        }
+        return pane.scrollHeight - pane.scrollTop - pane.clientHeight;
+      }));
+    }
+
+    const afterComposerHeight = await composer.evaluate((element) => element.getBoundingClientRect().height);
+    expect(afterComposerHeight).toBeGreaterThan(before.composerHeight);
+    expect(Math.max(...remainingAfterEachKey)).toBeLessThanOrEqual(before.remaining + 4);
+  } finally {
+    await harness.close();
+  }
+});
 
 test("existing thread highlights and accepts dropped images and files", async () => {
   test.setTimeout(60_000);
@@ -41,6 +101,38 @@ test("existing thread highlights and accepts dropped images and files", async ()
     await expect(window.locator(".composer-attachment--image")).toHaveCount(1);
     await expect(window.locator(".composer-attachment--file")).toHaveCount(1);
     await expect(window.locator(".composer-attachment__name")).toContainText(["drop-image.png", "notes.txt"]);
+  } finally {
+    await harness.close();
+  }
+});
+
+test("dropping files on the text input renders image and file previews", async () => {
+  test.setTimeout(60_000);
+  const userDataDir = await makeUserDataDir();
+  const workspacePath = await makeWorkspace("composer-drop-textarea-target");
+  const imagePath = join(workspacePath, "textarea-drop-image.png");
+  const filePath = join(workspacePath, "textarea-notes.txt");
+  await writeTinyPng(imagePath);
+  await writeTextFile(filePath, "textarea drop file sentinel");
+
+  const harness = await launchDesktop(userDataDir, {
+    initialWorkspaces: [workspacePath],
+    testMode: "background",
+  });
+
+  try {
+    const window = await harness.firstWindow();
+    await createNamedThread(window, "Textarea drop attachments");
+
+    await dragFilesOverComposer(window, [imagePath, filePath], "composer");
+    await expect(window.getByTestId("composer-drop-indicator")).toBeVisible();
+
+    await dropFilesOnComposer(window, [imagePath, filePath], "composer");
+
+    const preview = window.locator(".composer-attachment--image .composer-attachment__preview");
+    await expect(preview).toBeVisible();
+    await expect(preview).toHaveAttribute("src", /^data:image\/png;base64,/);
+    await expect(window.locator(".composer-attachment--file")).toContainText("textarea-notes.txt");
   } finally {
     await harness.close();
   }

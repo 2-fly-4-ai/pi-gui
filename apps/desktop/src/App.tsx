@@ -280,6 +280,7 @@ export default function App() {
   const previousTimelineScrollTopRef = useRef<number | null>(null);
   const lastTimelinePinnedBySessionRef = useRef(new Map<string, boolean>());
   const preserveBottomOnNextPaneResizeRef = useRef(false);
+  const composerResizeBottomLockUntilRef = useRef(0);
   const exactBottomRestoreSessionKeyRef = useRef<string | null>(null);
   const deferredPinnedBottomAlignmentRef = useRef(false);
   const pendingPinnedBottomBehaviorRef = useRef<ScrollBehavior>("auto");
@@ -1855,25 +1856,35 @@ export default function App() {
 
     const pane = timelinePaneRef.current;
     const previousHeight = composer.getBoundingClientRect().height;
-    const shouldPreserveBottom = followingLatestRef.current && (pane
-      ? isNearBottom(pane) || pinnedToBottomRef.current || preserveBottomOnNextPaneResizeRef.current
-      : pinnedToBottomRef.current || preserveBottomOnNextPaneResizeRef.current);
+    const composerResizeOwnsBottom = performance.now() < composerResizeBottomLockUntilRef.current;
+    const shouldPreserveBottom = (followingLatestRef.current || composerResizeOwnsBottom) && (pane
+      ? isNearBottom(pane) || pinnedToBottomRef.current || preserveBottomOnNextPaneResizeRef.current || composerResizeOwnsBottom
+      : pinnedToBottomRef.current || preserveBottomOnNextPaneResizeRef.current || composerResizeOwnsBottom);
 
     composer.style.height = "0px";
     composer.style.height = `${Math.min(composer.scrollHeight, 220)}px`;
 
     const nextHeight = composer.getBoundingClientRect().height;
     if (Math.abs(nextHeight - previousHeight) >= 1 && shouldPreserveBottom) {
+      const lockUntil = performance.now() + 300;
+      composerResizeBottomLockUntilRef.current = lockUntil;
+      suppressNativeTimelineScrollIntentUntilRef.current = lockUntil;
       preserveBottomOnNextPaneResizeRef.current = true;
       requestPinnedBottomAlignment("auto");
-      window.requestAnimationFrame(() => {
-        window.requestAnimationFrame(() => {
-          preserveBottomOnNextPaneResizeRef.current = false;
-          if (pinnedToBottomRef.current) {
-            requestPinnedBottomAlignment("auto");
-          }
-        });
-      });
+      window.setTimeout(() => {
+        if (composerResizeBottomLockUntilRef.current !== lockUntil) {
+          return;
+        }
+        requestPinnedBottomAlignment("auto");
+        preserveBottomOnNextPaneResizeRef.current = false;
+        composerResizeBottomLockUntilRef.current = 0;
+      }, 300);
+      return;
+    }
+
+    if (composerResizeOwnsBottom && shouldPreserveBottom) {
+      suppressNativeTimelineScrollIntentUntilRef.current = performance.now() + 300;
+      requestPinnedBottomAlignment("auto");
     }
   }, [composerDraft, requestPinnedBottomAlignment]);
 
@@ -2855,7 +2866,8 @@ export default function App() {
     const now = performance.now();
     const recentProgrammaticScroll = now - lastProgrammaticTimelineScrollAtRef.current < 180;
     const suppressNativeScrollIntent = now < suppressNativeTimelineScrollIntentUntilRef.current;
-    const nativeUserScrollIntent = !manualTimelineScrollRestoreRef.current && !autoAligningTimelineRef.current && !recentProgrammaticScroll && !suppressNativeScrollIntent && movedWithoutExplicitInput;
+    const composerResizeOwnsBottom = now < composerResizeBottomLockUntilRef.current;
+    const nativeUserScrollIntent = !composerResizeOwnsBottom && !manualTimelineScrollRestoreRef.current && !autoAligningTimelineRef.current && !recentProgrammaticScroll && !suppressNativeScrollIntent && movedWithoutExplicitInput;
     const userScrollIntent = explicitUserScrollIntent || nativeUserScrollIntent;
     if (userScrollIntent) {
       lastUserTimelineScrollIntentAtRef.current = now;
@@ -2864,6 +2876,16 @@ export default function App() {
     userTimelineScrollIntentRef.current = false;
 
     if (!pinned) {
+      if (composerResizeOwnsBottom && !explicitUserScrollIntent) {
+        pinnedToBottomRef.current = true;
+        followingLatestRef.current = true;
+        manualTimelineScrollTopRef.current = null;
+        window.requestAnimationFrame(() => {
+          requestPinnedBottomAlignment("auto");
+        });
+        return;
+      }
+
       if (!userScrollIntent) {
         if (manualTimelineScrollRestoreRef.current) {
           return;
