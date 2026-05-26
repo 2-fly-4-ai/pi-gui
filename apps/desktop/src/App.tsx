@@ -74,6 +74,7 @@ import {
   readComposerAttachmentsFromFiles,
 } from "./composer-attachments";
 import { normalizeToolAccess } from "./tool-access";
+import { runtimeBadgeCount, runtimeStatusLabel } from "./runtime-status";
 import {
   clampVsCodeSidePanelWidth,
   getInitialVsCodeSidePanelWidth,
@@ -3223,6 +3224,7 @@ export default function App() {
           onArchiveSession={handleArchiveSession}
           onSelectSession={handleSelectSession}
           onUnarchiveSession={handleUnarchiveSession}
+          getRuntimeBadgeCount={runtimeBadgeCount}
         />
       ) : null}
 
@@ -3440,6 +3442,7 @@ export default function App() {
               }
               onSubmit={submitComposerDraft}
               sessionStatus={selectedSession.status}
+              runtimeStatusText={runtimeStatusLabel(selectedSession)}
               lastError={snapshot.lastError}
               selectedSlashCommand={slashMenu.activeSlashOptionCommand ?? slashMenu.selectedSlashCommand}
               selectedSlashOption={slashMenu.selectedSlashOption}

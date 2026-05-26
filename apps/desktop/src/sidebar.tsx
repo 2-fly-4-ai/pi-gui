@@ -45,6 +45,7 @@ interface SidebarProps {
   readonly onArchiveSession: (target: { workspaceId: string; sessionId: string }) => void;
   readonly onSelectSession: (target: { workspaceId: string; sessionId: string }) => void;
   readonly onUnarchiveSession: (target: { workspaceId: string; sessionId: string }) => void;
+  readonly getRuntimeBadgeCount: (session: SessionRecord | undefined) => number;
 }
 
 export function Sidebar(props: SidebarProps) {
@@ -67,6 +68,7 @@ export function Sidebar(props: SidebarProps) {
     onArchiveSession,
     onSelectSession,
     onUnarchiveSession,
+    getRuntimeBadgeCount,
   } = props;
 
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -222,6 +224,7 @@ export function Sidebar(props: SidebarProps) {
                     onArchiveSession={onArchiveSession}
                     onSelectSession={onSelectSession}
                     onUnarchiveSession={onUnarchiveSession}
+                    getRuntimeBadgeCount={getRuntimeBadgeCount}
                   />
                 ))}
                 {orphanGroups.map((group) => (
@@ -237,6 +240,7 @@ export function Sidebar(props: SidebarProps) {
                     onArchiveSession={onArchiveSession}
                     onSelectSession={onSelectSession}
                     onUnarchiveSession={onUnarchiveSession}
+                    getRuntimeBadgeCount={getRuntimeBadgeCount}
                   />
                 ))}
               </div>
@@ -255,6 +259,7 @@ export function Sidebar(props: SidebarProps) {
                     onArchiveSession={onArchiveSession}
                     onSelectSession={onSelectSession}
                     onUnarchiveSession={onUnarchiveSession}
+                    getRuntimeBadgeCount={getRuntimeBadgeCount}
                   />
                 </div>
               ) : null}
@@ -279,6 +284,7 @@ interface WorkspaceGroupProps {
   readonly onArchiveSession: (target: { workspaceId: string; sessionId: string }) => void;
   readonly onSelectSession: (target: { workspaceId: string; sessionId: string }) => void;
   readonly onUnarchiveSession: (target: { workspaceId: string; sessionId: string }) => void;
+  readonly getRuntimeBadgeCount: (session: SessionRecord | undefined) => number;
 }
 
 function SortableWorkspaceGroup(props: WorkspaceGroupProps) {
@@ -329,6 +335,7 @@ function WorkspaceGroupContent(
     onArchiveSession,
     onSelectSession,
     onUnarchiveSession,
+    getRuntimeBadgeCount,
     dragHandleProps,
   } = props;
 
@@ -473,6 +480,7 @@ function WorkspaceGroupContent(
                   onArchive={() => onArchiveSession({ workspaceId: thread.workspaceId, sessionId: thread.session.id })}
                   onRename={(title) => void api.renameSession({ workspaceId: thread.workspaceId, sessionId: thread.session.id }, title)}
                   onSelect={() => onSelectSession({ workspaceId: thread.workspaceId, sessionId: thread.session.id })}
+                  runtimeBadgeCount={getRuntimeBadgeCount(thread.session)}
                 />
               );
             })}
@@ -508,6 +516,7 @@ function WorkspaceGroupContent(
                         onArchive={() => onUnarchiveSession({ workspaceId: thread.workspaceId, sessionId: thread.session.id })}
                         onRename={(title) => void api.renameSession({ workspaceId: thread.workspaceId, sessionId: thread.session.id }, title)}
                         onSelect={() => onSelectSession({ workspaceId: thread.workspaceId, sessionId: thread.session.id })}
+                        runtimeBadgeCount={getRuntimeBadgeCount(thread.session)}
                       />
                     );
                   })}
@@ -536,6 +545,7 @@ function ThreadSessionRow({
   onArchive,
   onRename,
   onSelect,
+  runtimeBadgeCount,
 }: {
   readonly active: boolean;
   readonly archived?: boolean;
@@ -543,6 +553,7 @@ function ThreadSessionRow({
   readonly onArchive: () => void;
   readonly onRename: (title: string) => void;
   readonly onSelect: () => void;
+  readonly runtimeBadgeCount: number;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [renaming, setRenaming] = useState(false);
@@ -615,6 +626,11 @@ function ThreadSessionRow({
           <span className="session-row__body">
             <span className="session-row__title-line">
               <span className="session-row__title">{thread.session.title}</span>
+              {runtimeBadgeCount > 0 ? (
+                <span className="session-row__runtime-badge" data-testid="session-runtime-badge">
+                  {runtimeBadgeCount}
+                </span>
+              ) : null}
             </span>
             {thread.session.preview ? <span className="session-row__preview">{thread.session.preview}</span> : null}
           </span>

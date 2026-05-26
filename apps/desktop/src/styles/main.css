@@ -207,6 +207,20 @@
   animation: running-pulse 1.35s ease-out infinite;
 }
 
+.topbar__runtime-status {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 0 9px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface-muted);
+  color: var(--muted-strong);
+  font-size: 12px;
+  font-weight: 560;
+  white-space: nowrap;
+}
+
 .topbar__actions,
 .empty-panel__actions {
   display: flex;
@@ -2210,6 +2224,12 @@
 .composer__footer-meta {
   color: var(--muted-soft);
   font-size: 12px;
+}
+
+.composer-runtime-status {
+  color: var(--muted-soft);
+  font-size: 12px;
+  font-weight: 560;
 }
 
 .composer-control-bar {
@@ -8096,9 +8116,32 @@ mark.thread-find-active {
   white-space: nowrap;
 }
 
+.logs-panel__tabs {
+  display: flex;
+  gap: 6px;
+  padding: 10px 10px 0;
+}
+
+.logs-panel__tab {
+  min-height: 30px;
+  padding: 0 10px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+  background: transparent;
+  color: #8b98ad;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.logs-panel__tab--active {
+  background: #151b26;
+  color: #e8edf7;
+  border-color: rgba(125, 146, 255, 0.7);
+}
+
 .logs-panel__filters {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 110px 120px;
+  grid-template-columns: minmax(0, 1fr) 110px 120px 120px;
   gap: 6px;
   padding: 10px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
@@ -8115,12 +8158,18 @@ mark.thread-find-active {
   min-width: 0;
 }
 
+.logs-panel__runtime-note,
 .logs-panel__warning,
 .logs-panel__error {
   margin: 8px 10px 0;
   padding: 8px;
   border-radius: 8px;
   font-size: 12px;
+}
+
+.logs-panel__runtime-note {
+  background: rgba(125, 146, 255, 0.12);
+  color: #cdd6ff;
 }
 
 .logs-panel__warning {
@@ -8131,6 +8180,57 @@ mark.thread-find-active {
 .logs-panel__error {
   background: rgba(248, 81, 73, 0.14);
   color: #ffb4aa;
+}
+
+.logs-panel__runtime {
+  display: grid;
+  gap: 10px;
+  padding: 12px 10px 10px;
+  min-height: 0;
+  overflow: auto;
+}
+
+.logs-panel__runtime-status {
+  display: grid;
+  gap: 3px;
+  padding: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  background: #151b26;
+}
+
+.logs-panel__runtime-label {
+  color: #8b98ad;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.logs-panel__runtime-jobs {
+  display: grid;
+  gap: 8px;
+}
+
+.logs-panel__runtime-job {
+  display: grid;
+  gap: 4px;
+  padding: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  background: #151b26;
+}
+
+.logs-panel__runtime-job-title {
+  color: #e8edf7;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.logs-panel__runtime-job-meta,
+.logs-panel__runtime-job-message {
+  color: #8b98ad;
+  font-size: 12px;
 }
 
 .logs-panel__body {
@@ -8233,4 +8333,18 @@ mark.thread-find-active {
   color: #8b98ad;
   padding: 16px;
   font-size: 13px;
+}
+
+.session-row__runtime-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  min-height: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 16%, var(--surface-muted));
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 700;
 }

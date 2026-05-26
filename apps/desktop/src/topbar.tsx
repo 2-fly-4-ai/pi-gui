@@ -5,6 +5,7 @@ import { DiffIcon, FolderIcon, LogsIcon, PlusIcon, SidebarToggleIcon, TerminalIc
 import { getDesktopShortcutLabel, type PiDesktopApi } from "./ipc";
 import { GitQuickActions } from "./git-quick-actions";
 import type { WorkspaceMenuState } from "./hooks/use-workspace-menu";
+import { runtimeStatusLabel } from "./runtime-status";
 
 interface TopbarProps {
   readonly activeView: AppView;
@@ -157,6 +158,9 @@ export function Topbar(props: TopbarProps) {
           <>
             <span className="topbar__separator">/</span>
             <span className="topbar__session">{selectedSessionTitle ?? selectedSession.title}</span>
+            <span className="topbar__runtime-status" data-testid="topbar-runtime-status">
+              {runtimeStatusLabel(selectedSession)}
+            </span>
             {selectedSession.status === "running" && selectedSessionRunningLabel ? (
               <span className="topbar__running" aria-label={selectedSessionRunningLabel}>
                 <span className="topbar__running-dot" aria-hidden="true" />

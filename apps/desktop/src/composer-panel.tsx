@@ -22,6 +22,7 @@ import { ThinkingTraceToggle } from "./thinking-trace-toggle";
 
 interface ComposerPanelProps {
   readonly sessionStatus: SessionRecord["status"];
+  readonly runtimeStatusText: string;
   readonly lastError?: string;
   readonly runtime?: RuntimeSnapshot;
   readonly activeSlashCommand?: ComposerSlashCommand;
@@ -81,6 +82,7 @@ interface ComposerPanelProps {
 
 export const ComposerPanel = memo(function ComposerPanel({
   sessionStatus,
+  runtimeStatusText,
   lastError,
   runtime,
   activeSlashCommand,
@@ -187,6 +189,9 @@ export const ComposerPanel = memo(function ComposerPanel({
           onToggleExtensionDock={onToggleExtensionDock}
           footer={(
             <div className="composer__footer">
+              <span className="composer-runtime-status" data-testid="composer-runtime-status">
+                {runtimeStatusText}
+              </span>
               <ComposerControlBar
                 modelControl={(
                   <ModelSelector
