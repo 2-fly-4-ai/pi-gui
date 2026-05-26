@@ -17,6 +17,55 @@ export interface SessionRef {
 }
 
 export type SessionStatus = "idle" | "running" | "failed";
+export type RuntimeJobKind = "tool" | "process" | "background";
+export type RuntimeJobStatus = "running" | "exited" | "failed" | "background" | "unknown" | "killed";
+export type RuntimeJobConfidence = "tracked" | "survived" | "claimed" | "unknown";
+
+export interface RuntimeProcessSnapshot {
+  readonly pid: number;
+  readonly parentPid?: number;
+  readonly processGroupId?: number;
+  readonly command?: string;
+  readonly cwd?: string;
+  readonly status: RuntimeJobStatus;
+  readonly confidence: RuntimeJobConfidence;
+  readonly startedAt?: Timestamp;
+  readonly updatedAt: Timestamp;
+  readonly exitedAt?: Timestamp;
+  readonly exitCode?: number | null;
+  readonly signal?: string;
+}
+
+export interface RuntimeJobSnapshot {
+  readonly id: string;
+  readonly sessionRef: SessionRef;
+  readonly runId?: RunId;
+  readonly toolCallId?: string;
+  readonly kind: RuntimeJobKind;
+  readonly status: RuntimeJobStatus;
+  readonly confidence: RuntimeJobConfidence;
+  readonly title: string;
+  readonly command?: string;
+  readonly cwd?: string;
+  readonly startedAt: Timestamp;
+  readonly updatedAt: Timestamp;
+  readonly endedAt?: Timestamp;
+  readonly exitCode?: number | null;
+  readonly signal?: string;
+  readonly process?: RuntimeProcessSnapshot;
+  readonly children?: readonly RuntimeProcessSnapshot[];
+  readonly logPaths?: readonly string[];
+  readonly artifactPaths?: readonly string[];
+  readonly message?: string;
+}
+
+export interface RuntimeSummarySnapshot {
+  readonly agentStatus: SessionStatus;
+  readonly activeToolCount: number;
+  readonly backgroundJobCount: number;
+  readonly unknownJobCount: number;
+  readonly jobs: readonly RuntimeJobSnapshot[];
+}
 
 export type SessionMessageDeliveryMode = "steer" | "followUp";
 
@@ -40,6 +89,7 @@ export interface SessionSnapshot {
   readonly config?: SessionConfig;
   readonly runningRunId?: RunId;
   readonly queuedMessages?: readonly SessionQueuedMessage[];
+  readonly runtimeSummary?: RuntimeSummarySnapshot;
 }
 
 export interface SessionImageAttachment {
@@ -187,6 +237,12 @@ export interface ToolFinishedEvent extends SessionEventBase {
   readonly output?: unknown;
 }
 
+export interface RuntimeJobUpdatedEvent extends SessionEventBase {
+  readonly type: "runtimeJobUpdated";
+  readonly job: RuntimeJobSnapshot;
+  readonly summary: RuntimeSummarySnapshot;
+}
+
 export interface RunCompletedEvent extends SessionEventBase {
   readonly type: "runCompleted";
   readonly snapshot: SessionSnapshot;
@@ -316,6 +372,7 @@ export type SessionDriverEvent =
   | ToolStartedEvent
   | ToolUpdatedEvent
   | ToolFinishedEvent
+  | RuntimeJobUpdatedEvent
   | RunCompletedEvent
   | RunFailedEvent
   | HostUiRequestEvent
