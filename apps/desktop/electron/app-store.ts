@@ -19,6 +19,7 @@ import type {
 import type {
   CreateSessionOptions,
   HostUiResponse,
+  RuntimeSummarySnapshot,
   SessionConfig,
   SessionDriverEvent,
   SessionQueuedMessage,
@@ -205,6 +206,16 @@ function transcriptItemPublishMarker(item: TranscriptMessage): string {
       return [item.id, item.kind, item.label, item.detail ?? "", item.metadata ?? "", item.tone ?? ""].join(":");
     case "summary":
       return [item.id, item.kind, item.presentation, item.label, item.metadata ?? ""].join(":");
+    case "runtime-job":
+      return [
+        item.id,
+        item.kind,
+        item.job.id,
+        item.job.status,
+        item.job.updatedAt,
+        item.job.title,
+        item.job.message ?? "",
+      ].join(":");
   }
 }
 
@@ -1182,6 +1193,7 @@ export class DesktopAppStore implements AppStoreInternals {
         this.sessionState.runningSinceBySession,
         this.sessionState.sessionConfigBySession,
         this.sessionState.lastViewedAtBySession,
+        runtimeSummaryBySessionFromWorkspaces(this.state.workspaces),
       );
       const worktreesByWorkspace = buildWorktreeRecords(workspacesSnapshot.workspaces, worktreeEntries);
       const liveWorkspaceIds = new Set(workspaces.map((w) => w.id));
@@ -1250,6 +1262,7 @@ export class DesktopAppStore implements AppStoreInternals {
         selectedSessionId,
         activeView,
         runtimeByWorkspace,
+        runtimeJobsBySession: mapToRecord(this.sessionState.runtimeJobsBySession),
         sessionCommandsBySession: mapToRecord(this.sessionState.sessionCommandsBySession),
         sessionExtensionUiBySession: this.serializeSessionExtensionUiState(),
         extensionCommandCompatibilityByWorkspace: serializeCompatibilityByWorkspace(this.extensionCommandCompatibilityByWorkspace),
@@ -1740,6 +1753,7 @@ export class DesktopAppStore implements AppStoreInternals {
         break;
       case "sessionClosed":
         this.sessionState.extensionUiBySession.delete(key);
+        this.sessionState.runtimeJobsBySession.delete(key);
         this.sessionState.sessionCommandsBySession.delete(key);
         this.sessionState.queuedComposerMessagesBySession.delete(key);
         this.sessionState.queuedComposerEditsBySession.delete(key);
@@ -1750,6 +1764,12 @@ export class DesktopAppStore implements AppStoreInternals {
       case "toolStarted":
       case "toolUpdated":
       case "toolFinished":
+        break;
+      case "runtimeJobUpdated":
+        this.sessionState.runtimeJobsBySession.set(
+          key,
+          [...(this.sessionState.runtimeJobsBySession.get(key) ?? []).filter((job) => job.id !== event.job.id), event.job],
+        );
         break;
       case "hostUiRequest":
         this.applyHostUiRequest(event);
@@ -1781,6 +1801,11 @@ export class DesktopAppStore implements AppStoreInternals {
       this.sessionState.runningSinceBySession,
       this.sessionState.lastViewedAtBySession,
     );
+    const runtimeSummary = runtimeSummaryForEvent(event);
+    if (runtimeSummary !== undefined) {
+      this.sessionState.runtimeJobsBySession.set(key, [...runtimeSummary.jobs]);
+      this.state = this.withRuntimeJobState(this.state, event.sessionRef, runtimeSummary);
+    }
     this.markSessionViewedIfActivelyViewed(event.sessionRef);
     this.state = this.syncDerivedSessionState(this.state, event.sessionRef);
     if (shouldFollowSessionMutation && event.type !== "sessionClosed") {
@@ -1936,6 +1961,11 @@ export class DesktopAppStore implements AppStoreInternals {
 
     return {
       ...state,
+      runtimeJobsBySession: updateRecordValue(
+        state.runtimeJobsBySession,
+        key,
+        this.sessionState.runtimeJobsBySession.get(key),
+      ),
       sessionCommandsBySession: updateRecordValue(
         state.sessionCommandsBySession,
         key,
@@ -2572,6 +2602,10 @@ export class DesktopAppStore implements AppStoreInternals {
     runtimeByWorkspace?: Record<string, RuntimeSnapshot>,
   ): DesktopAppState {
     const key = sessionKey(sessionRef);
+    const runtimeSummary = snapshot?.runtimeSummary;
+    if (runtimeSummary) {
+      this.sessionState.runtimeJobsBySession.set(key, [...runtimeSummary.jobs]);
+    }
     const transcript = (this.sessionState.transcriptCache.get(key) ?? []).map(cloneTranscriptMessage);
     const preview = previewFromTranscript(transcript);
     const lastViewedAt = this.sessionState.lastViewedAtBySession.get(key);
@@ -2609,8 +2643,34 @@ export class DesktopAppStore implements AppStoreInternals {
       revision: state.revision + 1,
     };
 
-    return this.syncDerivedSessionState(nextState, sessionRef);
+    return this.syncDerivedSessionState(
+      runtimeSummary ? this.withRuntimeJobState(nextState, sessionRef, runtimeSummary) : nextState,
+      sessionRef,
+    );
   }
+
+  private withRuntimeJobState(
+    state: DesktopAppState,
+    sessionRef: SessionRef,
+    summary: RuntimeSummarySnapshot,
+  ): DesktopAppState {
+    const key = sessionKey(sessionRef);
+    return {
+      ...state,
+      runtimeJobsBySession: updateRecordValue(state.runtimeJobsBySession, key, this.sessionState.runtimeJobsBySession.get(key)),
+      workspaces: state.workspaces.map((workspace) =>
+        workspace.id === sessionRef.workspaceId
+          ? {
+              ...workspace,
+              sessions: workspace.sessions.map((session) =>
+                session.id === sessionRef.sessionId ? { ...session, runtimeSummary: summary } : session,
+              ),
+            }
+          : workspace,
+      ),
+    };
+  }
+
   setPendingAutoTitle(sessionRef: SessionRef, pending: import("./session-state-map").PendingAutoTitle): void {
     this.clearPendingAutoTitle(sessionRef);
     this.sessionState.pendingAutoTitleBySession.set(sessionKey(sessionRef), pending);
@@ -2632,6 +2692,29 @@ export class DesktopAppStore implements AppStoreInternals {
 }
 
 /* ── Module-private free functions ───────────────────────── */
+
+function runtimeSummaryBySessionFromWorkspaces(
+  workspaces: readonly DesktopAppState["workspaces"][number][],
+): ReadonlyMap<string, RuntimeSummarySnapshot | undefined> {
+  return new Map(
+    workspaces.flatMap((workspace) =>
+      workspace.sessions.map((session) => [sessionKey({ workspaceId: workspace.id, sessionId: session.id }), session.runtimeSummary] as const),
+    ),
+  );
+}
+
+function runtimeSummaryForEvent(event: SessionDriverEvent): RuntimeSummarySnapshot | undefined {
+  switch (event.type) {
+    case "sessionOpened":
+    case "sessionUpdated":
+    case "runCompleted":
+      return event.snapshot.runtimeSummary;
+    case "runtimeJobUpdated":
+      return event.summary;
+    default:
+      return undefined;
+  }
+}
 
 function updateRecordValue<T>(
   record: Readonly<Record<string, T>>,

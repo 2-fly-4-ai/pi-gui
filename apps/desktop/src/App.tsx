@@ -3667,6 +3667,18 @@ function buildTranscriptChangeMarker(sessionKey: string, transcript: SelectedTra
         lastItem.label.slice(-48),
         lastItem.metadata ?? "",
       ].join(":");
+    case "runtime-job":
+      return [
+        sessionKey,
+        transcript.length,
+        lastItem.id,
+        lastItem.kind,
+        lastItem.job.id,
+        lastItem.job.status,
+        lastItem.job.updatedAt,
+        lastItem.job.title,
+        lastItem.job.message ?? "",
+      ].join(":");
   }
 }
 

@@ -1,4 +1,4 @@
-import type { SessionConfig } from "@pi-gui/session-driver";
+import type { RuntimeJobSnapshot, SessionConfig } from "@pi-gui/session-driver";
 import { createEmptyExtensionUiState as createBaseExtensionUiState, type ExtensionUiState } from "@pi-gui/pi-sdk-driver";
 import type { RuntimeCommandRecord } from "@pi-gui/session-driver/runtime-types";
 import type {
@@ -46,6 +46,7 @@ export class SessionStateMap {
   readonly runningSinceBySession = new Map<string, string>();
   readonly runMetricsBySession = new Map<string, RunMetrics>();
   readonly activeWorkingActivityBySession = new Map<string, string>();
+  readonly runtimeJobsBySession = new Map<string, RuntimeJobSnapshot[]>();
   readonly sessionCommandsBySession = new Map<string, RuntimeCommandRecord[]>();
   readonly extensionUiBySession = new Map<string, MutableSessionExtensionUiState>();
   readonly pendingAutoTitleBySession = new Map<string, PendingAutoTitle>();
@@ -73,6 +74,7 @@ export class SessionStateMap {
     this.runningSinceBySession.delete(key);
     this.runMetricsBySession.delete(key);
     this.activeWorkingActivityBySession.delete(key);
+    this.runtimeJobsBySession.delete(key);
     this.composerDraftsBySession.delete(key);
     this.composerAttachmentsBySession.delete(key);
     this.queuedComposerMessagesBySession.delete(key);

@@ -1,4 +1,5 @@
 import type { SessionTranscriptMessage, SessionTranscriptRole, SessionTranscriptThinking } from "@pi-gui/pi-sdk-driver";
+import type { RuntimeJobSnapshot } from "@pi-gui/session-driver";
 
 export type SessionRole = SessionTranscriptRole;
 export type TimelineTone = "neutral" | "success" | "warning" | "error";
@@ -40,6 +41,19 @@ export interface TimelineSummary {
   readonly presentation: TimelineSummaryPresentation;
 }
 
+export interface TimelineRuntimeJob {
+  readonly kind: "runtime-job";
+  readonly id: string;
+  readonly createdAt: string;
+  readonly job: RuntimeJobSnapshot;
+}
+
 export type TimelineThinking = SessionTranscriptThinking;
 
-export type TranscriptMessage = SessionTranscriptMessage | TimelineThinking | TimelineActivity | TimelineToolCall | TimelineSummary;
+export type TranscriptMessage =
+  | SessionTranscriptMessage
+  | TimelineThinking
+  | TimelineActivity
+  | TimelineToolCall
+  | TimelineSummary
+  | TimelineRuntimeJob;
