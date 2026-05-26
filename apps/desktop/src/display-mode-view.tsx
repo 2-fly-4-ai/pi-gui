@@ -971,58 +971,66 @@ function DisplayModeTile({
         </div>
       )}
 
-      {/* Reply — uses real .composer CSS so it looks identical to thread view */}
+      {/* Reply — reuse the same composer surface/input structure as the thread view. */}
       {!compact && <div className="composer display-mode-tile__reply">
-        <ComposerSurface
-          activeSlashCommand={slashMenu.activeSlashFlow?.command}
-          activeSlashCommandMeta={slashMenu.activeSlashFlow?.command?.description}
-          attachments={[]}
-          queuedMessages={[]}
-          composerDraft={draft}
-          composerRef={textareaRef}
-          lastError={undefined}
-          onCancelQueuedEdit={() => undefined}
-          onClearSlashCommand={slashMenu.resetSlashUi}
-          onComposerDrop={(event) => event.preventDefault()}
-          onComposerKeyDown={handleKeyDown}
-          onComposerPaste={() => undefined}
-          onEditQueuedMessage={() => undefined}
-          onRemoveAttachment={() => undefined}
-          onRemoveQueuedMessage={() => undefined}
-          onSelectMention={() => undefined}
-          onSelectSlashCommand={(command) => slashMenu.applySlashCommandSelection(command, "click")}
-          onSelectSlashOption={(option) => slashMenu.applySlashOptionSelection(option)}
-          onSteerQueuedMessage={() => undefined}
-          selectedMentionIndex={0}
-          selectedSlashCommand={slashMenu.activeSlashOptionCommand ?? slashMenu.selectedSlashCommand}
-          selectedSlashOption={slashMenu.selectedSlashOption}
-          setComposerDraft={setDraft}
-          showMentionMenu={false}
-          mentionOptions={[]}
-          showSlashMenu={slashMenu.showSlashMenu}
-          showSlashOptionMenu={slashMenu.showSlashOptionMenu}
-          slashOptionEmptyState={slashMenu.slashOptionEmptyState}
-          slashOptions={slashMenu.slashOptions}
-          slashSections={slashMenu.slashSections}
-          textareaLabel={`Reply to ${record.session.title}`}
-          textareaPlaceholder={`Reply to ${record.session.title}…`}
-          textareaTestId={`display-mode-reply-${id}`}
-          compactSlashDescriptions
-          footer={(
-          <div className="display-mode-tile__reply-bar">
-            <span className="display-mode-tile__reply-hint">Enter to send · Shift+Enter newline</span>
-            <button
-              className="button button--primary button--cta-icon"
-              type="button"
-              disabled={submitting || !draft.trim()}
-              onClick={submit}
-              aria-label="Send reply"
-            >
-              <ArrowUpIcon />
-            </button>
-          </div>
-          )}
-        />
+        <div className="conversation conversation--composer">
+          <ComposerSurface
+            activeSlashCommand={slashMenu.activeSlashFlow?.command}
+            activeSlashCommandMeta={slashMenu.activeSlashFlow?.command?.description}
+            attachments={[]}
+            queuedMessages={[]}
+            composerDraft={draft}
+            composerRef={textareaRef}
+            lastError={undefined}
+            onCancelQueuedEdit={() => undefined}
+            onClearSlashCommand={slashMenu.resetSlashUi}
+            onComposerDrop={(event) => event.preventDefault()}
+            onComposerKeyDown={handleKeyDown}
+            onComposerPaste={() => undefined}
+            onEditQueuedMessage={() => undefined}
+            onRemoveAttachment={() => undefined}
+            onRemoveQueuedMessage={() => undefined}
+            onSelectMention={() => undefined}
+            onSelectSlashCommand={(command) => slashMenu.applySlashCommandSelection(command, "click")}
+            onSelectSlashOption={(option) => slashMenu.applySlashOptionSelection(option)}
+            onSteerQueuedMessage={() => undefined}
+            selectedMentionIndex={0}
+            selectedSlashCommand={slashMenu.activeSlashOptionCommand ?? slashMenu.selectedSlashCommand}
+            selectedSlashOption={slashMenu.selectedSlashOption}
+            setComposerDraft={setDraft}
+            showMentionMenu={false}
+            mentionOptions={[]}
+            showSlashMenu={slashMenu.showSlashMenu}
+            showSlashOptionMenu={slashMenu.showSlashOptionMenu}
+            slashOptionEmptyState={slashMenu.slashOptionEmptyState}
+            slashOptions={slashMenu.slashOptions}
+            slashSections={slashMenu.slashSections}
+            textareaLabel={`Reply to ${record.session.title}`}
+            textareaPlaceholder={`Reply to ${record.session.title}…`}
+            textareaTestId={`display-mode-reply-${id}`}
+            compactSlashDescriptions
+            footer={(
+              <div className="composer__footer">
+                <div className="composer-control-bar display-mode-tile__reply-bar">
+                  <div className="composer-control-bar__left">
+                    <span className="display-mode-tile__reply-hint">Enter to send · Shift+Enter newline</span>
+                  </div>
+                  <div className="composer-control-bar__right">
+                    <button
+                      className="button button--primary button--cta-icon"
+                      type="button"
+                      disabled={submitting || !draft.trim()}
+                      onClick={submit}
+                      aria-label="Send reply"
+                    >
+                      <ArrowUpIcon />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+          />
+        </div>
       </div>}
     </article>
   );

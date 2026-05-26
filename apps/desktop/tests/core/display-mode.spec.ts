@@ -13,6 +13,30 @@ import {
   waitForWorkspaceByPath,
 } from "../helpers/electron-app";
 
+function readComposerSurfaceStyles(surfaceElement: Element) {
+  const surface = surfaceElement as HTMLElement;
+  const textarea = surface.querySelector("textarea");
+  if (!(textarea instanceof HTMLTextAreaElement)) {
+    throw new Error("Composer surface did not contain a textarea");
+  }
+  const surfaceStyles = window.getComputedStyle(surface);
+  const textareaStyles = window.getComputedStyle(textarea);
+  return {
+    surface: {
+      backgroundColor: surfaceStyles.backgroundColor,
+      borderRadius: surfaceStyles.borderRadius,
+      boxShadow: surfaceStyles.boxShadow,
+      padding: surfaceStyles.padding,
+    },
+    textarea: {
+      fontSize: textareaStyles.fontSize,
+      lineHeight: textareaStyles.lineHeight,
+      maxHeight: textareaStyles.maxHeight,
+      minHeight: textareaStyles.minHeight,
+    },
+  };
+}
+
 test("opens a Display Mode tile back into Threads with its transcript hydrated", async () => {
   const userDataDir = await makeUserDataDir();
   const workspacePath = await makeWorkspace("display-mode-open-thread");
@@ -41,6 +65,34 @@ test("opens a Display Mode tile back into Threads with its transcript hydrated",
     await expect.poll(async () => window.evaluate(() => window.piApp?.getState().then((state) => state.activeView) ?? "missing")).toBe("threads");
     await expect(window.locator(".topbar__session")).toHaveText("Display mode open thread");
     await expect(window.getByTestId("transcript")).toContainText("Display mode open thread transcript sentinel");
+  } finally {
+    await harness.close();
+  }
+});
+
+test("uses the thread composer input in Display Mode tiles", async () => {
+  const userDataDir = await makeUserDataDir();
+  const workspacePath = await makeWorkspace("display-mode-composer-parity");
+  const harness = await launchDesktop(userDataDir, {
+    initialWorkspaces: [workspacePath],
+    testMode: "background",
+  });
+
+  try {
+    const window = await harness.firstWindow();
+    await waitForWorkspaceByPath(window, workspacePath);
+    await createNamedThread(window, "Display mode composer parity");
+
+    const threadComposerStyles = await window.getByTestId("composer-surface").evaluate(readComposerSurfaceStyles);
+
+    await window.locator(".sidebar__nav").getByRole("button", { name: "Display Mode" }).click();
+    await expect.poll(async () => window.evaluate(() => window.piApp?.getState().then((state) => state.activeView) ?? "missing")).toBe("display-mode");
+
+    const tile = window.getByTestId("display-mode-thread-tile").filter({ hasText: "Display mode composer parity" });
+    await expect(tile.locator(".display-mode-tile__reply > .conversation--composer")).toHaveCount(1);
+    const displayComposerStyles = await tile.locator(".display-mode-tile__reply .composer__surface").evaluate(readComposerSurfaceStyles);
+
+    expect(displayComposerStyles).toEqual(threadComposerStyles);
   } finally {
     await harness.close();
   }

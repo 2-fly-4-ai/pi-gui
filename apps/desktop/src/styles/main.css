@@ -6414,55 +6414,27 @@ mark.thread-find-active {
   min-height: 0;
 }
 
-/* Reply composer — inherits real .composer styles */
+/* Reply composer — keep display-mode-specific chrome outside the shared composer input. */
 
 .display-mode-tile__reply {
   position: relative;
   z-index: 1;
   flex-shrink: 0;
-  padding: 8px 10px 10px;
   border-top: 1px solid #f0f2f8;
   border-radius: 0 0 13px 13px;
-  background: #fafbfd;
 }
 
 .display-mode-tile__reply:focus-within {
   z-index: 25;
 }
 
-.display-mode-tile__reply .composer__surface {
-  box-shadow: none;
-  border-radius: 10px;
-  padding: 8px 10px 8px;
-}
-
-.display-mode-tile__reply textarea {
-  font-size: 13px;
-  min-height: 20px;
-  max-height: 80px;
-}
-
 .display-mode-tile__reply-bar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-top: 6px;
+  min-height: 36px;
 }
 
 .display-mode-tile__reply-hint {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--muted-soft);
-}
-
-.display-mode-tile__reply .button--cta-icon {
-  width: 32px;
-  min-width: 32px;
-  height: 32px;
-}
-
-.display-mode-tile__reply .button--cta-icon svg {
-  width: 14px;
-  height: 14px;
 }
 
 /* ── Right drawer ──────────────────────────────────────────── */
@@ -6880,8 +6852,8 @@ mark.thread-find-active {
 :root.dark .display-mode-tile__status-pill--error { background: rgba(248,81,73,0.15); color: #f85149; }
 :root.dark .display-mode-tile__rename-input { background: var(--surface); }
 :root.dark .display-mode-tile__head,
-:root.dark .display-mode-tile__actions,
-:root.dark .display-mode-tile__reply { background: var(--surface-muted); border-color: var(--line); }
+:root.dark .display-mode-tile__actions { background: var(--surface-muted); border-color: var(--line); }
+:root.dark .display-mode-tile__reply { border-color: var(--line); }
 :root.dark .display-mode-tile__actions .button { background: var(--surface); border-color: var(--line); }
 :root.dark .display-mode-tile__actions .button:hover:not(:disabled) { background: var(--surface-muted); }
 :root.dark .display-mode-drawer { background: var(--surface); border-color: var(--line); }
