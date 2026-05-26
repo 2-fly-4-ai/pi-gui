@@ -350,7 +350,7 @@ function TimelineToolCallItem({
 
   const handleCopy = () => {
     const text = diffText ?? outputText ?? command ?? formatToolContent(item.input, item.output);
-    void navigator.clipboard.writeText(text);
+    void navigator.clipboard?.writeText?.(text).catch(() => {});
   };
 
   return (
@@ -571,7 +571,7 @@ function TimelineRuntimeJobItem({ item }: { readonly item: Extract<TranscriptMes
           <button
             type="button"
             className="secondary-button"
-            onClick={() => void navigator.clipboard.writeText(copyText)}
+            onClick={() => void navigator.clipboard?.writeText?.(copyText).catch(() => {})}
           >
             Copy details
           </button>
@@ -726,7 +726,7 @@ function formatRuntimeJobStatus(status: Extract<TranscriptMessage, { kind: "runt
 
 function renderRuntimeJobElapsed(startedAt: string, active: boolean, endedAt: string): ReactNode {
   if (active) {
-    return <RunningElapsedText startedAt={startedAt} />;
+    return formatElapsed(startedAt);
   }
   return formatElapsed(startedAt, Date.parse(endedAt));
 }
