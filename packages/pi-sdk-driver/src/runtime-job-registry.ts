@@ -69,7 +69,7 @@ export function buildRuntimeSummary(state: RuntimeJobRegistryState, agentStatus:
     if (job.kind === "tool" && job.status === "running") {
       activeToolCount += 1;
     }
-    if (job.kind === "background" || job.status === "background") {
+    if (job.status === "background" || (job.kind === "background" && job.status === "running")) {
       backgroundJobCount += 1;
     }
     if (job.status === "unknown" || job.confidence === "unknown" || job.confidence === "claimed") {
