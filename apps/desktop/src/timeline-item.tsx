@@ -492,9 +492,9 @@ function TimelineRuntimeJobItem({ item }: { readonly item: Extract<TranscriptMes
   const process = job.process;
   const isActive = job.status === "running" || job.status === "background";
   const children = job.children ?? [];
-  const title = job.status === "background"
+  const backgroundJobSummary = job.status === "background"
     ? `${children.length > 1 ? children.length : 1} background job${children.length > 1 ? "s" : ""} still running`
-    : job.title;
+    : undefined;
   const copyText = [
     job.command ? `$ ${job.command}` : undefined,
     job.cwd ? `cwd: ${job.cwd}` : undefined,
@@ -512,7 +512,8 @@ function TimelineRuntimeJobItem({ item }: { readonly item: Extract<TranscriptMes
         {isActive ? <span className="timeline-tool__spinner" aria-hidden="true" /> : null}
         <div className="runtime-job-card__title-block">
           <div className="runtime-job-card__eyebrow">Runtime</div>
-          <h3 className="runtime-job-card__title">{title}</h3>
+          <h3 className="runtime-job-card__title">{job.title}</h3>
+          {backgroundJobSummary ? <div className="runtime-job-card__subtitle">{backgroundJobSummary}</div> : null}
         </div>
         <span className="runtime-job-card__status">
           {formatRuntimeJobStatus(job.status)} · {job.confidence}
