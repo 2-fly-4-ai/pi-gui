@@ -1,4 +1,4 @@
-import { memo, useEffect, useState, type CSSProperties } from "react";
+import { memo, useEffect, useState, type CSSProperties, type ReactNode } from "react";
 import type { SessionTranscriptMessage } from "@pi-gui/pi-sdk-driver";
 import type { TimelineActivity, TimelineToolCall, TimelineSummary, TranscriptMessage } from "./timeline-types";
 import { MessageMarkdown } from "./message-markdown";
@@ -39,6 +39,8 @@ export const TimelineItem = memo(function TimelineItem({
           onViewFileInDiff={onViewFileInDiff}
         />
       );
+    case "runtime-job":
+      return <TimelineRuntimeJobItem item={item} />;
     case "summary":
       return <TimelineSummaryItem item={item} />;
     default:
@@ -485,6 +487,99 @@ function TimelineToolCallItem({
   );
 }
 
+function TimelineRuntimeJobItem({ item }: { readonly item: Extract<TranscriptMessage, { kind: "runtime-job" }> }) {
+  const job = item.job;
+  const process = job.process;
+  const isActive = job.status === "running" || job.status === "background";
+  const children = job.children ?? [];
+  const title = job.status === "background"
+    ? `${children.length > 1 ? children.length : 1} background job${children.length > 1 ? "s" : ""} still running`
+    : job.title;
+  const copyText = [
+    job.command ? `$ ${job.command}` : undefined,
+    job.cwd ? `cwd: ${job.cwd}` : undefined,
+    process?.pid ? `pid: ${process.pid}` : undefined,
+    process?.processGroupId ? `pgid: ${process.processGroupId}` : undefined,
+    job.logPaths?.length ? `logs: ${job.logPaths.join(", ")}` : undefined,
+  ].filter((value): value is string => Boolean(value)).join("\n");
+
+  return (
+    <article
+      className={`runtime-job-card runtime-job-card--${job.status}`}
+      data-testid="runtime-job-card"
+    >
+      <header className="runtime-job-card__header">
+        {isActive ? <span className="timeline-tool__spinner" aria-hidden="true" /> : null}
+        <div className="runtime-job-card__title-block">
+          <div className="runtime-job-card__eyebrow">Runtime</div>
+          <h3 className="runtime-job-card__title">{title}</h3>
+        </div>
+        <span className="runtime-job-card__status">
+          {formatRuntimeJobStatus(job.status)} · {job.confidence}
+        </span>
+      </header>
+      {job.command ? <pre className="runtime-job-card__command">$ {job.command}</pre> : null}
+      <dl className="runtime-job-card__meta">
+        {job.cwd ? (
+          <>
+            <dt>cwd</dt>
+            <dd title={job.cwd}>{job.cwd}</dd>
+          </>
+        ) : null}
+        {process?.pid ? (
+          <>
+            <dt>pid</dt>
+            <dd>{process.pid}</dd>
+          </>
+        ) : null}
+        {process?.processGroupId ? (
+          <>
+            <dt>pgid</dt>
+            <dd>{process.processGroupId}</dd>
+          </>
+        ) : null}
+        <>
+          <dt>elapsed</dt>
+          <dd>{renderRuntimeJobElapsed(job.startedAt, isActive, job.endedAt ?? job.updatedAt)}</dd>
+        </>
+      </dl>
+      {children.length > 0 ? (
+        <ul className="runtime-job-card__children" aria-label="Runtime child processes">
+          {children.map((child) => (
+            <li key={child.pid}>
+              <span className="runtime-job-card__child-pill">pid {child.pid}</span>
+              <span className="runtime-job-card__child-pill">{formatRuntimeJobStatus(child.status)}</span>
+              <span className="runtime-job-card__child-pill">{child.confidence}</span>
+              {child.command ? <code>{shortenCommand(child.command)}</code> : null}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {job.logPaths?.length ? (
+        <div className="runtime-job-card__paths">
+          <span className="runtime-job-card__paths-label">Logs</span>
+          <ul>
+            {job.logPaths.map((path) => (
+              <li key={path} title={path}>{path}</li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+      {copyText ? (
+        <div className="runtime-job-card__actions">
+          <button
+            type="button"
+            className="secondary-button"
+            onClick={() => void navigator.clipboard.writeText(copyText)}
+          >
+            Copy details
+          </button>
+        </div>
+      ) : null}
+    </article>
+  );
+}
+
 function isWriteTool(toolName: string): boolean {
   return /write|edit|patch|apply/i.test(toolName);
 }
@@ -617,6 +712,22 @@ function statusLabel(status: "running" | "success" | "error") {
   if (status === "running") return "running";
   if (status === "success") return "done";
   return "failed";
+}
+
+function formatRuntimeJobStatus(status: Extract<TranscriptMessage, { kind: "runtime-job" }>["job"]["status"]): string {
+  if (status === "background") return "background";
+  if (status === "exited") return "exited";
+  if (status === "failed") return "failed";
+  if (status === "killed") return "killed";
+  if (status === "unknown") return "unknown";
+  return "running";
+}
+
+function renderRuntimeJobElapsed(startedAt: string, active: boolean, endedAt: string): ReactNode {
+  if (active) {
+    return <RunningElapsedText startedAt={startedAt} />;
+  }
+  return formatElapsed(startedAt, Date.parse(endedAt));
 }
 
 function TimelineSummaryItem({ item }: { readonly item: TimelineSummary }) {
