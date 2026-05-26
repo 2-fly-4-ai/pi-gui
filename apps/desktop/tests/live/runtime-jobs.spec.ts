@@ -31,6 +31,8 @@ test("shows a live runtime job card for a surviving bash child process", async (
     );
     await composer.press("Enter");
 
+    const runtimeJobCard = window.getByTestId("runtime-job-card").filter({ hasText: /background|claimed|survived/i }).first();
+
     await expect
       .poll(
         async () => {
@@ -38,14 +40,13 @@ test("shows a live runtime job card for a surviving bash child process", async (
           const session = state.workspaces
             .find((workspace) => workspace.id === state.selectedWorkspaceId)
             ?.sessions.find((entry) => entry.id === state.selectedSessionId);
-          const cardText = (await window.getByTestId("runtime-job-card").first().textContent().catch(() => "")) ?? "";
-          return (session?.runtimeSummary?.backgroundJobCount ?? 0) > 0 || /background|claimed|survived/i.test(cardText);
+          return (session?.runtimeSummary?.backgroundJobCount ?? 0) > 0 || (await runtimeJobCard.count()) > 0;
         },
         { timeout: 90_000 },
       )
       .toBe(true);
 
-    const runtimeJobCard = window.getByTestId("runtime-job-card").first();
+    await expect(runtimeJobCard).toHaveCount(1, { timeout: 30_000 });
     await expect(runtimeJobCard).toBeVisible({ timeout: 30_000 });
     await expect(runtimeJobCard).toContainText(/background|claimed|survived/i);
   } finally {
