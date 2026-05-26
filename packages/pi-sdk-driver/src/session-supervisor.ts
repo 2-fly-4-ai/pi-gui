@@ -83,7 +83,7 @@ import {
   upsertRuntimeJob,
   type RuntimeJobRegistryState,
 } from "./runtime-job-registry.js";
-import { isProcessAlive, snapshotProcessTree } from "./runtime-process-inspector.js";
+import { isProcessAlive, snapshotProcessTree, type ProcessInfo } from "./runtime-process-inspector.js";
 import { createPtyBashToolDefinition, type PtyBashLifecycleEvent } from "./pty-bash-tool.js";
 
 export interface PiSdkDriverOptions {
@@ -124,6 +124,8 @@ interface ManagedSessionRecord {
     startedAt: string;
   }>;
   bashTokenToToolCallId: Map<string, string>;
+  observedBashChildrenByToolCall: Map<string, Map<number, ProcessInfo>>;
+  bashLifecycleGeneration: number;
   closed: boolean;
   listeners: Set<SessionEventListener>;
   eventQueue: Promise<void>;
@@ -338,12 +340,13 @@ export class SessionSupervisor {
     const initialModel = options?.initialModel
       ? this.resolveModel(options.initialModel.provider, options.initialModel.modelId)
       : undefined;
+    const bashLifecycleGeneration = 1;
     let boundRecord: ManagedSessionRecord | undefined;
     const onBashLifecycle = (event: PtyBashLifecycleEvent) => {
       if (!boundRecord) {
         return;
       }
-      void this.handleBashLifecycle(boundRecord, event);
+      void this.handleBashLifecycle(boundRecord, event, bashLifecycleGeneration);
     };
     const createOptions: CreateAgentSessionOptions = {
       cwd: workspace.path,
@@ -366,6 +369,7 @@ export class SessionSupervisor {
 
     const record = this.createRecord(workspace, runtime, options?.title ?? deriveWorkspaceTitle(workspace));
     boundRecord = record;
+    record.bashLifecycleGeneration = bashLifecycleGeneration;
     session.sessionManager.appendSessionInfo(record.title);
     forcePersistSession(session.sessionManager);
     record.config = mergeSessionConfigWithToolAccess(
@@ -737,12 +741,13 @@ export class SessionSupervisor {
       throw new Error(`Session ${key} cannot be reopened because no session file is tracked.`);
     }
 
+    const bashLifecycleGeneration = (existing?.bashLifecycleGeneration ?? 0) + 1;
     let boundRecord: ManagedSessionRecord | undefined;
     const onBashLifecycle = (event: PtyBashLifecycleEvent) => {
       if (!boundRecord) {
         return;
       }
-      void this.handleBashLifecycle(boundRecord, event);
+      void this.handleBashLifecycle(boundRecord, event, bashLifecycleGeneration);
     };
 
     const runtime = await this.createAgentSessionRuntimeImpl({
@@ -755,6 +760,7 @@ export class SessionSupervisor {
 
     const record = existing ?? this.createRecord(workspaceToRef(workspace), runtime, sessionEntry.title);
     boundRecord = record;
+    record.bashLifecycleGeneration = bashLifecycleGeneration;
     record.runtime = runtime;
     record.session = session;
     record.sessionFile = sessionFile;
@@ -796,6 +802,8 @@ export class SessionSupervisor {
       runtimeJobs: createRuntimeJobRegistryState(),
       pendingBashToolCalls: new Map(),
       bashTokenToToolCallId: new Map(),
+      observedBashChildrenByToolCall: new Map(),
+      bashLifecycleGeneration: 0,
       closed: false,
       listeners: new Set<SessionEventListener>(),
       eventQueue: Promise.resolve(),
@@ -1697,7 +1705,15 @@ export class SessionSupervisor {
     }
   }
 
-  private async handleBashLifecycle(record: ManagedSessionRecord, event: PtyBashLifecycleEvent): Promise<void> {
+  private async handleBashLifecycle(
+    record: ManagedSessionRecord,
+    event: PtyBashLifecycleEvent,
+    generation: number,
+  ): Promise<void> {
+    if (record.closed || record.bashLifecycleGeneration !== generation) {
+      return;
+    }
+
     const callId = this.resolveBashToolCallId(record, event);
     if (!callId) {
       return;
@@ -1709,6 +1725,10 @@ export class SessionSupervisor {
     const pending = record.pendingBashToolCalls.get(callId);
 
     if (event.event === "spawned") {
+      await this.observeBashChildren(record, callId, event.pid, generation);
+      if (record.closed || record.bashLifecycleGeneration !== generation) {
+        return;
+      }
       const existing = record.runtimeJobs.jobs.get(toolJobId) ?? createToolRuntimeJob({
         sessionRef: record.ref,
         ...(record.runningRunId !== undefined ? { runId: record.runningRunId } : {}),
@@ -1736,12 +1756,15 @@ export class SessionSupervisor {
             }
           : {}),
       });
-      await this.emitRuntimeJobUpdate(record, job, timestamp);
+      await this.emitRuntimeJobUpdate(record, job, timestamp, generation);
       return;
     }
 
-    if (event.event === "output" && event.outputText) {
-      await this.recordClaimedPidJobs(record, callId, event.outputText, timestamp, event.cwd);
+    if (event.event === "output") {
+      await this.observeBashChildren(record, callId, event.pid, generation);
+      if (event.outputText) {
+        await this.recordClaimedPidJobs(record, callId, event.outputText, timestamp, event.cwd, generation);
+      }
       return;
     }
 
@@ -1753,9 +1776,12 @@ export class SessionSupervisor {
         ...(event.exitCode !== undefined ? { exitCode: event.exitCode } : {}),
       });
       if (finished) {
-        await this.emitRuntimeJobUpdate(record, finished, timestamp);
+        await this.emitRuntimeJobUpdate(record, finished, timestamp, generation);
       }
-      await this.recordSurvivingChildren(record, callId, event, timestamp);
+      await this.recordSurvivingChildren(record, callId, event, timestamp, generation);
+      if (record.bashLifecycleGeneration === generation) {
+        record.observedBashChildrenByToolCall.delete(callId);
+      }
     }
   }
 
@@ -1774,22 +1800,52 @@ export class SessionSupervisor {
     return record.pendingBashToolCalls.keys().next().value;
   }
 
+  private async observeBashChildren(
+    record: ManagedSessionRecord,
+    callId: string,
+    pid: number | undefined,
+    generation: number,
+  ): Promise<void> {
+    const children = await snapshotProcessTree(pid);
+    if (record.closed || record.bashLifecycleGeneration !== generation || children.length === 0) {
+      return;
+    }
+
+    const observed = record.observedBashChildrenByToolCall.get(callId) ?? new Map<number, ProcessInfo>();
+    for (const child of children) {
+      observed.set(child.pid, child);
+    }
+    record.observedBashChildrenByToolCall.set(callId, observed);
+  }
+
   private async recordClaimedPidJobs(
     record: ManagedSessionRecord,
     callId: string,
     outputText: string,
     timestamp: string,
     cwd: string,
+    generation: number,
   ): Promise<void> {
-    const matches = outputText.matchAll(/([\w.-]+)?\s*pid\s+(\d{2,})/gi);
-    for (const match of matches) {
+    for (const line of outputText.split(/\r?\n/)) {
+      if (record.closed || record.bashLifecycleGeneration !== generation) {
+        return;
+      }
+
+      const match = line.match(/^\s*([A-Za-z0-9][\w.-]{0,80})\s+pid\s+(\d{2,})\b/i);
+      if (!match) {
+        continue;
+      }
+
       const pid = Number(match[2]);
       if (!Number.isFinite(pid) || pid <= 1) {
         continue;
       }
 
       const alive = isProcessAlive(pid);
-      const title = match[1]?.trim() || `pid ${pid}`;
+      const title = (match[1] ?? "").trim();
+      if (!title) {
+        continue;
+      }
       const job = upsertRuntimeJob(record.runtimeJobs, createBackgroundRuntimeJob({
         sessionRef: record.ref,
         ...(record.runningRunId !== undefined ? { runId: record.runningRunId } : {}),
@@ -1804,7 +1860,7 @@ export class SessionSupervisor {
           updatedAt: timestamp,
         },
       }));
-      await this.emitRuntimeJobUpdate(record, job, timestamp);
+      await this.emitRuntimeJobUpdate(record, job, timestamp, generation);
     }
   }
 
@@ -1813,10 +1869,26 @@ export class SessionSupervisor {
     callId: string,
     event: PtyBashLifecycleEvent,
     timestamp: string,
+    generation: number,
   ): Promise<void> {
-    const children = await snapshotProcessTree(event.pid);
-    for (const child of children) {
-      if (!isProcessAlive(child.pid)) {
+    const currentChildren = await snapshotProcessTree(event.pid);
+    if (record.closed || record.bashLifecycleGeneration !== generation) {
+      return;
+    }
+
+    const currentByPid = new Map(currentChildren.map((child) => [child.pid, child]));
+    const observedChildren = record.observedBashChildrenByToolCall.get(callId);
+    const survivors = new Map<number, ProcessInfo>(currentByPid);
+
+    for (const child of observedChildren?.values() ?? []) {
+      if (survivors.has(child.pid) || !isProcessAlive(child.pid)) {
+        continue;
+      }
+      survivors.set(child.pid, child);
+    }
+
+    for (const child of survivors.values()) {
+      if (record.closed || record.bashLifecycleGeneration !== generation || !isProcessAlive(child.pid)) {
         continue;
       }
 
@@ -1836,19 +1908,35 @@ export class SessionSupervisor {
           updatedAt: timestamp,
         },
       }));
-      await this.emitRuntimeJobUpdate(record, job, timestamp);
+      await this.emitRuntimeJobUpdate(record, job, timestamp, generation);
     }
   }
 
-  private async emitRuntimeJobUpdate(record: ManagedSessionRecord, job: RuntimeJobSnapshot, timestamp: string): Promise<void> {
-    await this.persistSnapshot(record);
-    await this.emit(record, {
-      type: "runtimeJobUpdated",
-      sessionRef: record.ref,
-      timestamp,
-      job,
-      summary: this.runtimeSummaryFor(record),
+  private async emitRuntimeJobUpdate(
+    record: ManagedSessionRecord,
+    job: RuntimeJobSnapshot,
+    timestamp: string,
+    generation: number,
+  ): Promise<void> {
+    if (record.closed || record.bashLifecycleGeneration !== generation) {
+      return;
+    }
+
+    record.eventQueue = record.eventQueue.then(async () => {
+      if (record.closed || record.bashLifecycleGeneration !== generation) {
+        return;
+      }
+      await this.persistSnapshot(record);
+      await this.emit(record, {
+        type: "runtimeJobUpdated",
+        sessionRef: record.ref,
+        timestamp,
+        job,
+        summary: this.runtimeSummaryFor(record),
+      });
     });
+    record.eventQueue.catch(() => {});
+    await record.eventQueue;
   }
 
   private updatePreviewFromMessage(record: ManagedSessionRecord, message: unknown): void {
