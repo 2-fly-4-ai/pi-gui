@@ -99,13 +99,18 @@ export function createPtyBashOperations(options: PtyBashOptions = {}): BashOpera
         const args = isPowerShell(shell) ? ["-NoLogo", "-NoProfile", "-Command", command] : ["-lc", command];
         const token = crypto.randomUUID();
         const emitLifecycle = (event: Omit<PtyBashLifecycleEvent, "token" | "command" | "cwd" | "timestamp">) => {
-          options.onLifecycle?.({
-            token,
-            command,
-            cwd,
-            timestamp: new Date().toISOString(),
-            ...event,
-          });
+          if (!options.onLifecycle) return;
+          try {
+            options.onLifecycle({
+              token,
+              command,
+              cwd,
+              timestamp: new Date().toISOString(),
+              ...event,
+            });
+          } catch {
+            // Lifecycle callbacks are observability only.
+          }
         };
         let pty: IPty | undefined;
         let settled = false;
@@ -157,15 +162,15 @@ export function createPtyBashOperations(options: PtyBashOptions = {}): BashOpera
           return;
         }
 
-        emitLifecycle({ event: "spawned", pid: pty.pid });
+        emitLifecycle(pty.pid !== undefined ? { event: "spawned", pid: pty.pid } : { event: "spawned" });
 
         pty.onData((chunk) => {
           onData(Buffer.from(chunk));
-          emitLifecycle({ event: "output", pid: pty?.pid, outputText: chunk });
+          emitLifecycle(pty?.pid !== undefined ? { event: "output", pid: pty.pid, outputText: chunk } : { event: "output", outputText: chunk });
         });
 
         pty.onExit(({ exitCode }) => {
-          emitLifecycle({ event: "exited", pid: pty?.pid, exitCode });
+          emitLifecycle(pty?.pid !== undefined ? { event: "exited", pid: pty.pid, exitCode } : { event: "exited", exitCode });
           finish(() => {
             if (signal?.aborted) {
               reject(new Error("aborted"));
