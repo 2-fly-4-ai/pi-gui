@@ -42,6 +42,7 @@
     "test:core:notification-settings": "pnpm build && cross-env PI_APP_TEST_MODE=background pnpm --dir ../.. exec playwright test -c apps/desktop/playwright.config.ts apps/desktop/tests/core/notification-settings.spec.ts",
     "test:core:workspace-menu": "pnpm build && cross-env PI_APP_TEST_MODE=background pnpm --dir ../.. exec playwright test -c apps/desktop/playwright.config.ts apps/desktop/tests/core/workspace-menu.spec.ts",
     "test:core:worktrees": "pnpm build && cross-env PI_APP_TEST_MODE=background pnpm --dir ../.. exec playwright test -c apps/desktop/playwright.config.ts apps/desktop/tests/core/worktrees.spec.ts",
+    "test:core:runtime-jobs": "pnpm build && cross-env PI_APP_TEST_MODE=background pnpm --dir ../.. exec playwright test -c apps/desktop/playwright.config.ts apps/desktop/tests/core/runtime-jobs.spec.ts",
     "test:live:notification-onboarding": "pnpm build && cross-env PI_APP_TEST_MODE=background pnpm --dir ../.. exec playwright test -c apps/desktop/playwright.config.ts apps/desktop/tests/live/notification-onboarding.spec.ts",
     "test:live:notification-regression": "pnpm run test:live:notifications",
     "test:live:parallel": "pnpm build && cross-env PI_APP_TEST_MODE=background pnpm --dir ../.. exec playwright test -c apps/desktop/playwright.config.ts apps/desktop/tests/live/parallel-runs.spec.ts",
