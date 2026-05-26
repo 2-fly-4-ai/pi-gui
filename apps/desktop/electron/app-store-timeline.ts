@@ -211,14 +211,18 @@ export function applyTimelineEvent(
       transcript.push(makeActivityItem("Resumed session", { metadata: relativeDetail(event.timestamp) }));
       break;
     case "sessionUpdated":
-      if (event.snapshot.status === "running" && event.snapshot.runningRunId && !state.runningSinceBySession.has(key)) {
+      if (event.snapshot.status !== "running") {
+        clearRunState(transcript, key, event.sessionRef, state);
+        break;
+      }
+      if (event.snapshot.runningRunId && !state.runningSinceBySession.has(key)) {
         state.runningSinceBySession.set(key, event.timestamp);
         state.runMetricsBySession.set(key, {
           startedAt: event.timestamp,
           toolCount: 0,
           searchCount: 0,
           fileCount: 0,
-        });        
+        });
         const activity = makeActivityItem("Working…");
         state.activeWorkingActivityBySession.set(key, activity.id);
         transcript.push(activity);

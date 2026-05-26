@@ -138,6 +138,7 @@ test("reopens persisted folders and reconciles stale running status before live 
         status: "running",
         updatedAt: new Date().toISOString(),
         preview: "Resuming after reopen",
+        runningRunId: "reopen-state-live-run",
       },
     });
 
@@ -169,6 +170,46 @@ test("reopens persisted folders and reconciles stale running status before live 
         selectedWorkspaceId: workspaceId,
         selectedSessionId: sessionId,
         status: "running",
+      });
+
+    await expect(window.getByTestId("transcript")).toContainText("Working…");
+
+    await emitTestSessionEvent(secondRun, {
+      type: "sessionUpdated",
+      sessionRef: { workspaceId, sessionId },
+      timestamp: new Date().toISOString(),
+      snapshot: {
+        ref: { workspaceId, sessionId },
+        workspace: {
+          workspaceId,
+          path: workspacePath,
+          displayName: "reopen-state-workspace",
+        },
+        title: "Reopen reliability session",
+        status: "idle",
+        updatedAt: new Date().toISOString(),
+        preview: "Recovered after stale run",
+      },
+    });
+
+    await expect
+      .poll(async () => {
+        const state = await getDesktopState(window);
+        const transcript = await getSelectedTranscript(window);
+        const workspace = state.workspaces.find((entry) => entry.id === workspaceId);
+        const session = workspace?.sessions.find((entry) => entry.id === sessionId);
+        return {
+          status: session?.status,
+          runningSince: session?.runningSince,
+          hasWorkingActivity: transcript?.transcript.some(
+            (entry) => entry.kind === "activity" && entry.label === "Working…",
+          ),
+        };
+      })
+      .toEqual({
+        status: "idle",
+        runningSince: undefined,
+        hasWorkingActivity: false,
       });
 
     await secondRun.electronApp.evaluate(({ BrowserWindow }) => {
