@@ -1753,7 +1753,6 @@ export class DesktopAppStore implements AppStoreInternals {
         break;
       case "sessionClosed":
         this.sessionState.extensionUiBySession.delete(key);
-        this.sessionState.runtimeJobsBySession.delete(key);
         this.sessionState.sessionCommandsBySession.delete(key);
         this.sessionState.queuedComposerMessagesBySession.delete(key);
         this.sessionState.queuedComposerEditsBySession.delete(key);
@@ -1766,10 +1765,6 @@ export class DesktopAppStore implements AppStoreInternals {
       case "toolFinished":
         break;
       case "runtimeJobUpdated":
-        this.sessionState.runtimeJobsBySession.set(
-          key,
-          [...(this.sessionState.runtimeJobsBySession.get(key) ?? []).filter((job) => job.id !== event.job.id), event.job],
-        );
         break;
       case "hostUiRequest":
         this.applyHostUiRequest(event);
@@ -1805,6 +1800,11 @@ export class DesktopAppStore implements AppStoreInternals {
     if (runtimeSummary !== undefined) {
       this.sessionState.runtimeJobsBySession.set(key, [...runtimeSummary.jobs]);
       this.state = this.withRuntimeJobState(this.state, event.sessionRef, runtimeSummary);
+    } else if (
+      event.type === "sessionClosed" ||
+      (event.type === "runFailed" && (this.sessionState.runtimeJobsBySession.get(key)?.length ?? 0) === 0)
+    ) {
+      this.state = this.clearRuntimeJobState(this.state, event.sessionRef);
     }
     this.markSessionViewedIfActivelyViewed(event.sessionRef);
     this.state = this.syncDerivedSessionState(this.state, event.sessionRef);
@@ -2664,6 +2664,25 @@ export class DesktopAppStore implements AppStoreInternals {
               ...workspace,
               sessions: workspace.sessions.map((session) =>
                 session.id === sessionRef.sessionId ? { ...session, runtimeSummary: summary } : session,
+              ),
+            }
+          : workspace,
+      ),
+    };
+  }
+
+  private clearRuntimeJobState(state: DesktopAppState, sessionRef: SessionRef): DesktopAppState {
+    const key = sessionKey(sessionRef);
+    this.sessionState.runtimeJobsBySession.delete(key);
+    return {
+      ...state,
+      runtimeJobsBySession: updateRecordValue(state.runtimeJobsBySession, key, undefined),
+      workspaces: state.workspaces.map((workspace) =>
+        workspace.id === sessionRef.workspaceId
+          ? {
+              ...workspace,
+              sessions: workspace.sessions.map((session) =>
+                session.id === sessionRef.sessionId ? { ...session, runtimeSummary: undefined } : session,
               ),
             }
           : workspace,
