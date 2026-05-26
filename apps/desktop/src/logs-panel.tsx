@@ -110,8 +110,8 @@ export function LogsPanel({
       </header>
       <div className="logs-panel__tabs" role="tablist" aria-label="Runtime inspector views">
         <button className={`logs-panel__tab${tab === "runtime" ? " logs-panel__tab--active" : ""}`} role="tab" aria-selected={tab === "runtime"} type="button" onClick={() => setTab("runtime")}>Runtime</button>
-        <button className={`logs-panel__tab${tab === "task" ? " logs-panel__tab--active" : ""}`} role="tab" aria-selected={tab === "task"} type="button" onClick={() => setTab("task")}>Task</button>
-        <button className={`logs-panel__tab${tab === "app" ? " logs-panel__tab--active" : ""}`} role="tab" aria-selected={tab === "app"} type="button" onClick={() => setTab("app")}>App</button>
+        <button className={`logs-panel__tab${tab === "task" ? " logs-panel__tab--active" : ""}`} role="tab" aria-selected={tab === "task"} type="button" onClick={() => setTab("task")}>Task logs</button>
+        <button className={`logs-panel__tab${tab === "app" ? " logs-panel__tab--active" : ""}`} role="tab" aria-selected={tab === "app"} type="button" onClick={() => setTab("app")}>App logs</button>
       </div>
       {tab === "runtime" ? (
         <RuntimeTab session={selectedSession} runtimeLabel={runtimeLabel} />
@@ -132,7 +132,7 @@ export function LogsPanel({
           </div>
           <div className="logs-panel__runtime-note">
             {tab === "task"
-              ? "Task logs show session-scoped observability events for the selected thread."
+              ? "Task logs from session transcript and tool events"
               : "App logs show Electron and renderer diagnostics separately from task execution."}
           </div>
           {error ? <div className="logs-panel__error">{error}</div> : null}
