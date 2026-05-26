@@ -73,7 +73,7 @@ export function LogsPanel({
         includeGlobal,
         workspaceId: selectedWorkspace?.id,
         workspacePath: selectedWorkspace?.path,
-        sessionId: tab === "task" ? selectedSession?.id : includeGlobal ? undefined : selectedSession?.id,
+        sessionId: tab === "app" ? undefined : selectedSession?.id,
       });
       setPage(next);
       setSelectedId((current) => current && next.events.some((event) => event.id === current) ? current : next.events[0]?.id ?? "");
@@ -122,9 +122,16 @@ export function LogsPanel({
             <select aria-label="Log severity" value={severity} onChange={(event) => setSeverity(event.target.value as ObservabilitySeverity | "all" | "failures")}>
               {SEVERITIES.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
             </select>
-            <select aria-label="Log category" value={category} onChange={(event) => setCategory(event.target.value as ObservabilityCategory | "all")}>
-              {CATEGORIES.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
-            </select>
+            {tab === "task" ? (
+              <div className="logs-panel__fixed-filter" aria-label="Log category">
+                <span className="logs-panel__fixed-filter-label">Log category</span>
+                <strong>Tools</strong>
+              </div>
+            ) : (
+              <select aria-label="Log category" value={category} onChange={(event) => setCategory(event.target.value as ObservabilityCategory | "all")}>
+                {CATEGORIES.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+              </select>
+            )}
             <select aria-label="Log scope" value={includeGlobal ? "global" : "current"} onChange={(event) => setIncludeGlobal(event.target.value === "global")}>
               <option value="current">Current thread</option>
               <option value="global">Global logs</option>
@@ -132,8 +139,10 @@ export function LogsPanel({
           </div>
           <div className="logs-panel__runtime-note">
             {tab === "task"
-              ? "Task logs from session transcript and tool events"
-              : "App logs show Electron and renderer diagnostics separately from task execution."}
+              ? "Task logs are filtered to tools only."
+              : tab === "app"
+                ? "App logs show Electron and renderer diagnostics only."
+                : ""}
           </div>
           {error ? <div className="logs-panel__error">{error}</div> : null}
           {page.warnings.length > 0 ? <div className="logs-panel__warning">{page.warnings[0]}</div> : null}
@@ -240,6 +249,10 @@ function EventDetails({ event }: { readonly event: ObservabilityEvent | undefine
 function buildCategoryFilter(tab: LogsTab, category: ObservabilityCategory | "all"): readonly ObservabilityCategory[] | undefined {
   if (tab === "task") {
     return ["tool"];
+  }
+
+  if (tab === "app" && category === "all") {
+    return ["desktop", "renderer"];
   }
 
   if (category !== "all") {
