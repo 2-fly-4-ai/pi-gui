@@ -38,6 +38,7 @@ import type {
   Unsubscribe,
   WorkspaceId,
   WorkspaceRef,
+  RuntimeSummarySnapshot,
 } from "@pi-gui/session-driver";
 import type { RuntimeCommandRecord } from "@pi-gui/session-driver/runtime-types";
 import { JsonCatalogStore, type SessionFileCatalogStorage } from "./json-catalog-store.js";
@@ -105,6 +106,7 @@ interface ManagedSessionRecord {
   config: SessionConfig | undefined;
   runningRunId: string | undefined;
   queuedMessages: SessionQueuedMessage[];
+  runtimeSummary: RuntimeSummarySnapshot | undefined;
   closed: boolean;
   listeners: Set<SessionEventListener>;
   eventQueue: Promise<void>;
@@ -756,6 +758,7 @@ export class SessionSupervisor {
       config: deriveSessionConfig(session.sessionManager),
       runningRunId: undefined,
       queuedMessages: [],
+      runtimeSummary: undefined,
       closed: false,
       listeners: new Set<SessionEventListener>(),
       eventQueue: Promise.resolve(),

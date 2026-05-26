@@ -72,7 +72,7 @@ export function buildRuntimeSummary(state: RuntimeJobRegistryState, agentStatus:
     if (job.kind === "background" || job.status === "background") {
       backgroundJobCount += 1;
     }
-    if (job.status === "unknown" || job.confidence === "unknown") {
+    if (job.status === "unknown" || job.confidence === "unknown" || job.confidence === "claimed") {
       unknownJobCount += 1;
     }
   }

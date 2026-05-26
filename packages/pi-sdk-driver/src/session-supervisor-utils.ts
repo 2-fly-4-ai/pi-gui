@@ -27,7 +27,7 @@ export interface SnapshotSource {
   readonly config: SessionConfig | undefined;
   readonly runningRunId: string | undefined;
   readonly queuedMessages: readonly SessionQueuedMessage[];
-  readonly runtimeSummary?: RuntimeSummarySnapshot;
+  readonly runtimeSummary: RuntimeSummarySnapshot | undefined;
 }
 
 export function buildSnapshot(source: SnapshotSource): SessionSnapshot {
