@@ -12,16 +12,6 @@ export function runtimeStatusLabel(session: SessionRecord | undefined): string {
     return `Tool running · ${activeToolCount}`;
   }
 
-  const agentStatus = summary?.agentStatus ?? session.status;
-
-  if (agentStatus === "running") {
-    return "Agent running";
-  }
-
-  if (agentStatus === "failed") {
-    return "Failed";
-  }
-
   const backgroundJobCount = getCount(summary, "backgroundJobCount");
   if (backgroundJobCount > 0) {
     return `Agent idle · ${backgroundJobCount} background job${backgroundJobCount === 1 ? "" : "s"}`;
@@ -30,6 +20,16 @@ export function runtimeStatusLabel(session: SessionRecord | undefined): string {
   const unknownJobCount = getCount(summary, "unknownJobCount");
   if (unknownJobCount > 0) {
     return "Unknown background activity";
+  }
+
+  const agentStatus = summary?.agentStatus ?? session.status;
+
+  if (agentStatus === "running") {
+    return "Agent running";
+  }
+
+  if (agentStatus === "failed") {
+    return "Failed";
   }
 
   return summary ? "Agent idle · no tools running" : "Idle";

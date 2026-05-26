@@ -237,9 +237,13 @@ function EventDetails({ event }: { readonly event: ObservabilityEvent | undefine
   );
 }
 
-function buildCategoryFilter(_tab: LogsTab, category: ObservabilityCategory | "all"): readonly ObservabilityCategory[] | undefined {
+function buildCategoryFilter(tab: LogsTab, category: ObservabilityCategory | "all"): readonly ObservabilityCategory[] | undefined {
   if (category !== "all") {
     return [category];
+  }
+
+  if (tab === "task") {
+    return ["tool"];
   }
 
   return undefined;
