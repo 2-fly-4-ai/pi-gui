@@ -1,14 +1,29 @@
+import crypto from "node:crypto";
 import { existsSync } from "node:fs";
 import { basename } from "node:path";
 import { platform } from "node:os";
 import { spawn as spawnPty, type IPty } from "node-pty";
 import { createBashToolDefinition, defineTool, type BashOperations } from "@earendil-works/pi-coding-agent";
 
+export interface PtyBashLifecycleEvent {
+  readonly token: string;
+  readonly command: string;
+  readonly cwd: string;
+  readonly pid?: number;
+  readonly timestamp: string;
+  readonly event: "spawned" | "output" | "exited" | "aborted";
+  readonly exitCode?: number | null;
+  readonly outputText?: string;
+}
+
+type PtyBashLifecycleListener = (event: PtyBashLifecycleEvent) => void;
+
 interface PtyBashOptions {
   readonly shellPath?: string;
   readonly cols?: number;
   readonly rows?: number;
   readonly killGraceMs?: number;
+  readonly onLifecycle?: PtyBashLifecycleListener;
 }
 
 export function createPtyBashToolDefinition(cwd: string, options: PtyBashOptions = {}) {
@@ -82,11 +97,22 @@ export function createPtyBashOperations(options: PtyBashOptions = {}): BashOpera
 
         const shell = options.shellPath ?? process.env.SHELL ?? (platform() === "win32" ? "powershell.exe" : "/bin/bash");
         const args = isPowerShell(shell) ? ["-NoLogo", "-NoProfile", "-Command", command] : ["-lc", command];
+        const token = crypto.randomUUID();
+        const emitLifecycle = (event: Omit<PtyBashLifecycleEvent, "token" | "command" | "cwd" | "timestamp">) => {
+          options.onLifecycle?.({
+            token,
+            command,
+            cwd,
+            timestamp: new Date().toISOString(),
+            ...event,
+          });
+        };
         let pty: IPty | undefined;
         let settled = false;
         let timedOut = false;
         let timeoutHandle: NodeJS.Timeout | undefined;
         let killEscalationHandle: NodeJS.Timeout | undefined;
+        let abortedLifecycleEmitted = false;
 
         const finish = (callback: () => void) => {
           if (settled) {
@@ -106,6 +132,11 @@ export function createPtyBashOperations(options: PtyBashOptions = {}): BashOpera
         const abort = () => {
           if (settled) return;
           trySignalPty(pty, "SIGTERM");
+          if (!abortedLifecycleEmitted) {
+            abortedLifecycleEmitted = true;
+            const pid = pty?.pid;
+            emitLifecycle(pid === undefined ? { event: "aborted" } : { event: "aborted", pid });
+          }
           if (killEscalationHandle) return;
           killEscalationHandle = setTimeout(() => {
             if (!settled) trySignalPty(pty, "SIGKILL");
@@ -126,11 +157,15 @@ export function createPtyBashOperations(options: PtyBashOptions = {}): BashOpera
           return;
         }
 
+        emitLifecycle({ event: "spawned", pid: pty.pid });
+
         pty.onData((chunk) => {
           onData(Buffer.from(chunk));
+          emitLifecycle({ event: "output", pid: pty?.pid, outputText: chunk });
         });
 
         pty.onExit(({ exitCode }) => {
+          emitLifecycle({ event: "exited", pid: pty?.pid, exitCode });
           finish(() => {
             if (signal?.aborted) {
               reject(new Error("aborted"));
