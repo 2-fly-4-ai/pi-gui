@@ -37,10 +37,7 @@ export function LogsPanel({
   readonly selectedSession?: SessionRecord;
   readonly onClose: () => void;
 }) {
-  const [tab, setTab] = useState<LogsTab>(() => {
-    const value = readLocal("logs:tab");
-    return value === "runtime" || value === "task" || value === "app" ? value : "runtime";
-  });
+  const [tab, setTab] = useState<LogsTab>("runtime");
   const [page, setPage] = useState<ObservabilityEventPage>({ events: [], scannedSources: [], warnings: [] });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | undefined>();
@@ -76,7 +73,7 @@ export function LogsPanel({
         includeGlobal,
         workspaceId: selectedWorkspace?.id,
         workspacePath: selectedWorkspace?.path,
-        sessionId: tab === "task" ? selectedSession?.id : undefined,
+        sessionId: tab === "task" ? selectedSession?.id : includeGlobal ? undefined : selectedSession?.id,
       });
       setPage(next);
       setSelectedId((current) => current && next.events.some((event) => event.id === current) ? current : next.events[0]?.id ?? "");
@@ -88,7 +85,6 @@ export function LogsPanel({
   }, [api, category, includeGlobal, query, selectedSession?.id, selectedWorkspace?.id, selectedWorkspace?.path, severity, tab]);
 
   useEffect(() => { void refresh(); }, [refresh]);
-  useEffect(() => { writeLocal("logs:tab", tab); }, [tab]);
   useEffect(() => { writeLocal("logs:severity", severity); }, [severity]);
   useEffect(() => { writeLocal("logs:category", category); }, [category]);
   useEffect(() => { writeLocal("logs:query", query); }, [query]);
@@ -241,13 +237,9 @@ function EventDetails({ event }: { readonly event: ObservabilityEvent | undefine
   );
 }
 
-function buildCategoryFilter(tab: LogsTab, category: ObservabilityCategory | "all"): readonly ObservabilityCategory[] | undefined {
+function buildCategoryFilter(_tab: LogsTab, category: ObservabilityCategory | "all"): readonly ObservabilityCategory[] | undefined {
   if (category !== "all") {
     return [category];
-  }
-
-  if (tab === "app") {
-    return ["desktop", "renderer"];
   }
 
   return undefined;
