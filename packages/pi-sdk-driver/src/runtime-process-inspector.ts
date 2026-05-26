@@ -16,15 +16,19 @@ export function isProcessAlive(pid: number | undefined): boolean {
   try {
     process.kill(pid, 0);
     return true;
-  } catch {
+  } catch (error) {
+    if (error instanceof Error && "code" in error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      return code === "EPERM";
+    }
     return false;
   }
 }
 
-export function signalProcessGroup(pid: number | undefined, signal: NodeJS.Signals): boolean {
-  if (platform() === "win32" || pid === undefined || pid <= 0) return false;
+export function signalProcessGroup(processGroupId: number | undefined, signal: NodeJS.Signals): boolean {
+  if (platform() === "win32" || processGroupId === undefined || processGroupId <= 0) return false;
   try {
-    process.kill(-pid, signal);
+    process.kill(-processGroupId, signal);
     return true;
   } catch {
     return false;
