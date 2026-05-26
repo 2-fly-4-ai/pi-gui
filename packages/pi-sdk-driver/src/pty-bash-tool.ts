@@ -24,17 +24,30 @@ function isPowerShell(shell: string): boolean {
 }
 
 const DEFAULT_KILL_GRACE_MS = 1_500;
+const HOST_APP_ENV_KEYS_TO_DROP = [
+  "NODE_ENV",
+  "ELECTRON_RENDERER_URL",
+  "VITE_DEV_SERVER_URL",
+] as const;
 
-function buildPtyEnv(env: NodeJS.ProcessEnv | undefined): NodeJS.ProcessEnv {
-  return {
+export function buildPtyEnv(env: NodeJS.ProcessEnv | undefined): NodeJS.ProcessEnv {
+  const ptyEnv: NodeJS.ProcessEnv = {
     ...process.env,
+    ...env,
     // Tool runs are non-interactive. Prevent commands like `git show` from
     // opening `less` inside the PTY and waiting forever at a pager prompt.
     PAGER: "cat",
     GIT_PAGER: "cat",
     LESS: "FRX",
-    ...env,
   };
+
+  // Pi GUI often runs under Electron/Vite development process state. Tool
+  // shells execute user repo commands, so they must not inherit host app mode.
+  for (const key of HOST_APP_ENV_KEYS_TO_DROP) {
+    delete ptyEnv[key];
+  }
+
+  return ptyEnv;
 }
 
 function trySignalProcessGroup(pid: number | undefined, signal: NodeJS.Signals): boolean {
