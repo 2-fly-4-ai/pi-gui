@@ -1,5 +1,4 @@
 import type {
-  RuntimeJobConfidence,
   RuntimeJobSnapshot,
   RuntimeJobStatus,
   RuntimeProcessSnapshot,
@@ -123,6 +122,8 @@ export function createBackgroundRuntimeJob(input: CreateBackgroundRuntimeJobInpu
     ...(input.process.exitedAt !== undefined ? { endedAt: input.process.exitedAt } : {}),
     ...(input.process.exitCode !== undefined ? { exitCode: input.process.exitCode } : {}),
     ...(input.process.signal !== undefined ? { signal: input.process.signal } : {}),
+    ...(input.logPaths && input.logPaths.length > 0 ? { logPaths: uniqueStrings(input.logPaths) } : {}),
+    ...(input.artifactPaths && input.artifactPaths.length > 0 ? { artifactPaths: uniqueStrings(input.artifactPaths) } : {}),
     process,
     ...(input.message ? { message: input.message } : {}),
   } as RuntimeJobSnapshot);
