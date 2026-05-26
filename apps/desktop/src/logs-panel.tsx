@@ -160,7 +160,7 @@ function RuntimeTab({
   const jobs = session?.runtimeSummary?.jobs ?? [];
 
   return (
-    <div className="logs-panel__runtime">
+    <div className="logs-panel__runtime" data-testid="runtime-panel">
       <div className="logs-panel__runtime-status">
         <span className="logs-panel__runtime-label">Status</span>
         <strong>{runtimeLabel}</strong>
@@ -238,12 +238,12 @@ function EventDetails({ event }: { readonly event: ObservabilityEvent | undefine
 }
 
 function buildCategoryFilter(tab: LogsTab, category: ObservabilityCategory | "all"): readonly ObservabilityCategory[] | undefined {
-  if (category !== "all") {
-    return [category];
-  }
-
   if (tab === "task") {
     return ["tool"];
+  }
+
+  if (category !== "all") {
+    return [category];
   }
 
   return undefined;
