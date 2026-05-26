@@ -127,6 +127,11 @@ export function LogsPanel({
                 <span className="logs-panel__fixed-filter-label">Log category</span>
                 <strong>Tools</strong>
               </div>
+            ) : tab === "app" ? (
+              <div className="logs-panel__fixed-filter" aria-label="Log category">
+                <span className="logs-panel__fixed-filter-label">Log category</span>
+                <strong>Desktop + Renderer</strong>
+              </div>
             ) : (
               <select aria-label="Log category" value={category} onChange={(event) => setCategory(event.target.value as ObservabilityCategory | "all")}>
                 {CATEGORIES.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
@@ -251,7 +256,7 @@ function buildCategoryFilter(tab: LogsTab, category: ObservabilityCategory | "al
     return ["tool"];
   }
 
-  if (tab === "app" && category === "all") {
+  if (tab === "app") {
     return ["desktop", "renderer"];
   }
 
