@@ -8,6 +8,7 @@ import type {
   SessionSnapshot,
   SessionStatus,
   WorkspaceRef,
+  RuntimeSummarySnapshot,
 } from "@pi-gui/session-driver";
 import type { SessionQueuedMessage } from "@pi-gui/session-driver/types";
 import type { SessionTranscriptAttachment, SessionTranscriptEntry } from "./transcript.js";
@@ -26,6 +27,7 @@ export interface SnapshotSource {
   readonly config: SessionConfig | undefined;
   readonly runningRunId: string | undefined;
   readonly queuedMessages: readonly SessionQueuedMessage[];
+  readonly runtimeSummary?: RuntimeSummarySnapshot;
 }
 
 export function buildSnapshot(source: SnapshotSource): SessionSnapshot {
@@ -39,6 +41,7 @@ export function buildSnapshot(source: SnapshotSource): SessionSnapshot {
     ...(source.preview !== undefined ? { preview: source.preview } : {}),
     ...(source.config ? { config: source.config } : {}),
     ...(source.runningRunId !== undefined ? { runningRunId: source.runningRunId } : {}),
+    ...(source.runtimeSummary ? { runtimeSummary: source.runtimeSummary } : {}),
     ...(source.queuedMessages.length > 0
       ? {
           queuedMessages: source.queuedMessages.map((message) => ({
