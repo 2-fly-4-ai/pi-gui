@@ -10,6 +10,7 @@ import { resolveSubagentShinobiFromMap, useSubagentShinobiMap } from "./subagent
 import { resolveSubagentRoleColor, useSubagentRoleColorMap } from "./subagent-role-colors";
 import { parseSubagentWorkflowMarker } from "./subagent-timeline-card";
 import { useSelectedShuriken } from "./shuriken-roster";
+import { canStopRuntimeJob, isRuntimeJobActive } from "./runtime-jobs";
 import { extensionToLanguage } from "./syntax-highlight";
 
 export const TimelineItem = memo(function TimelineItem({
@@ -490,7 +491,7 @@ function TimelineToolCallItem({
 function TimelineRuntimeJobItem({ item }: { readonly item: Extract<TranscriptMessage, { kind: "runtime-job" }> }) {
   const job = item.job;
   const process = job.process;
-  const isActive = job.status === "running" || job.status === "background";
+  const isActive = isRuntimeJobActive(job);
   const canStop = canStopRuntimeJob(job);
   const [pendingAction, setPendingAction] = useState<"refresh" | "stop" | null>(null);
   const children = job.children ?? [];
@@ -536,7 +537,7 @@ function TimelineRuntimeJobItem({ item }: { readonly item: Extract<TranscriptMes
           {backgroundJobSummary ? <div className="runtime-job-card__subtitle">{backgroundJobSummary}</div> : null}
         </div>
         <span className="runtime-job-card__status">
-          {formatRuntimeJobStatus(job.status)} · {job.confidence}
+          {job.status} · {job.confidence}
         </span>
       </header>
       {job.command ? <pre className="runtime-job-card__command">$ {job.command}</pre> : null}
@@ -569,7 +570,7 @@ function TimelineRuntimeJobItem({ item }: { readonly item: Extract<TranscriptMes
           {children.map((child) => (
             <li key={child.pid}>
               <span className="runtime-job-card__child-pill">pid {child.pid}</span>
-              <span className="runtime-job-card__child-pill">{formatRuntimeJobStatus(child.status)}</span>
+              <span className="runtime-job-card__child-pill">{child.status}</span>
               <span className="runtime-job-card__child-pill">{child.confidence}</span>
               {child.command ? <code>{shortenCommand(child.command)}</code> : null}
             </li>
@@ -618,14 +619,6 @@ function TimelineRuntimeJobItem({ item }: { readonly item: Extract<TranscriptMes
         ) : null}
       </div>
     </article>
-  );
-}
-
-function canStopRuntimeJob(job: Extract<TranscriptMessage, { kind: "runtime-job" }>["job"]): boolean {
-  return (
-    (job.status === "running" || job.status === "background")
-    && (job.confidence === "tracked" || job.confidence === "survived")
-    && Boolean(job.process?.pid)
   );
 }
 
@@ -761,15 +754,6 @@ function statusLabel(status: "running" | "success" | "error") {
   if (status === "running") return "running";
   if (status === "success") return "done";
   return "failed";
-}
-
-function formatRuntimeJobStatus(status: Extract<TranscriptMessage, { kind: "runtime-job" }>["job"]["status"]): string {
-  if (status === "background") return "background";
-  if (status === "exited") return "exited";
-  if (status === "failed") return "failed";
-  if (status === "killed") return "killed";
-  if (status === "unknown") return "unknown";
-  return "running";
 }
 
 function renderRuntimeJobElapsed(startedAt: string, active: boolean, endedAt: string): ReactNode {

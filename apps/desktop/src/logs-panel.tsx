@@ -3,6 +3,7 @@ import type { ObservabilityCategory, ObservabilityEvent, ObservabilityEventPage,
 import type { PiDesktopApi } from "./ipc";
 import type { SessionRecord, WorkspaceRecord } from "./desktop-state";
 import { CloseIcon, RefreshIcon } from "./icons";
+import { canStopRuntimeJob } from "./runtime-jobs";
 import { runtimeStatusLabel } from "./runtime-status";
 
 type LogsTab = "runtime" | "task" | "app";
@@ -233,14 +234,6 @@ function RuntimeTab({
         </div>
       )}
     </div>
-  );
-}
-
-function canStopRuntimeJob(job: NonNullable<SessionRecord["runtimeSummary"]>["jobs"][number]): boolean {
-  return (
-    (job.status === "running" || job.status === "background")
-    && (job.confidence === "tracked" || job.confidence === "survived")
-    && Boolean(job.process?.pid)
   );
 }
 
