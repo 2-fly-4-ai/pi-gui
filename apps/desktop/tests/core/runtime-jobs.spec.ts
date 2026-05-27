@@ -212,6 +212,17 @@ test("shows runtime job visibility for running tools and background jobs", async
     await expect(claimedCard).toBeVisible();
     await expect(claimedCard.getByTestId("runtime-job-refresh-button")).toBeVisible();
     await expect(claimedCard.getByTestId("runtime-job-stop-button")).toHaveCount(0);
+
+    const stopAttempt = await window.evaluate(async ({ target, jobId }) => {
+      const app = (window as typeof window & {
+        piApp?: { stopRuntimeJob: (target: typeof target, jobId: string) => Promise<{ lastError?: string }> };
+      }).piApp;
+      if (!app) {
+        throw new Error("piApp IPC bridge is unavailable");
+      }
+      return app.stopRuntimeJob(target, jobId);
+    }, { target: sessionRef, jobId: claimedJob.id });
+    expect(stopAttempt.lastError).toMatch(/unknown runtime job|cannot be stopped|failed to stop/i);
   } finally {
     await harness.close();
   }
