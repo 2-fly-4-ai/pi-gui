@@ -301,7 +301,7 @@ function EventDetails({ event }: { readonly event: ObservabilityEvent | undefine
 
 function buildCategoryFilter(tab: LogsTab, category: ObservabilityCategory | "all"): readonly ObservabilityCategory[] | undefined {
   if (tab === "task") {
-    return ["tool"];
+    return ["agent", "tool", "skill", "subagent", "workspace", "slash-command"];
   }
 
   if (tab === "app") {
