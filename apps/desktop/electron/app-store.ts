@@ -2171,14 +2171,14 @@ export class DesktopAppStore implements AppStoreInternals {
     if (isPersistedTranscriptRecord(persisted)) {
       return {
         format: "versioned",
-        transcript: persisted.transcript.map((item) => cloneTranscriptMessage(item as TranscriptMessage)),
+        transcript: normalizePersistedTranscript(persisted.transcript.map((item) => cloneTranscriptMessage(item as TranscriptMessage))),
       };
     }
 
     if (Array.isArray(persisted)) {
       return {
         format: "legacy",
-        transcript: persisted.map((item) => cloneTranscriptMessage(item as TranscriptMessage)),
+        transcript: normalizePersistedTranscript(persisted.map((item) => cloneTranscriptMessage(item as TranscriptMessage))),
       };
     }
 
@@ -2207,7 +2207,7 @@ export class DesktopAppStore implements AppStoreInternals {
   private async writePersistedTranscript(key: string, transcript: readonly TranscriptMessage[]): Promise<void> {
     await this.transcriptStore.write(key, {
       version: 1,
-      transcript: transcript.map(cloneTranscriptMessage),
+      transcript: normalizePersistedTranscript(transcript),
     });
   }
 
@@ -2745,6 +2745,12 @@ export class DesktopAppStore implements AppStoreInternals {
 }
 
 /* ── Module-private free functions ───────────────────────── */
+
+function normalizePersistedTranscript(transcript: readonly TranscriptMessage[]): TranscriptMessage[] {
+  return transcript
+    .filter((item) => item.kind !== "runtime-job")
+    .map(cloneTranscriptMessage);
+}
 
 function runtimeSummaryBySessionFromWorkspaces(
   workspaces: readonly DesktopAppState["workspaces"][number][],

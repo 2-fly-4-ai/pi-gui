@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import { expect, test } from "@playwright/test";
 import type { RuntimeJobSnapshot, SessionDriverEvent } from "@pi-gui/session-driver";
 
@@ -9,6 +10,7 @@ import {
   launchDesktop,
   makeUserDataDir,
   makeWorkspace,
+  persistedSessionDataPaths,
   waitForWorkspaceByPath,
 } from "../helpers/electron-app";
 
@@ -228,6 +230,18 @@ test("shows runtime job visibility for running tools and background jobs", async
       return app.stopRuntimeJob(target, jobId);
     }, { target: sessionRef, jobId: claimedJob.id });
     expect(stopAttempt.lastError).toMatch(/unknown runtime job|cannot be stopped|failed to stop/i);
+
+    const { transcriptPath } = persistedSessionDataPaths(userDataDir, sessionRef);
+    await expect
+      .poll(async () => {
+        try {
+          return await readFile(transcriptPath, "utf8");
+        } catch {
+          return "";
+        }
+      })
+      .toContain('"transcript"');
+    expect(await readFile(transcriptPath, "utf8")).not.toMatch(/"kind"\s*:\s*"runtime-job"/);
   } finally {
     await harness.close();
   }
