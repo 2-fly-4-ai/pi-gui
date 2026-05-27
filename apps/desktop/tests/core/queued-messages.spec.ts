@@ -186,13 +186,25 @@ test("delineates queued follow-ups and submitted steers in the timeline", async 
       .filter({ hasText: queuedSteer.text })
       .getByRole("button", { name: "Steer", exact: true })
       .click();
+    await expect(window.getByTestId("queued-composer-message").filter({ hasText: queuedSteer.text })).toHaveCount(1);
+    await expect(window.getByTestId("transcript")).not.toContainText(queuedSteer.text);
+
+    await emitQueuedMessageStarted(harness, window, { ...queuedSteer, mode: "steer" }, [queuedFollowUp]);
     await expect(window.getByTestId("queued-composer-message").filter({ hasText: queuedSteer.text })).toHaveCount(0);
     await expect(window.getByTestId("transcript")).toContainText(queuedSteer.text);
 
-    const composer = window.getByTestId("composer");
-    await composer.fill("Steer the current run now");
-    await composer.press("Enter");
+    const submittedSteer: SessionQueuedMessage = {
+      id: "submitted-steer-1",
+      mode: "steer",
+      text: "Steer the current run now",
+      createdAt: new Date(Date.now() - 4_000).toISOString(),
+      updatedAt: new Date(Date.now() - 4_000).toISOString(),
+    };
+    await emitRunningSnapshot(harness, window, [submittedSteer, queuedFollowUp]);
+    await expect(window.getByTestId("queued-composer-message").filter({ hasText: "Steer the current run now" })).toHaveCount(1);
+    await expect(window.getByTestId("transcript")).not.toContainText("Steer the current run now");
 
+    await emitQueuedMessageStarted(harness, window, submittedSteer, [queuedFollowUp]);
     await expect(window.getByTestId("queued-composer-message").filter({ hasText: "Steer the current run now" })).toHaveCount(0);
     await expect(window.getByTestId("transcript")).toContainText("Steer the current run now");
 
@@ -215,6 +227,50 @@ test("delineates queued follow-ups and submitted steers in the timeline", async 
         `user:${queuedFollowUp.text}`,
         "assistant:Answering the queued follow-up",
       ]);
+  } finally {
+    await harness.close();
+  }
+});
+
+test("clears queued messages when a running turn aborts", async () => {
+  test.setTimeout(60_000);
+  const userDataDir = await makeUserDataDir();
+  const workspacePath = await makeWorkspace("queued-messages-abort");
+  const harness = await launchDesktop(userDataDir, {
+    initialWorkspaces: [workspacePath],
+    testMode: "background",
+  });
+
+  try {
+    const window = await harness.firstWindow();
+    await createNamedThread(window, "Queued abort cleanup");
+    const context = await selectedSessionContext(window);
+    const queuedMessage: SessionQueuedMessage = {
+      id: "queued-message-abort",
+      mode: "steer",
+      text: "This should not survive stop",
+      createdAt: new Date(Date.now() - 5_000).toISOString(),
+      updatedAt: new Date(Date.now() - 5_000).toISOString(),
+    };
+    await emitRunningSnapshot(harness, window, [queuedMessage]);
+
+    await expect(window.getByTestId("queued-composer-message").filter({ hasText: "This should not survive stop" })).toHaveCount(1);
+    await expect(window.getByTestId("transcript")).not.toContainText("This should not survive stop");
+
+    await emitTestSessionEvent(harness, {
+      type: "runFailed",
+      sessionRef: context.sessionRef,
+      timestamp: new Date().toISOString(),
+      error: {
+        message: "Request was aborted",
+        code: "ABORTED",
+      },
+    });
+
+    await expect(window.getByTestId("queued-composer-messages")).toHaveCount(0);
+    await expect.poll(async () => (await getDesktopState(window)).queuedComposerMessages).toEqual([]);
+    await expect(window.getByTestId("transcript")).not.toContainText("This should not survive stop");
+    await expect(window.getByTestId("transcript")).toContainText("Request was aborted");
   } finally {
     await harness.close();
   }

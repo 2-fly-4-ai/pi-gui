@@ -1780,6 +1780,9 @@ export class DesktopAppStore implements AppStoreInternals {
         }
         break;
       case "runFailed":
+        if (event.error.code === "ABORTED") {
+          this.updateQueuedComposerMessages(event.sessionRef, []);
+        }
         await this.refreshSessionCommands(event.sessionRef);
         break;
       case "extensionCompatibilityIssue":
@@ -2550,11 +2553,10 @@ export class DesktopAppStore implements AppStoreInternals {
 
     return this.sessionState.queuedComposerMessagesBySession.get(
       sessionKey({ workspaceId: selectedWorkspaceId, sessionId: selectedSessionId }),
-    )?.filter((message) => message.mode === "followUp")
-      .map((message) => ({
-        ...message,
-        attachments: cloneComposerAttachments(message.attachments),
-      })) ?? [];
+    )?.map((message) => ({
+      ...message,
+      attachments: cloneComposerAttachments(message.attachments),
+    })) ?? [];
   }
 
   private resolveEditingQueuedMessageId(

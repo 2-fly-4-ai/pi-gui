@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { sessionKey } from "@pi-gui/pi-sdk-driver";
-import type { SessionConfig, SessionQueuedMessage, SessionRef, ToolAccessSelection } from "@pi-gui/session-driver";
+import type { SessionConfig, SessionRef, ToolAccessSelection } from "@pi-gui/session-driver";
 import type { ComposerAttachment, DesktopAppState, QueuedComposerMessage, TranscriptMessage, WorkspaceSessionTarget } from "../src/desktop-state";
 import { toSessionRef } from "./app-store-utils";
 import {
@@ -10,7 +10,7 @@ import {
   parseComposerCommand,
   resolveRuntimeSlashCommand,
 } from "../src/composer-commands";
-import { appendQueuedUserMessage, appendUserMessage, clearActiveAssistantMessage } from "./app-store-timeline";
+import { appendUserMessage, clearActiveAssistantMessage } from "./app-store-timeline";
 import {
   cloneComposerAttachments,
   makeActivityItem,
@@ -237,13 +237,6 @@ export async function steerQueuedComposerMessage(
   };
   const next = current.map((message) => (message.id === messageId ? steeredMessage : message));
   const nextSessionQueuedMessages = toSessionQueuedMessages(next);
-  const optimisticSteerMessage = nextSessionQueuedMessages.find((message) => message.id === messageId);
-
-  if (optimisticSteerMessage) {
-    appendQueuedUserMessage(store.sessionState.transcriptCache, sessionRef, optimisticSteerMessage);
-    store.publishSelectedTranscriptFor(sessionRef);
-    store.persistTranscriptCacheForSession(sessionRef);
-  }
 
   try {
     await store.driver.replaceQueuedMessages(sessionRef, nextSessionQueuedMessages);
@@ -252,9 +245,6 @@ export async function steerQueuedComposerMessage(
       markSelectedSessionViewed: false,
     });
   } catch (error) {
-    if (optimisticSteerMessage) {
-      removeOptimisticQueuedUserMessage(store, sessionRef, optimisticSteerMessage.id);
-    }
     return store.withError(error);
   }
 }
@@ -290,7 +280,6 @@ export async function submitComposer(
   const selectedSession = store.sessionFromState(sessionRef);
   const isRunning = selectedSession?.status === "running";
   const editingState = store.getQueuedComposerEditState(sessionRef);
-  let optimisticSteerMessage: SessionQueuedMessage | undefined;
   try {
     if (text.startsWith("/") && !runtimeSlashCommand) {
       const handled = await runComposerCommand(store, sessionRef, text);
@@ -347,14 +336,6 @@ export async function submitComposer(
       store.setQueuedComposerEditState(sessionRef, undefined);
       await store.persistComposerAttachments(key, []);
       const nextSessionQueuedMessages = toSessionQueuedMessages(nextQueuedMessages);
-      optimisticSteerMessage = deliverAs === "steer"
-        ? nextSessionQueuedMessages.find((message) => message.id === nextMessage.id)
-        : undefined;
-      if (optimisticSteerMessage) {
-        appendQueuedUserMessage(store.sessionState.transcriptCache, sessionRef, optimisticSteerMessage);
-        store.publishSelectedTranscriptFor(sessionRef);
-        store.persistTranscriptCacheForSession(sessionRef);
-      }
       await store.driver.replaceQueuedMessages(sessionRef, nextSessionQueuedMessages);
       return store.refreshState({
         clearLastError: true,
@@ -397,9 +378,6 @@ export async function submitComposer(
     }
     if (editingState) {
       store.setQueuedComposerEditState(sessionRef, editingState);
-    }
-    if (optimisticSteerMessage) {
-      removeOptimisticQueuedUserMessage(store, sessionRef, optimisticSteerMessage.id);
     }
     return store.withError(error);
   }
@@ -485,7 +463,6 @@ export async function submitComposerToSession(
   }
 
   const isRunning = selectedSession.status === "running";
-  let optimisticSteerMessage: SessionQueuedMessage | undefined;
   try {
     if (isRunning) {
       const deliverAs = options.deliverAs ?? "steer";
@@ -499,14 +476,6 @@ export async function submitComposerToSession(
         nextMessage,
       ];
       const nextSessionQueuedMessages = toSessionQueuedMessages(nextQueuedMessages);
-      optimisticSteerMessage = deliverAs === "steer"
-        ? nextSessionQueuedMessages.find((message) => message.id === nextMessage.id)
-        : undefined;
-      if (optimisticSteerMessage) {
-        appendQueuedUserMessage(store.sessionState.transcriptCache, sessionRef, optimisticSteerMessage);
-        store.publishSelectedTranscriptFor(sessionRef);
-        store.persistTranscriptCacheForSession(sessionRef);
-      }
       await store.driver.replaceQueuedMessages(sessionRef, nextSessionQueuedMessages);
       return store.refreshState({
         clearLastError: true,
@@ -520,9 +489,6 @@ export async function submitComposerToSession(
       markSelectedSessionViewed: false,
     });
   } catch (error) {
-    if (optimisticSteerMessage) {
-      removeOptimisticQueuedUserMessage(store, sessionRef, optimisticSteerMessage.id);
-    }
     store.sessionState.sessionErrorsBySession.set(key, error instanceof Error ? error.message : String(error));
     return store.withError(error);
   }
@@ -688,21 +654,6 @@ function replaceQueuedComposerMessage(
   replacement: QueuedComposerMessage,
 ): QueuedComposerMessage[] {
   return messages.map((message) => (message.id === messageId ? replacement : message));
-}
-
-function removeOptimisticQueuedUserMessage(
-  store: AppStoreInternals,
-  sessionRef: SessionRef,
-  messageId: string,
-): void {
-  const key = sessionKey(sessionRef);
-  const transcript = store.sessionState.transcriptCache.get(key) ?? [];
-  store.sessionState.transcriptCache.set(
-    key,
-    transcript.filter((message) => message.id !== messageId),
-  );
-  store.publishSelectedTranscriptFor(sessionRef);
-  store.persistTranscriptCacheForSession(sessionRef);
 }
 
 /** Eagerly merge config fields so finishComposerCommand sees them before the async sessionUpdated event arrives. */

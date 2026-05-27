@@ -534,7 +534,9 @@ export class SessionSupervisor {
     }
 
     await record.session.abort();
+    record.session.clearQueue();
     record.runningRunId = undefined;
+    record.queuedMessages = [];
     record.status = "idle";
     await this.persistSnapshot(record);
     await this.emit(record, sessionUpdatedEvent(record));
@@ -1752,6 +1754,10 @@ export class SessionSupervisor {
         const outcome = determineRunOutcome(event.messages);
         const runId = record.runningRunId;
         record.runningRunId = undefined;
+        if (!outcome.success && outcome.error?.code === "ABORTED") {
+          record.session?.clearQueue();
+          record.queuedMessages = [];
+        }
         record.status = outcome.success ? "idle" : "failed";
         record.updatedAt = timestamp;
         if (!outcome.success && outcome.error) {
