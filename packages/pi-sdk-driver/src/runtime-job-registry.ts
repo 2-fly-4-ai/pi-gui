@@ -108,13 +108,18 @@ export function createToolRuntimeJob(input: CreateToolRuntimeJobInput): RuntimeJ
 }
 
 export function createBackgroundRuntimeJob(input: CreateBackgroundRuntimeJobInput): RuntimeJobSnapshot {
-  const process = cloneProcess(input.process);
+  const process = cloneProcess(input.process)!;
+  const status: RuntimeJobStatus = process.confidence === "claimed" || process.confidence === "unknown"
+    ? "unknown"
+    : process.status === "running"
+      ? "background"
+      : process.status;
   return cloneJob({
     id: `process:${input.process.pid}`,
     sessionRef: { ...input.sessionRef },
     ...(input.runId !== undefined ? { runId: input.runId } : {}),
     kind: "background",
-    status: input.process.status === "running" ? "background" : input.process.status,
+    status,
     confidence: input.process.confidence,
     title: input.title?.trim() || input.process.command?.trim() || `Process ${input.process.pid}`,
     ...(input.process.command ? { command: input.process.command } : {}),

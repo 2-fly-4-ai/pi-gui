@@ -177,7 +177,7 @@ test("shows runtime job visibility for running tools and background jobs", async
       sessionRef,
       runId: "runtime-visibility-run",
       kind: "background",
-      status: "running",
+      status: "unknown",
       confidence: "claimed",
       title: "Claimed worker",
       command: "npm run claimed",
@@ -212,6 +212,7 @@ test("shows runtime job visibility for running tools and background jobs", async
 
     const claimedCard = window.getByTestId("runtime-job-card").filter({ hasText: "Claimed worker" }).first();
     await expect(claimedCard).toBeVisible();
+    await expect(claimedCard).toContainText("unknown · claimed");
     await expect(window.getByTestId("topbar-runtime-status")).toContainText("Unknown background activity");
     await expect(sessionRow.getByTestId("session-runtime-badge")).toHaveText("1");
     await expect(claimedCard.getByTestId("runtime-job-refresh-button")).toBeVisible();
