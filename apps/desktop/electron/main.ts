@@ -791,6 +791,12 @@ app.whenReady().then(async () => {
   });
   ipcMain.handle(desktopIpc.cancelCurrentRun, () => store.cancelCurrentRun());
   ipcMain.handle(desktopIpc.cancelSessionRun, (_event, target: WorkspaceSessionTarget) => store.cancelSessionRun(target));
+  ipcMain.handle(desktopIpc.stopRuntimeJob, (_event, target: WorkspaceSessionTarget, jobId: string) =>
+    store.stopRuntimeJob(target, jobId),
+  );
+  ipcMain.handle(desktopIpc.refreshRuntimeJobs, (_event, target: WorkspaceSessionTarget) =>
+    store.refreshRuntimeJobs(target),
+  );
   ipcMain.handle(desktopIpc.pickComposerAttachments, async () => {
     const result = await dialog.showOpenDialog({
       properties: ["openFile", "multiSelections"],

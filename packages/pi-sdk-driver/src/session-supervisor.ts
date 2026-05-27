@@ -83,7 +83,7 @@ import {
   upsertRuntimeJob,
   type RuntimeJobRegistryState,
 } from "./runtime-job-registry.js";
-import { isProcessAlive, snapshotProcessTree, type ProcessInfo } from "./runtime-process-inspector.js";
+import { isProcessAlive, signalProcessGroup, snapshotProcessTree, type ProcessInfo } from "./runtime-process-inspector.js";
 import { createPtyBashToolDefinition, type PtyBashLifecycleEvent } from "./pty-bash-tool.js";
 
 export interface PiSdkDriverOptions {
@@ -538,6 +538,75 @@ export class SessionSupervisor {
     record.status = "idle";
     await this.persistSnapshot(record);
     await this.emit(record, sessionUpdatedEvent(record));
+  }
+
+  async stopRuntimeJob(sessionRef: SessionRef, jobId: string): Promise<void> {
+    const record = await this.ensureRecord(sessionRef);
+    const existing = record.runtimeJobs.jobs.get(jobId);
+    if (!existing) {
+      throw new Error(`Unknown runtime job: ${jobId}`);
+    }
+    if ((existing.confidence !== "tracked" && existing.confidence !== "survived") || !existing.process?.pid) {
+      throw new Error(`Runtime job ${jobId} cannot be stopped.`);
+    }
+    if (existing.status !== "running" && existing.status !== "background") {
+      throw new Error(`Runtime job ${jobId} is not active.`);
+    }
+
+    const targetProcessGroupId = existing.process.processGroupId ?? existing.process.pid;
+    if (!signalProcessGroup(targetProcessGroupId, "SIGTERM")) {
+      throw new Error(`Failed to stop runtime job ${jobId}.`);
+    }
+
+    const timestamp = nowIso();
+    const job = upsertRuntimeJob(record.runtimeJobs, {
+      ...existing,
+      status: "killed",
+      updatedAt: timestamp,
+      endedAt: timestamp,
+      signal: "SIGTERM",
+      process: {
+        ...existing.process,
+        status: "killed",
+        updatedAt: timestamp,
+        exitedAt: timestamp,
+        signal: "SIGTERM",
+      },
+    });
+    await this.emitRuntimeJobUpdate(record, job, timestamp, record.bashLifecycleGeneration);
+  }
+
+  async refreshRuntimeJobs(sessionRef: SessionRef) {
+    const record = await this.ensureRecord(sessionRef);
+    const timestamp = nowIso();
+
+    for (const existing of record.runtimeJobs.jobs.values()) {
+      if (
+        (existing.status !== "running" && existing.status !== "background")
+        || !existing.process?.pid
+        || isProcessAlive(existing.process.pid)
+      ) {
+        continue;
+      }
+
+      const job = upsertRuntimeJob(record.runtimeJobs, {
+        ...existing,
+        status: "exited",
+        updatedAt: timestamp,
+        endedAt: timestamp,
+        process: {
+          ...existing.process,
+          status: "exited",
+          updatedAt: timestamp,
+          exitedAt: timestamp,
+          ...(existing.process.exitCode !== undefined ? { exitCode: existing.process.exitCode } : { exitCode: null }),
+        },
+        ...(existing.exitCode !== undefined ? {} : { exitCode: null }),
+      });
+      await this.emitRuntimeJobUpdate(record, job, timestamp, record.bashLifecycleGeneration);
+    }
+
+    return this.runtimeSummaryFor(record);
   }
 
   async setSessionModel(sessionRef: SessionRef, selection: SessionModelSelection): Promise<void> {

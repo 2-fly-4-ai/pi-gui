@@ -55,8 +55,20 @@ export function LogsPanel({
 
   const refresh = useCallback(async () => {
     if (tab === "runtime") {
+      setLoading(true);
       setError(undefined);
-      setLoading(false);
+      try {
+        if (selectedWorkspace && selectedSession) {
+          await api.refreshRuntimeJobs({
+            workspaceId: selectedWorkspace.id,
+            sessionId: selectedSession.id,
+          });
+        }
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err));
+      } finally {
+        setLoading(false);
+      }
       return;
     }
 
@@ -105,7 +117,7 @@ export function LogsPanel({
         <span className="logs-panel__failure-count" data-testid="logs-failure-count">
           {tab === "runtime" ? `${runtimeJobs.length} jobs` : `${failureCount} failures`}
         </span>
-        <button className="icon-button" type="button" aria-label="Refresh logs" onClick={() => void refresh()} disabled={loading && tab !== "runtime"}><RefreshIcon /></button>
+        <button className="icon-button" type="button" aria-label="Refresh logs" onClick={() => void refresh()} disabled={loading}><RefreshIcon /></button>
         <button className="icon-button" type="button" aria-label="Close logs" onClick={onClose}><CloseIcon /></button>
       </header>
       <div className="logs-panel__tabs" role="tablist" aria-label="Runtime inspector views">
@@ -114,7 +126,7 @@ export function LogsPanel({
         <button className={`logs-panel__tab${tab === "app" ? " logs-panel__tab--active" : ""}`} role="tab" aria-selected={tab === "app"} type="button" onClick={() => setTab("app")}>App logs</button>
       </div>
       {tab === "runtime" ? (
-        <RuntimeTab session={selectedSession} runtimeLabel={runtimeLabel} />
+        <RuntimeTab api={api} loading={loading} session={selectedSession} runtimeLabel={runtimeLabel} />
       ) : (
         <>
           <div className="logs-panel__filters">
@@ -165,9 +177,13 @@ export function LogsPanel({
 }
 
 function RuntimeTab({
+  api,
+  loading,
   session,
   runtimeLabel,
 }: {
+  readonly api: PiDesktopApi;
+  readonly loading: boolean;
   readonly session: SessionRecord | undefined;
   readonly runtimeLabel: string;
 }) {
@@ -183,16 +199,48 @@ function RuntimeTab({
         <div className="logs-panel__empty">No runtime jobs for the selected session.</div>
       ) : (
         <div className="logs-panel__runtime-jobs" role="list" aria-label="Runtime jobs">
-          {jobs.map((job) => (
-            <div className="logs-panel__runtime-job" key={job.id} role="listitem">
-              <div className="logs-panel__runtime-job-title">{job.title}</div>
-              <div className="logs-panel__runtime-job-meta">{job.status} · {job.confidence}</div>
-              {job.message ? <div className="logs-panel__runtime-job-message">{job.message}</div> : null}
-            </div>
-          ))}
+          {jobs.map((job) => {
+            const canStop = canStopRuntimeJob(job);
+            const target = { workspaceId: job.sessionRef.workspaceId, sessionId: job.sessionRef.sessionId };
+            return (
+              <div className="logs-panel__runtime-job" key={job.id} role="listitem">
+                <div className="logs-panel__runtime-job-title">{job.title}</div>
+                <div className="logs-panel__runtime-job-meta">{job.status} · {job.confidence}</div>
+                {job.message ? <div className="logs-panel__runtime-job-message">{job.message}</div> : null}
+                <div className="runtime-job-card__actions">
+                  <button
+                    className="secondary-button"
+                    type="button"
+                    disabled={loading}
+                    onClick={() => void api.refreshRuntimeJobs(target)}
+                  >
+                    Refresh status
+                  </button>
+                  {canStop ? (
+                    <button
+                      className="secondary-button"
+                      type="button"
+                      disabled={loading}
+                      onClick={() => void api.stopRuntimeJob(target, job.id)}
+                    >
+                      Stop
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
     </div>
+  );
+}
+
+function canStopRuntimeJob(job: NonNullable<SessionRecord["runtimeSummary"]>["jobs"][number]): boolean {
+  return (
+    (job.status === "running" || job.status === "background")
+    && (job.confidence === "tracked" || job.confidence === "survived")
+    && Boolean(job.process?.pid)
   );
 }
 

@@ -491,6 +491,8 @@ function TimelineRuntimeJobItem({ item }: { readonly item: Extract<TranscriptMes
   const job = item.job;
   const process = job.process;
   const isActive = job.status === "running" || job.status === "background";
+  const canStop = canStopRuntimeJob(job);
+  const [pendingAction, setPendingAction] = useState<"refresh" | "stop" | null>(null);
   const children = job.children ?? [];
   const backgroundJobSummary = job.status === "background"
     ? `${children.length > 1 ? children.length : 1} background job${children.length > 1 ? "s" : ""} still running`
@@ -502,6 +504,24 @@ function TimelineRuntimeJobItem({ item }: { readonly item: Extract<TranscriptMes
     process?.processGroupId ? `pgid: ${process.processGroupId}` : undefined,
     job.logPaths?.length ? `logs: ${job.logPaths.join(", ")}` : undefined,
   ].filter((value): value is string => Boolean(value)).join("\n");
+
+  const handleRefresh = () => {
+    const app = window.piApp;
+    if (!app || pendingAction) {
+      return;
+    }
+    setPendingAction("refresh");
+    void app.refreshRuntimeJobs(job.sessionRef).finally(() => setPendingAction(null));
+  };
+
+  const handleStop = () => {
+    const app = window.piApp;
+    if (!app || pendingAction || !canStop) {
+      return;
+    }
+    setPendingAction("stop");
+    void app.stopRuntimeJob(job.sessionRef, job.id).finally(() => setPendingAction(null));
+  };
 
   return (
     <article
@@ -566,8 +586,28 @@ function TimelineRuntimeJobItem({ item }: { readonly item: Extract<TranscriptMes
           </ul>
         </div>
       ) : null}
-      {copyText ? (
-        <div className="runtime-job-card__actions">
+      <div className="runtime-job-card__actions">
+        <button
+          type="button"
+          className="secondary-button"
+          data-testid="runtime-job-refresh-button"
+          disabled={pendingAction !== null}
+          onClick={handleRefresh}
+        >
+          Refresh status
+        </button>
+        {canStop ? (
+          <button
+            type="button"
+            className="secondary-button"
+            data-testid="runtime-job-stop-button"
+            disabled={pendingAction !== null}
+            onClick={handleStop}
+          >
+            Stop
+          </button>
+        ) : null}
+        {copyText ? (
           <button
             type="button"
             className="secondary-button"
@@ -575,9 +615,17 @@ function TimelineRuntimeJobItem({ item }: { readonly item: Extract<TranscriptMes
           >
             Copy details
           </button>
-        </div>
-      ) : null}
+        ) : null}
+      </div>
     </article>
+  );
+}
+
+function canStopRuntimeJob(job: Extract<TranscriptMessage, { kind: "runtime-job" }>["job"]): boolean {
+  return (
+    (job.status === "running" || job.status === "background")
+    && (job.confidence === "tracked" || job.confidence === "survived")
+    && Boolean(job.process?.pid)
   );
 }
 

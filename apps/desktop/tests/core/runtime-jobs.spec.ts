@@ -79,7 +79,18 @@ test("shows runtime job visibility for running tools and background jobs", async
     await expect(runningToolCard).toBeVisible();
     await expect(runningToolCard).toContainText("pid");
     await expect(runningToolCard).toContainText("4242");
+    await expect(runningToolCard.getByTestId("runtime-job-refresh-button")).toBeVisible();
+    await expect(runningToolCard.getByTestId("runtime-job-stop-button")).toBeVisible();
     await expect(window.getByTestId("topbar-runtime-status")).toContainText("Tool running");
+
+    await runningToolCard.getByTestId("runtime-job-refresh-button").click();
+    await expect
+      .poll(async () => {
+        const nextState = await getDesktopState(window);
+        const workspace = nextState.workspaces.find((entry) => entry.id === workspaceId);
+        return workspace?.sessions.find((entry) => entry.id === sessionId)?.runtimeSummary?.jobs.length ?? -1;
+      })
+      .toBe(0);
 
     const backgroundTimestamp = new Date(Date.now() + 1_000).toISOString();
     const backgroundJob = {
@@ -136,6 +147,8 @@ test("shows runtime job visibility for running tools and background jobs", async
     const backgroundCard = window.getByTestId("runtime-job-card").filter({ hasText: "Background worker" }).first();
     await expect(backgroundCard).toBeVisible();
     await expect(backgroundCard).toContainText("1 background job");
+    await expect(backgroundCard.getByTestId("runtime-job-refresh-button")).toBeVisible();
+    await expect(backgroundCard.getByTestId("runtime-job-stop-button")).toBeVisible();
 
     await expect(window.getByTestId("topbar-runtime-status")).toContainText("1 background job");
     await expect(window.getByTestId("composer-runtime-status")).toContainText("1 background job");
@@ -155,6 +168,50 @@ test("shows runtime job visibility for running tools and background jobs", async
         unknownJobCount: 0,
         jobs: [{ id: backgroundJob.id }],
       });
+
+    const claimedTimestamp = new Date(Date.now() + 2_000).toISOString();
+    const claimedJob = {
+      id: "process:6262",
+      sessionRef,
+      runId: "runtime-visibility-run",
+      kind: "background",
+      status: "running",
+      confidence: "claimed",
+      title: "Claimed worker",
+      command: "npm run claimed",
+      cwd: workspacePath,
+      startedAt: claimedTimestamp,
+      updatedAt: claimedTimestamp,
+      process: {
+        pid: 6262,
+        command: "npm run claimed",
+        cwd: workspacePath,
+        status: "running",
+        confidence: "claimed",
+        startedAt: claimedTimestamp,
+        updatedAt: claimedTimestamp,
+      },
+      message: "Reported by tool output",
+    } satisfies RuntimeJobSnapshot;
+
+    await emitTestSessionEvent(harness, {
+      type: "runtimeJobUpdated",
+      sessionRef,
+      timestamp: claimedTimestamp,
+      job: claimedJob,
+      summary: {
+        agentStatus: "idle",
+        activeToolCount: 0,
+        backgroundJobCount: 1,
+        unknownJobCount: 1,
+        jobs: [claimedJob],
+      },
+    } satisfies Extract<SessionDriverEvent, { type: "runtimeJobUpdated" }>);
+
+    const claimedCard = window.getByTestId("runtime-job-card").filter({ hasText: "Claimed worker" }).first();
+    await expect(claimedCard).toBeVisible();
+    await expect(claimedCard.getByTestId("runtime-job-refresh-button")).toBeVisible();
+    await expect(claimedCard.getByTestId("runtime-job-stop-button")).toHaveCount(0);
   } finally {
     await harness.close();
   }

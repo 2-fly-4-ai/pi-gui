@@ -615,6 +615,40 @@ export class DesktopAppStore implements AppStoreInternals {
     return composer.cancelSessionRun(this, target);
   }
 
+  async stopRuntimeJob(target: WorkspaceSessionTarget, jobId: string): Promise<DesktopAppState> {
+    await this.initialize();
+    const sessionRef = toSessionRef(target);
+    await this.ensureSessionReady(sessionRef);
+
+    return this.withErrorHandling(async () => {
+      await this.driver.stopRuntimeJob(sessionRef, jobId);
+      return this.refreshState({
+        selectedWorkspaceId: target.workspaceId,
+        selectedSessionId: target.sessionId,
+        clearLastError: true,
+        markSelectedSessionViewed: false,
+      });
+    });
+  }
+
+  async refreshRuntimeJobs(target: WorkspaceSessionTarget): Promise<DesktopAppState> {
+    await this.initialize();
+    const sessionRef = toSessionRef(target);
+    await this.ensureSessionReady(sessionRef);
+
+    return this.withErrorHandling(async () => {
+      const summary = await this.driver.refreshRuntimeJobs(sessionRef);
+      this.sessionState.runtimeJobsBySession.set(sessionKey(sessionRef), [...summary.jobs]);
+      this.state = this.withRuntimeJobState(this.state, sessionRef, summary);
+      return this.refreshState({
+        selectedWorkspaceId: target.workspaceId,
+        selectedSessionId: target.sessionId,
+        clearLastError: true,
+        markSelectedSessionViewed: false,
+      });
+    });
+  }
+
   async getSessionTree(target: WorkspaceSessionTarget): Promise<SessionTreeSnapshot> {
     await this.initialize();
     const sessionRef = toSessionRef(target);
