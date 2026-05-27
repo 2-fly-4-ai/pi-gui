@@ -204,7 +204,7 @@ test("shows runtime job visibility for running tools and background jobs", async
       summary: {
         agentStatus: "idle",
         activeToolCount: 0,
-        backgroundJobCount: 1,
+        backgroundJobCount: 0,
         unknownJobCount: 1,
         jobs: [claimedJob],
       },
@@ -212,6 +212,8 @@ test("shows runtime job visibility for running tools and background jobs", async
 
     const claimedCard = window.getByTestId("runtime-job-card").filter({ hasText: "Claimed worker" }).first();
     await expect(claimedCard).toBeVisible();
+    await expect(window.getByTestId("topbar-runtime-status")).toContainText("Unknown background activity");
+    await expect(sessionRow.getByTestId("session-runtime-badge")).toHaveText("1");
     await expect(claimedCard.getByTestId("runtime-job-refresh-button")).toBeVisible();
     await expect(claimedCard.getByTestId("runtime-job-stop-button")).toHaveCount(0);
 

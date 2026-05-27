@@ -13,13 +13,17 @@ export function runtimeStatusLabel(session: SessionRecord | undefined): string {
   }
 
   const backgroundJobCount = getCount(summary, "backgroundJobCount");
-  if (backgroundJobCount > 0) {
-    return `Agent idle · ${backgroundJobCount} background job${backgroundJobCount === 1 ? "" : "s"}`;
+  const unknownJobCount = getCount(summary, "unknownJobCount");
+  if (unknownJobCount > 0 && backgroundJobCount > 0) {
+    return `Agent idle · ${backgroundJobCount} background job${backgroundJobCount === 1 ? "" : "s"} · ${unknownJobCount} unknown`;
   }
 
-  const unknownJobCount = getCount(summary, "unknownJobCount");
   if (unknownJobCount > 0) {
     return "Unknown background activity";
+  }
+
+  if (backgroundJobCount > 0) {
+    return `Agent idle · ${backgroundJobCount} background job${backgroundJobCount === 1 ? "" : "s"}`;
   }
 
   const agentStatus = summary?.agentStatus ?? session.status;

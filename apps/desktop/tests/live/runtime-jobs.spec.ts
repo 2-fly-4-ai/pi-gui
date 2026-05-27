@@ -27,11 +27,9 @@ test("shows a live runtime job card for a surviving bash child process", async (
 
     const composer = window.getByTestId("composer");
     await composer.fill(
-      "Use your bash or shell tool to run this exact command and do not wait for the child before replying: `sh -c 'sleep 20 & echo rest-lane-1 pid $!'`. After running it, briefly confirm what happened.",
+      "Use your bash or shell tool to run this exact command and do not wait for the child before replying: `sleep 20 >/dev/null 2>&1 & echo rest-lane-1 launched`. After running it, briefly confirm what happened.",
     );
     await composer.press("Enter");
-
-    const runtimeJobCard = window.getByTestId("runtime-job-card").filter({ hasText: /background|claimed|survived/i }).first();
 
     await expect
       .poll(
@@ -40,15 +38,16 @@ test("shows a live runtime job card for a surviving bash child process", async (
           const session = state.workspaces
             .find((workspace) => workspace.id === state.selectedWorkspaceId)
             ?.sessions.find((entry) => entry.id === state.selectedSessionId);
-          return (session?.runtimeSummary?.backgroundJobCount ?? 0) > 0 || (await runtimeJobCard.count()) > 0;
+          return session?.runtimeSummary?.jobs.some((job) => job.confidence === "survived" && (job.status === "background" || job.status === "running")) ?? false;
         },
         { timeout: 90_000 },
       )
       .toBe(true);
 
+    const runtimeJobCard = window.getByTestId("runtime-job-card").filter({ hasText: /survived/i }).first();
     await expect(runtimeJobCard).toHaveCount(1, { timeout: 30_000 });
     await expect(runtimeJobCard).toBeVisible({ timeout: 30_000 });
-    await expect(runtimeJobCard).toContainText(/background|claimed|survived/i);
+    await expect(runtimeJobCard).toContainText(/survived/i);
   } finally {
     await harness.close();
   }
