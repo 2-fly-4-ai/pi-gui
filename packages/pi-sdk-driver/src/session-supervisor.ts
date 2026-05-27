@@ -559,20 +559,30 @@ export class SessionSupervisor {
     }
 
     const timestamp = nowIso();
-    const job = upsertRuntimeJob(record.runtimeJobs, {
-      ...existing,
-      status: "killed",
-      updatedAt: timestamp,
-      endedAt: timestamp,
-      signal: "SIGTERM",
-      process: {
-        ...existing.process,
-        status: "killed",
-        updatedAt: timestamp,
-        exitedAt: timestamp,
-        signal: "SIGTERM",
-      },
-    });
+    const job = isProcessAlive(existing.process.pid)
+      ? upsertRuntimeJob(record.runtimeJobs, {
+          ...existing,
+          updatedAt: timestamp,
+          message: "SIGTERM sent; process still running",
+          process: {
+            ...existing.process,
+            updatedAt: timestamp,
+          },
+        })
+      : upsertRuntimeJob(record.runtimeJobs, {
+          ...existing,
+          status: "killed",
+          updatedAt: timestamp,
+          endedAt: timestamp,
+          signal: "SIGTERM",
+          process: {
+            ...existing.process,
+            status: "killed",
+            updatedAt: timestamp,
+            exitedAt: timestamp,
+            signal: "SIGTERM",
+          },
+        });
     await this.emitRuntimeJobUpdate(record, job, timestamp, record.bashLifecycleGeneration);
   }
 

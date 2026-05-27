@@ -1,5 +1,7 @@
 import { expect, test } from "@playwright/test";
 import type { RuntimeJobSnapshot, SessionDriverEvent } from "@pi-gui/session-driver";
+
+const NONEXISTENT_REFRESH_TEST_PID = 999_999_999;
 import {
   createNamedThread,
   emitTestSessionEvent,
@@ -50,7 +52,7 @@ test("shows runtime job visibility for running tools and background jobs", async
       startedAt: timestamp,
       updatedAt: timestamp,
       process: {
-        pid: 4242,
+        pid: NONEXISTENT_REFRESH_TEST_PID,
         command: "sleep 30",
         cwd: workspacePath,
         status: "running",
@@ -78,7 +80,7 @@ test("shows runtime job visibility for running tools and background jobs", async
     const runningToolCard = window.getByTestId("runtime-job-card").filter({ hasText: "Bash" }).first();
     await expect(runningToolCard).toBeVisible();
     await expect(runningToolCard).toContainText("pid");
-    await expect(runningToolCard).toContainText("4242");
+    await expect(runningToolCard).toContainText(String(NONEXISTENT_REFRESH_TEST_PID));
     await expect(runningToolCard.getByTestId("runtime-job-refresh-button")).toBeVisible();
     await expect(runningToolCard.getByTestId("runtime-job-stop-button")).toBeVisible();
     await expect(window.getByTestId("topbar-runtime-status")).toContainText("Tool running");
