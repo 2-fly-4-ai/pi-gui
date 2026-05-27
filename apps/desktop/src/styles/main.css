@@ -207,6 +207,20 @@
   animation: running-pulse 1.35s ease-out infinite;
 }
 
+.topbar__runtime-status {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 0 9px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface-muted);
+  color: var(--muted-strong);
+  font-size: 12px;
+  font-weight: 560;
+  white-space: nowrap;
+}
+
 .topbar__actions,
 .empty-panel__actions {
   display: flex;
@@ -1280,6 +1294,194 @@
   font-size: 12px;
 }
 
+.runtime-job-card {
+  width: min(760px, 100%);
+  min-width: 0;
+  display: grid;
+  gap: 12px;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--surface) 92%, var(--surface-muted));
+}
+
+.runtime-job-card--running,
+.runtime-job-card--background {
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--line));
+  background: color-mix(in srgb, var(--surface) 84%, var(--accent) 6%);
+}
+
+.runtime-job-card--failed,
+.runtime-job-card--killed,
+.runtime-job-card--unknown {
+  border-color: color-mix(in srgb, var(--error) 36%, var(--line));
+}
+
+.runtime-job-card__header {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  min-width: 0;
+}
+
+.runtime-job-card__title-block {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.runtime-job-card__eyebrow {
+  color: var(--muted-soft);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.runtime-job-card__title {
+  margin: 0;
+  color: var(--text-strong);
+  font-size: 14px;
+  line-height: 1.35;
+}
+
+.runtime-job-card__subtitle {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.3;
+}
+
+.runtime-job-card__status {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.runtime-job-card__command {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--surface-muted);
+  color: var(--muted-strong);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.runtime-job-card__meta {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 4px 10px;
+  margin: 0;
+  font-size: 12px;
+}
+
+.runtime-job-card__meta dt {
+  color: var(--muted-soft);
+}
+
+.runtime-job-card__meta dd {
+  margin: 0;
+  color: var(--text-strong);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.runtime-job-card__children {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.runtime-job-card__children li {
+  display: grid;
+  grid-template-columns: repeat(3, max-content) minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
+}
+
+.runtime-job-card__child-pill {
+  padding: 2px 7px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.runtime-job-card__children code {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted-strong);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.runtime-job-card__paths {
+  display: grid;
+  gap: 6px;
+}
+
+.runtime-job-card__paths-label {
+  color: var(--muted-soft);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.runtime-job-card__paths ul {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding-left: 18px;
+  color: var(--muted-strong);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.runtime-job-card__paths li {
+  overflow-wrap: anywhere;
+}
+
+.runtime-job-card__actions {
+  display: flex;
+  gap: 8px;
+}
+
+.secondary-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text-strong);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.secondary-button:hover:not(:disabled) {
+  background: var(--surface-muted);
+  border-color: var(--line-strong);
+}
+
+.secondary-button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
 /* Inline diff */
 
 .diff-inline {
@@ -2022,6 +2224,20 @@
 .composer__footer-meta {
   color: var(--muted-soft);
   font-size: 12px;
+}
+
+.composer-runtime-status {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 0 9px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface-muted);
+  color: var(--muted-strong);
+  font-size: 12px;
+  font-weight: 560;
+  white-space: nowrap;
 }
 
 .composer-control-bar {
@@ -7908,9 +8124,32 @@ mark.thread-find-active {
   white-space: nowrap;
 }
 
+.logs-panel__tabs {
+  display: flex;
+  gap: 6px;
+  padding: 10px 10px 0;
+}
+
+.logs-panel__tab {
+  min-height: 30px;
+  padding: 0 10px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+  background: transparent;
+  color: #8b98ad;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.logs-panel__tab--active {
+  background: #151b26;
+  color: #e8edf7;
+  border-color: rgba(125, 146, 255, 0.7);
+}
+
 .logs-panel__filters {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 110px 120px;
+  grid-template-columns: minmax(0, 1fr) 110px 120px 120px;
   gap: 6px;
   padding: 10px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
@@ -7927,12 +8166,18 @@ mark.thread-find-active {
   min-width: 0;
 }
 
+.logs-panel__runtime-note,
 .logs-panel__warning,
 .logs-panel__error {
   margin: 8px 10px 0;
   padding: 8px;
   border-radius: 8px;
   font-size: 12px;
+}
+
+.logs-panel__runtime-note {
+  background: rgba(125, 146, 255, 0.12);
+  color: #cdd6ff;
 }
 
 .logs-panel__warning {
@@ -7943,6 +8188,57 @@ mark.thread-find-active {
 .logs-panel__error {
   background: rgba(248, 81, 73, 0.14);
   color: #ffb4aa;
+}
+
+.logs-panel__runtime {
+  display: grid;
+  gap: 10px;
+  padding: 12px 10px 10px;
+  min-height: 0;
+  overflow: auto;
+}
+
+.logs-panel__runtime-status {
+  display: grid;
+  gap: 3px;
+  padding: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  background: #151b26;
+}
+
+.logs-panel__runtime-label {
+  color: #8b98ad;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.logs-panel__runtime-jobs {
+  display: grid;
+  gap: 8px;
+}
+
+.logs-panel__runtime-job {
+  display: grid;
+  gap: 4px;
+  padding: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  background: #151b26;
+}
+
+.logs-panel__runtime-job-title {
+  color: #e8edf7;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.logs-panel__runtime-job-meta,
+.logs-panel__runtime-job-message {
+  color: #8b98ad;
+  font-size: 12px;
 }
 
 .logs-panel__body {
@@ -8045,4 +8341,18 @@ mark.thread-find-active {
   color: #8b98ad;
   padding: 16px;
   font-size: 13px;
+}
+
+.session-row__runtime-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  min-height: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 16%, var(--surface-muted));
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 700;
 }

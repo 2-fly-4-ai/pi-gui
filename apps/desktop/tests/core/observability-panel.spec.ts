@@ -105,7 +105,7 @@ async function sessionFileFor(userDataDir: string, workspaceId: string, sessionI
   });
 }
 
-test("logs panel opens on threads and shows current-scope seeded failures", async () => {
+test("logs panel opens on threads and splits task/app seeded failures", async () => {
   const userDataDir = await mkdtemp(join(tmpdir(), "pi-gui-observability-"));
   const agentDir = join(userDataDir, "agent");
   await seedLogs(userDataDir, agentDir, userDataDir);
@@ -117,15 +117,24 @@ test("logs panel opens on threads and shows current-scope seeded failures", asyn
     await expect(page.getByTestId("logs-panel")).toBeVisible();
     const logsPanelBox = await page.getByTestId("logs-panel").boundingBox();
     expect(logsPanelBox?.width).toBeGreaterThanOrEqual(430);
+    await expect(page.getByRole("tab", { name: "Runtime" })).toHaveAttribute("aria-selected", "true");
+    await expect(page.getByTestId("logs-failure-count")).toContainText("0 jobs");
+
+    await page.getByRole("tab", { name: "Task logs" }).click();
     await expect(page.locator(".logs-panel__event-title", { hasText: "Subagent blocked: prompt targets another repo" })).toBeVisible();
-    await expect(page.locator(".logs-panel__event-title", { hasText: "Main process unhandled rejection" })).toBeVisible();
     await expect(page.locator(".logs-panel__event-title", { hasText: "Tool blocked: bash" })).toBeVisible();
     await expect(page.locator(".logs-panel__event-title", { hasText: "Tool failed: bash" })).toHaveCount(0);
+    await expect(page.locator(".logs-panel__event-title", { hasText: "Main process unhandled rejection" })).toHaveCount(0);
     await expect(page.locator(".logs-panel__event-message", { hasText: "Other repo failure" })).toHaveCount(0);
     await expect(page.locator(".logs-panel__warning", { hasText: "agent-activity.jsonl" })).toHaveCount(0);
+    await expect(page.getByTestId("logs-failure-count")).toContainText("2 failures");
+
+    await page.getByRole("tab", { name: "App logs" }).click();
+    await expect(page.locator(".logs-panel__event-title", { hasText: "Main process unhandled rejection" })).toBeVisible();
     await expect(page.locator(".logs-panel__event-title", { hasText: "React render loop" })).toBeVisible();
     await expect(page.locator(".logs-panel__event-message", { hasText: "Maximum update depth exceeded" })).toBeVisible();
-    await expect(page.getByTestId("logs-failure-count")).toContainText("4 failures");
+    await expect(page.locator(".logs-panel__event-title", { hasText: "Tool blocked: bash" })).toHaveCount(0);
+    await expect(page.getByTestId("logs-failure-count")).toContainText("2 failures");
   } finally {
     await app.close();
   }
@@ -140,6 +149,7 @@ test("logs panel renders object payloads as useful messages", async () => {
   try {
     const page = await app.firstWindow();
     await page.getByLabel("Toggle logs panel").click();
+    await page.getByRole("tab", { name: "App logs" }).click();
     await page.getByLabel("Log severity").selectOption("all");
     await expect(page.locator(".logs-panel__event-message", { hasText: "Timeline render took 120ms" })).toBeVisible();
     await expect(page.locator(".logs-panel__event-title", { hasText: "Electron security warning" }).first()).toBeVisible();
@@ -158,9 +168,10 @@ test("logs panel can opt into global subagent audit history", async () => {
   try {
     const page = await app.firstWindow();
     await page.getByLabel("Toggle logs panel").click();
+    await page.getByRole("tab", { name: "Task logs" }).click();
     await page.getByLabel("Log scope").selectOption("global");
     await expect(page.locator(".logs-panel__event-message", { hasText: "Other repo failure" })).toBeVisible();
-    await expect(page.getByTestId("logs-failure-count")).toContainText("5 failures");
+    await expect(page.getByTestId("logs-failure-count")).toContainText("3 failures");
   } finally {
     await app.close();
   }
@@ -194,9 +205,10 @@ test("logs panel includes current thread tool failures", async () => {
     })}\n`, "utf8");
 
     await page.getByLabel("Toggle logs panel").click();
+    await page.getByRole("tab", { name: "Task logs" }).click();
     await expect(page.locator(".logs-panel__event-title", { hasText: "Tool failed: bash" })).toBeVisible();
     await expect(page.locator(".logs-panel__event-message", { hasText: "Command failed with exit code 1" })).toBeVisible();
-    await expect(page.getByTestId("logs-failure-count")).toContainText("5 failures");
+    await expect(page.getByTestId("logs-failure-count")).toContainText("3 failures");
   } finally {
     await app.close();
   }

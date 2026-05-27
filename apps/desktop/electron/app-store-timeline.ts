@@ -1,5 +1,5 @@
 import { sessionKey } from "@pi-gui/pi-sdk-driver";
-import type { SessionDriverEvent, SessionQueuedMessage, SessionRef } from "@pi-gui/session-driver";
+import type { RuntimeJobSnapshot, SessionDriverEvent, SessionQueuedMessage, SessionRef } from "@pi-gui/session-driver";
 import type { TranscriptMessage } from "../src/desktop-state";
 import {
   formatElapsedDuration,
@@ -294,6 +294,9 @@ export function applyTimelineEvent(
       );
       break;
     }
+    case "runtimeJobUpdated":
+      upsertRuntimeJobRow(transcript, event.job);
+      break;
     case "runCompleted": {
       const metrics = currentMetrics;
       clearRunState(transcript, key, event.sessionRef, state);
@@ -337,6 +340,24 @@ export function applyTimelineEvent(
   }
 
   transcriptCache.set(key, transcript);
+}
+
+function upsertRuntimeJobRow(transcript: TranscriptMessage[], job: RuntimeJobSnapshot): void {
+  const id = `runtime-job:${job.id}`;
+  const index = transcript.findIndex((item) => item.kind === "runtime-job" && item.id === id);
+  const next = {
+    kind: "runtime-job" as const,
+    id,
+    createdAt: job.startedAt,
+    job,
+  };
+
+  if (index >= 0) {
+    transcript[index] = next;
+    return;
+  }
+
+  transcript.push(next);
 }
 
 function upsertToolRow(

@@ -18,6 +18,16 @@ function isCommandTool(item: TranscriptMessage): item is Extract<TranscriptMessa
   return typeof item.input === "object" && item.input !== null && typeof (item.input as Record<string, unknown>).command === "string";
 }
 
+function hasSearchableCommand(item: TranscriptMessage): boolean {
+  if (isCommandTool(item)) {
+    return true;
+  }
+  if (item.kind === "runtime-job") {
+    return Boolean(item.job.command);
+  }
+  return false;
+}
+
 interface ThreadSearchModel {
   readonly isOpen: boolean;
   readonly query: string;
@@ -450,6 +460,9 @@ function estimateLegendTimelineItemHeight(item: TranscriptMessage): number {
   }
   if (item.kind === "tool") {
     return 52;
+  }
+  if (item.kind === "runtime-job") {
+    return hasSearchableCommand(item) ? 180 : 132;
   }
   if (item.kind === "summary") {
     return item.presentation === "divider" ? 44 : 38;

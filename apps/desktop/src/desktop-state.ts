@@ -1,4 +1,10 @@
-import type { HostUiRequest, SessionConfig, ToolAccessSelection } from "@pi-gui/session-driver";
+import type {
+  HostUiRequest,
+  RuntimeJobSnapshot,
+  RuntimeSummarySnapshot,
+  SessionConfig,
+  ToolAccessSelection,
+} from "@pi-gui/session-driver";
 import type { ModelSettingsSnapshot, RuntimeCommandRecord, RuntimeSnapshot } from "@pi-gui/session-driver/runtime-types";
 export type SessionStatus = "idle" | "running" | "failed";
 export type { SessionRole, TranscriptMessage } from "./timeline-types";
@@ -66,6 +72,7 @@ export interface SessionRecord {
   readonly runningSince?: string;
   readonly hasUnseenUpdate: boolean;
   readonly config?: SessionConfig;
+  readonly runtimeSummary?: RuntimeSummarySnapshot;
 }
 
 export interface SelectedTranscriptRecord {
@@ -185,6 +192,7 @@ export interface DesktopAppState {
   readonly queuedComposerMessages: readonly QueuedComposerMessage[];
   readonly editingQueuedMessageId?: string;
   readonly runtimeByWorkspace: Readonly<Record<string, RuntimeSnapshot>>;
+  readonly runtimeJobsBySession: Readonly<Record<string, readonly RuntimeJobSnapshot[]>>;
   readonly sessionCommandsBySession: Readonly<Record<string, readonly RuntimeCommandRecord[]>>;
   readonly sessionExtensionUiBySession: Readonly<Record<string, SessionExtensionUiStateRecord>>;
   readonly extensionCommandCompatibilityByWorkspace: Readonly<Record<string, readonly ExtensionCommandCompatibilityRecord[]>>;
@@ -226,6 +234,7 @@ export function createEmptyDesktopAppState(): DesktopAppState {
     composerAttachments: [],
     queuedComposerMessages: [],
     runtimeByWorkspace: {},
+    runtimeJobsBySession: {},
     sessionCommandsBySession: {},
     sessionExtensionUiBySession: {},
     extensionCommandCompatibilityByWorkspace: {},

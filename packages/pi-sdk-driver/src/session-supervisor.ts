@@ -27,6 +27,7 @@ import type {
   CreateSessionOptions,
   HostUiRequest,
   HostUiResponse,
+  RuntimeJobSnapshot,
   SessionConfig,
   SessionDriverEvent,
   SessionEventListener,
@@ -73,7 +74,17 @@ import {
 } from "./session-supervisor-utils.js";
 import type { SessionTranscriptEntry } from "./transcript.js";
 import { createAgentSessionRuntimeWithNpmFallback } from "./npm-package-fallback.js";
-import { createPtyBashToolDefinition } from "./pty-bash-tool.js";
+import {
+  buildRuntimeSummary,
+  createBackgroundRuntimeJob,
+  createRuntimeJobRegistryState,
+  createToolRuntimeJob,
+  markRuntimeJobFinished,
+  upsertRuntimeJob,
+  type RuntimeJobRegistryState,
+} from "./runtime-job-registry.js";
+import { isProcessAlive, signalProcessGroup, snapshotProcessTree, type ProcessInfo } from "./runtime-process-inspector.js";
+import { createPtyBashToolDefinition, type PtyBashLifecycleEvent } from "./pty-bash-tool.js";
 
 export interface PiSdkDriverOptions {
   readonly catalogFilePath?: string;
@@ -105,6 +116,16 @@ interface ManagedSessionRecord {
   config: SessionConfig | undefined;
   runningRunId: string | undefined;
   queuedMessages: SessionQueuedMessage[];
+  runtimeJobs: RuntimeJobRegistryState;
+  pendingBashToolCalls: Map<string, {
+    callId: string;
+    command: string;
+    cwd: string;
+    startedAt: string;
+  }>;
+  bashTokenToToolCallId: Map<string, string>;
+  observedBashChildrenByToolCall: Map<string, Map<number, ProcessInfo>>;
+  bashLifecycleGeneration: number;
   closed: boolean;
   listeners: Set<SessionEventListener>;
   eventQueue: Promise<void>;
@@ -319,10 +340,18 @@ export class SessionSupervisor {
     const initialModel = options?.initialModel
       ? this.resolveModel(options.initialModel.provider, options.initialModel.modelId)
       : undefined;
+    const bashLifecycleGeneration = 1;
+    let boundRecord: ManagedSessionRecord | undefined;
+    const onBashLifecycle = (event: PtyBashLifecycleEvent) => {
+      if (!boundRecord) {
+        return;
+      }
+      void this.handleBashLifecycle(boundRecord, event, bashLifecycleGeneration);
+    };
     const createOptions: CreateAgentSessionOptions = {
       cwd: workspace.path,
       sessionManager: SessionManager.create(workspace.path),
-      customTools: [createPtyBashToolDefinition(workspace.path)],
+      customTools: [createPtyBashToolDefinition(workspace.path, { onLifecycle: onBashLifecycle })],
       ...(this.modelRegistry ? { modelRegistry: this.modelRegistry } : {}),
     };
     if (initialModel) {
@@ -339,6 +368,8 @@ export class SessionSupervisor {
     const session = runtime.session;
 
     const record = this.createRecord(workspace, runtime, options?.title ?? deriveWorkspaceTitle(workspace));
+    boundRecord = record;
+    record.bashLifecycleGeneration = bashLifecycleGeneration;
     session.sessionManager.appendSessionInfo(record.title);
     forcePersistSession(session.sessionManager);
     record.config = mergeSessionConfigWithToolAccess(
@@ -354,7 +385,7 @@ export class SessionSupervisor {
     this.records.set(sessionKey(record.ref), record);
     await this.bindSessionRuntime(record);
     await this.persistSnapshot(record);
-    const snapshot = buildSnapshot(record);
+    const snapshot = buildSnapshot(this.snapshotSource(record));
     await this.emit(record, {
       type: "sessionOpened",
       sessionRef: record.ref,
@@ -367,7 +398,7 @@ export class SessionSupervisor {
   async openSession(sessionRef: SessionRef): Promise<SessionSnapshot> {
     const record = await this.ensureRecord(sessionRef);
     await this.touchWorkspace(record.workspace);
-    const snapshot = buildSnapshot(record);
+    const snapshot = buildSnapshot(this.snapshotSource(record));
     await this.emit(record, {
       type: "sessionOpened",
       sessionRef: record.ref,
@@ -507,6 +538,85 @@ export class SessionSupervisor {
     record.status = "idle";
     await this.persistSnapshot(record);
     await this.emit(record, sessionUpdatedEvent(record));
+  }
+
+  async stopRuntimeJob(sessionRef: SessionRef, jobId: string): Promise<void> {
+    const record = await this.ensureRecord(sessionRef);
+    const existing = record.runtimeJobs.jobs.get(jobId);
+    if (!existing) {
+      throw new Error(`Unknown runtime job: ${jobId}`);
+    }
+    if ((existing.confidence !== "tracked" && existing.confidence !== "survived") || !existing.process?.pid) {
+      throw new Error(`Runtime job ${jobId} cannot be stopped.`);
+    }
+    if (existing.status !== "running" && existing.status !== "background") {
+      throw new Error(`Runtime job ${jobId} is not active.`);
+    }
+
+    const targetProcessGroupId = existing.process.processGroupId ?? existing.process.pid;
+    if (!signalProcessGroup(targetProcessGroupId, "SIGTERM")) {
+      throw new Error(`Failed to stop runtime job ${jobId}.`);
+    }
+
+    const timestamp = nowIso();
+    const job = isProcessAlive(existing.process.pid)
+      ? upsertRuntimeJob(record.runtimeJobs, {
+          ...existing,
+          updatedAt: timestamp,
+          message: "SIGTERM sent; process still running",
+          process: {
+            ...existing.process,
+            updatedAt: timestamp,
+          },
+        })
+      : upsertRuntimeJob(record.runtimeJobs, {
+          ...existing,
+          status: "killed",
+          updatedAt: timestamp,
+          endedAt: timestamp,
+          signal: "SIGTERM",
+          process: {
+            ...existing.process,
+            status: "killed",
+            updatedAt: timestamp,
+            exitedAt: timestamp,
+            signal: "SIGTERM",
+          },
+        });
+    await this.emitRuntimeJobUpdate(record, job, timestamp, record.bashLifecycleGeneration);
+  }
+
+  async refreshRuntimeJobs(sessionRef: SessionRef) {
+    const record = await this.ensureRecord(sessionRef);
+    const timestamp = nowIso();
+
+    for (const existing of record.runtimeJobs.jobs.values()) {
+      if (
+        (existing.status !== "running" && existing.status !== "background")
+        || !existing.process?.pid
+        || isProcessAlive(existing.process.pid)
+      ) {
+        continue;
+      }
+
+      const job = upsertRuntimeJob(record.runtimeJobs, {
+        ...existing,
+        status: "exited",
+        updatedAt: timestamp,
+        endedAt: timestamp,
+        process: {
+          ...existing.process,
+          status: "exited",
+          updatedAt: timestamp,
+          exitedAt: timestamp,
+          ...(existing.process.exitCode !== undefined ? { exitCode: existing.process.exitCode } : { exitCode: null }),
+        },
+        ...(existing.exitCode !== undefined ? {} : { exitCode: null }),
+      });
+      await this.emitRuntimeJobUpdate(record, job, timestamp, record.bashLifecycleGeneration);
+    }
+
+    return this.runtimeSummaryFor(record);
   }
 
   async setSessionModel(sessionRef: SessionRef, selection: SessionModelSelection): Promise<void> {
@@ -710,14 +820,26 @@ export class SessionSupervisor {
       throw new Error(`Session ${key} cannot be reopened because no session file is tracked.`);
     }
 
+    const bashLifecycleGeneration = (existing?.bashLifecycleGeneration ?? 0) + 1;
+    let boundRecord: ManagedSessionRecord | undefined;
+    const onBashLifecycle = (event: PtyBashLifecycleEvent) => {
+      if (!boundRecord) {
+        return;
+      }
+      void this.handleBashLifecycle(boundRecord, event, bashLifecycleGeneration);
+    };
+
     const runtime = await this.createAgentSessionRuntimeImpl({
       cwd: workspace.path,
       sessionManager: SessionManager.open(sessionFile),
+      customTools: [createPtyBashToolDefinition(workspace.path, { onLifecycle: onBashLifecycle })],
       ...(this.modelRegistry ? { modelRegistry: this.modelRegistry } : {}),
     });
     const session = runtime.session;
 
     const record = existing ?? this.createRecord(workspaceToRef(workspace), runtime, sessionEntry.title);
+    boundRecord = record;
+    record.bashLifecycleGeneration = bashLifecycleGeneration;
     record.runtime = runtime;
     record.session = session;
     record.sessionFile = sessionFile;
@@ -756,6 +878,11 @@ export class SessionSupervisor {
       config: deriveSessionConfig(session.sessionManager),
       runningRunId: undefined,
       queuedMessages: [],
+      runtimeJobs: createRuntimeJobRegistryState(),
+      pendingBashToolCalls: new Map(),
+      bashTokenToToolCallId: new Map(),
+      observedBashChildrenByToolCall: new Map(),
+      bashLifecycleGeneration: 0,
       closed: false,
       listeners: new Set<SessionEventListener>(),
       eventQueue: Promise.resolve(),
@@ -789,6 +916,17 @@ export class SessionSupervisor {
       throw new Error(`Session ${sessionKey(record.ref)} runtime is not active.`);
     }
     return record.runtime;
+  }
+
+  private runtimeSummaryFor(record: ManagedSessionRecord) {
+    return buildRuntimeSummary(record.runtimeJobs, record.status);
+  }
+
+  private snapshotSource(record: ManagedSessionRecord) {
+    return {
+      ...record,
+      runtimeSummary: this.runtimeSummaryFor(record),
+    };
   }
 
   private async disposeRecordRuntime(record: ManagedSessionRecord): Promise<void> {
@@ -1539,9 +1677,9 @@ export class SessionSupervisor {
         }
         return [sessionUpdatedEvent(record)];
       }
-      case "tool_execution_start":
+      case "tool_execution_start": {
         record.status = "running";
-        return toDriverEvents({
+        const events = toDriverEvents({
           type: "toolStarted" as const,
           sessionRef: record.ref,
           timestamp,
@@ -1549,6 +1687,36 @@ export class SessionSupervisor {
           callId: event.toolCallId,
           input: event.args,
         }, record);
+
+        if (event.toolName === "bash" || event.toolName.endsWith(".bash")) {
+          const args = event.args && typeof event.args === "object" ? event.args as Record<string, unknown> : undefined;
+          const command = typeof args?.command === "string" ? args.command : "";
+          record.pendingBashToolCalls.set(event.toolCallId, {
+            callId: event.toolCallId,
+            command,
+            cwd: record.workspace.path,
+            startedAt: timestamp,
+          });
+          const job = upsertRuntimeJob(record.runtimeJobs, createToolRuntimeJob({
+            sessionRef: record.ref,
+            ...(record.runningRunId !== undefined ? { runId: record.runningRunId } : {}),
+            toolCallId: event.toolCallId,
+            ...(command ? { command } : {}),
+            cwd: record.workspace.path,
+            startedAt: timestamp,
+            updatedAt: timestamp,
+          }));
+          events.splice(events.length - 1, 0, {
+            type: "runtimeJobUpdated",
+            sessionRef: record.ref,
+            timestamp,
+            job,
+            summary: this.runtimeSummaryFor(record),
+          });
+        }
+
+        return events;
+      }
       case "tool_execution_update": {
         const text = extractToolResultText(event.partialResult);
         if (shouldTraceSessionStreamEvents()) {
@@ -1569,6 +1737,7 @@ export class SessionSupervisor {
         }, record);
       }
       case "tool_execution_end":
+        record.pendingBashToolCalls.delete(event.toolCallId);
         return toDriverEvents({
           type: "toolFinished" as const,
           sessionRef: record.ref,
@@ -1598,7 +1767,7 @@ export class SessionSupervisor {
                 type: "runCompleted" as const,
                 sessionRef: record.ref,
                 timestamp,
-                snapshot: buildSnapshot(record),
+                snapshot: buildSnapshot(this.snapshotSource(record)),
               }
             : {
                 type: "runFailed" as const,
@@ -1615,6 +1784,240 @@ export class SessionSupervisor {
     }
   }
 
+  private async handleBashLifecycle(
+    record: ManagedSessionRecord,
+    event: PtyBashLifecycleEvent,
+    generation: number,
+  ): Promise<void> {
+    if (record.closed || record.bashLifecycleGeneration !== generation) {
+      return;
+    }
+
+    const callId = this.resolveBashToolCallId(record, event);
+    if (!callId) {
+      return;
+    }
+
+    record.bashTokenToToolCallId.set(event.token, callId);
+    const toolJobId = `tool:${callId}`;
+    const timestamp = event.timestamp;
+    const pending = record.pendingBashToolCalls.get(callId);
+
+    if (event.event === "spawned") {
+      await this.observeBashChildren(record, callId, event.pid, generation);
+      if (record.closed || record.bashLifecycleGeneration !== generation) {
+        return;
+      }
+      const existing = record.runtimeJobs.jobs.get(toolJobId) ?? createToolRuntimeJob({
+        sessionRef: record.ref,
+        ...(record.runningRunId !== undefined ? { runId: record.runningRunId } : {}),
+        toolCallId: callId,
+        ...(event.command ? { command: event.command } : {}),
+        cwd: event.cwd,
+        startedAt: pending?.startedAt ?? timestamp,
+        updatedAt: timestamp,
+      });
+      const job = upsertRuntimeJob(record.runtimeJobs, {
+        ...existing,
+        updatedAt: timestamp,
+        ...(event.pid !== undefined
+          ? {
+              process: {
+                pid: event.pid,
+                processGroupId: event.pid,
+                ...(event.command ? { command: event.command } : {}),
+                cwd: event.cwd,
+                status: "running",
+                confidence: "tracked",
+                startedAt: existing.startedAt,
+                updatedAt: timestamp,
+              },
+            }
+          : {}),
+      });
+      await this.emitRuntimeJobUpdate(record, job, timestamp, generation);
+      return;
+    }
+
+    if (event.event === "output") {
+      await this.observeBashChildren(record, callId, event.pid, generation);
+      if (event.outputText) {
+        await this.recordClaimedPidJobs(record, callId, event.outputText, timestamp, event.cwd, generation);
+      }
+      return;
+    }
+
+    if (event.event === "exited" || event.event === "aborted") {
+      const finished = markRuntimeJobFinished(record.runtimeJobs, toolJobId, {
+        status: event.event === "aborted" ? "killed" : event.exitCode === 0 ? "exited" : "failed",
+        updatedAt: timestamp,
+        endedAt: timestamp,
+        ...(event.exitCode !== undefined ? { exitCode: event.exitCode } : {}),
+      });
+      if (finished) {
+        await this.emitRuntimeJobUpdate(record, finished, timestamp, generation);
+      }
+      await this.recordSurvivingChildren(record, callId, event, timestamp, generation);
+      if (record.bashLifecycleGeneration === generation) {
+        record.observedBashChildrenByToolCall.delete(callId);
+      }
+    }
+  }
+
+  private resolveBashToolCallId(record: ManagedSessionRecord, event: PtyBashLifecycleEvent): string | undefined {
+    const mapped = record.bashTokenToToolCallId.get(event.token);
+    if (mapped) {
+      return mapped;
+    }
+
+    for (const [callId, pending] of record.pendingBashToolCalls) {
+      if (pending.command === event.command) {
+        return callId;
+      }
+    }
+
+    return record.pendingBashToolCalls.keys().next().value;
+  }
+
+  private async observeBashChildren(
+    record: ManagedSessionRecord,
+    callId: string,
+    pid: number | undefined,
+    generation: number,
+  ): Promise<void> {
+    const children = await snapshotProcessTree(pid);
+    if (record.closed || record.bashLifecycleGeneration !== generation || children.length === 0) {
+      return;
+    }
+
+    const observed = record.observedBashChildrenByToolCall.get(callId) ?? new Map<number, ProcessInfo>();
+    for (const child of children) {
+      observed.set(child.pid, child);
+    }
+    record.observedBashChildrenByToolCall.set(callId, observed);
+  }
+
+  private async recordClaimedPidJobs(
+    record: ManagedSessionRecord,
+    callId: string,
+    outputText: string,
+    timestamp: string,
+    cwd: string,
+    generation: number,
+  ): Promise<void> {
+    for (const line of outputText.split(/\r?\n/)) {
+      if (record.closed || record.bashLifecycleGeneration !== generation) {
+        return;
+      }
+
+      const match = line.match(/^\s*([A-Za-z0-9][\w.-]{0,80})\s+pid\s+(\d{2,})\b/i);
+      if (!match) {
+        continue;
+      }
+
+      const pid = Number(match[2]);
+      if (!Number.isFinite(pid) || pid <= 1) {
+        continue;
+      }
+
+      const alive = isProcessAlive(pid);
+      const title = (match[1] ?? "").trim();
+      if (!title) {
+        continue;
+      }
+      const job = upsertRuntimeJob(record.runtimeJobs, createBackgroundRuntimeJob({
+        sessionRef: record.ref,
+        ...(record.runningRunId !== undefined ? { runId: record.runningRunId } : {}),
+        title,
+        message: `Reported by tool call ${callId}`,
+        process: {
+          pid,
+          command: title,
+          cwd,
+          status: alive ? "running" : "unknown",
+          confidence: alive ? "claimed" : "unknown",
+          updatedAt: timestamp,
+        },
+      }));
+      await this.emitRuntimeJobUpdate(record, job, timestamp, generation);
+    }
+  }
+
+  private async recordSurvivingChildren(
+    record: ManagedSessionRecord,
+    callId: string,
+    event: PtyBashLifecycleEvent,
+    timestamp: string,
+    generation: number,
+  ): Promise<void> {
+    const currentChildren = await snapshotProcessTree(event.pid);
+    if (record.closed || record.bashLifecycleGeneration !== generation) {
+      return;
+    }
+
+    const currentByPid = new Map(currentChildren.map((child) => [child.pid, child]));
+    const observedChildren = record.observedBashChildrenByToolCall.get(callId);
+    const survivors = new Map<number, ProcessInfo>(currentByPid);
+
+    for (const child of observedChildren?.values() ?? []) {
+      if (survivors.has(child.pid) || !isProcessAlive(child.pid)) {
+        continue;
+      }
+      survivors.set(child.pid, child);
+    }
+
+    for (const child of survivors.values()) {
+      if (record.closed || record.bashLifecycleGeneration !== generation || !isProcessAlive(child.pid)) {
+        continue;
+      }
+
+      const title = child.command.trim() || `pid ${child.pid}`;
+      const job = upsertRuntimeJob(record.runtimeJobs, createBackgroundRuntimeJob({
+        sessionRef: record.ref,
+        ...(record.runningRunId !== undefined ? { runId: record.runningRunId } : {}),
+        title,
+        message: `Child of tool call ${callId}`,
+        process: {
+          pid: child.pid,
+          parentPid: child.parentPid,
+          ...(child.processGroupId !== undefined ? { processGroupId: child.processGroupId } : {}),
+          ...(child.command ? { command: child.command } : {}),
+          status: "running",
+          confidence: "survived",
+          updatedAt: timestamp,
+        },
+      }));
+      await this.emitRuntimeJobUpdate(record, job, timestamp, generation);
+    }
+  }
+
+  private async emitRuntimeJobUpdate(
+    record: ManagedSessionRecord,
+    job: RuntimeJobSnapshot,
+    timestamp: string,
+    generation: number,
+  ): Promise<void> {
+    if (record.closed || record.bashLifecycleGeneration !== generation) {
+      return;
+    }
+
+    record.eventQueue = record.eventQueue.then(async () => {
+      if (record.closed || record.bashLifecycleGeneration !== generation) {
+        return;
+      }
+      await this.persistSnapshot(record);
+      await this.emit(record, {
+        type: "runtimeJobUpdated",
+        sessionRef: record.ref,
+        timestamp,
+        job,
+        summary: this.runtimeSummaryFor(record),
+      });
+    });
+    record.eventQueue.catch(() => {});
+    await record.eventQueue;
+  }
+
   private updatePreviewFromMessage(record: ManagedSessionRecord, message: unknown): void {
     const preview = extractPreview(message);
     if (preview) {
@@ -1629,7 +2032,7 @@ export class SessionSupervisor {
   }
 
   private async persistSnapshot(record: ManagedSessionRecord): Promise<void> {
-    const snapshot = buildSnapshot(record);
+    const snapshot = buildSnapshot(this.snapshotSource(record));
     await this.catalogs.sessions.upsertSession({
       sessionRef: snapshot.ref,
       workspaceId: snapshot.ref.workspaceId,
@@ -1714,7 +2117,9 @@ export class SessionSupervisor {
     existingEntry?: SessionCatalogSnapshot["sessions"][number],
   ): SessionCatalogSnapshot["sessions"][number] {
     const runtimeSnapshot =
-      runtimeRecord && runtimeRecord.session && !runtimeRecord.closed ? buildSnapshot(runtimeRecord) : undefined;
+      runtimeRecord && runtimeRecord.session && !runtimeRecord.closed
+        ? buildSnapshot(this.snapshotSource(runtimeRecord))
+        : undefined;
     const previewSnippet = runtimeSnapshot?.preview ?? previewFromSessionInfo(info);
     const archivedAt = runtimeSnapshot?.archivedAt ?? existingEntry?.archivedAt;
     const titleFromInfo = titleFromSessionInfo(info);
@@ -2244,12 +2649,19 @@ function isUnknownRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
+function sessionSnapshotSource(record: ManagedSessionRecord) {
+  return {
+    ...record,
+    runtimeSummary: buildRuntimeSummary(record.runtimeJobs, record.status),
+  };
+}
+
 function sessionUpdatedEvent(record: ManagedSessionRecord): SessionDriverEvent {
   return {
     type: "sessionUpdated",
     sessionRef: record.ref,
     timestamp: record.updatedAt,
-    snapshot: buildSnapshot(record),
+    snapshot: buildSnapshot(sessionSnapshotSource(record)),
   };
 }
 

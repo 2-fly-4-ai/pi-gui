@@ -392,6 +392,8 @@ declare module "@pi-gui/session-driver" {
     sendUserMessage(sessionRef: SessionRef, input: SessionMessageInput): Promise<void>;
     replaceQueuedMessages(sessionRef: SessionRef, messages: readonly SessionQueuedMessage[]): Promise<void>;
     cancelCurrentRun(sessionRef: SessionRef): Promise<void>;
+    stopRuntimeJob(sessionRef: SessionRef, jobId: string): Promise<void>;
+    refreshRuntimeJobs(sessionRef: SessionRef): Promise<RuntimeSummarySnapshot>;
     setSessionModel(sessionRef: SessionRef, selection: SessionModelSelection): Promise<void>;
     setSessionThinkingLevel(sessionRef: SessionRef, thinkingLevel: string): Promise<void>;
     setSessionToolAccess(sessionRef: SessionRef, toolAccess: ToolAccessSelection): Promise<void>;

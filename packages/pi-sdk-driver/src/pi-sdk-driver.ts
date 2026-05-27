@@ -89,6 +89,14 @@ export class PiSdkDriver implements SessionDriver {
     return this.supervisor.cancelCurrentRun(sessionRef);
   }
 
+  stopRuntimeJob(sessionRef: SessionRef, jobId: string): Promise<void> {
+    return this.supervisor.stopRuntimeJob(sessionRef, jobId);
+  }
+
+  refreshRuntimeJobs(sessionRef: SessionRef) {
+    return this.supervisor.refreshRuntimeJobs(sessionRef);
+  }
+
   setSessionModel(sessionRef: SessionRef, selection: SessionModelSelection): Promise<void> {
     return this.supervisor.setSessionModel(sessionRef, selection);
   }

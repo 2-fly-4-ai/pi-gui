@@ -83,6 +83,17 @@ function transcriptItemsEqual(left: TranscriptMessage, right: TranscriptMessage)
         left.createdAt === summary.createdAt
       );
     }
+    case "runtime-job": {
+      const runtimeJob = right as typeof left;
+      return (
+        left.createdAt === runtimeJob.createdAt &&
+        left.job.id === runtimeJob.job.id &&
+        left.job.status === runtimeJob.job.status &&
+        left.job.updatedAt === runtimeJob.job.updatedAt &&
+        left.job.title === runtimeJob.job.title &&
+        left.job.message === runtimeJob.job.message
+      );
+    }
   }
 }
 

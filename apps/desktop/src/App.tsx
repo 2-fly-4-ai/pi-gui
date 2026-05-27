@@ -74,6 +74,7 @@ import {
   readComposerAttachmentsFromFiles,
 } from "./composer-attachments";
 import { normalizeToolAccess } from "./tool-access";
+import { runtimeBadgeCount, runtimeStatusLabel } from "./runtime-status";
 import {
   clampVsCodeSidePanelWidth,
   getInitialVsCodeSidePanelWidth,
@@ -3223,6 +3224,7 @@ export default function App() {
           onArchiveSession={handleArchiveSession}
           onSelectSession={handleSelectSession}
           onUnarchiveSession={handleUnarchiveSession}
+          getRuntimeBadgeCount={runtimeBadgeCount}
         />
       ) : null}
 
@@ -3440,6 +3442,7 @@ export default function App() {
               }
               onSubmit={submitComposerDraft}
               sessionStatus={selectedSession.status}
+              runtimeStatusText={runtimeStatusLabel(selectedSession)}
               lastError={snapshot.lastError}
               selectedSlashCommand={slashMenu.activeSlashOptionCommand ?? slashMenu.selectedSlashCommand}
               selectedSlashOption={slashMenu.selectedSlashOption}
@@ -3666,6 +3669,18 @@ function buildTranscriptChangeMarker(sessionKey: string, transcript: SelectedTra
         lastItem.label.length,
         lastItem.label.slice(-48),
         lastItem.metadata ?? "",
+      ].join(":");
+    case "runtime-job":
+      return [
+        sessionKey,
+        transcript.length,
+        lastItem.id,
+        lastItem.kind,
+        lastItem.job.id,
+        lastItem.job.status,
+        lastItem.job.updatedAt,
+        lastItem.job.title,
+        lastItem.job.message ?? "",
       ].join(":");
   }
 }

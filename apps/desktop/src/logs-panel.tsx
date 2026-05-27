@@ -3,6 +3,10 @@ import type { ObservabilityCategory, ObservabilityEvent, ObservabilityEventPage,
 import type { PiDesktopApi } from "./ipc";
 import type { SessionRecord, WorkspaceRecord } from "./desktop-state";
 import { CloseIcon, RefreshIcon } from "./icons";
+import { canStopRuntimeJob } from "./runtime-jobs";
+import { runtimeStatusLabel } from "./runtime-status";
+
+type LogsTab = "runtime" | "task" | "app";
 
 const CATEGORIES: readonly { value: ObservabilityCategory | "all"; label: string }[] = [
   { value: "all", label: "All" },
@@ -34,6 +38,7 @@ export function LogsPanel({
   readonly selectedSession?: SessionRecord;
   readonly onClose: () => void;
 }) {
+  const [tab, setTab] = useState<LogsTab>("runtime");
   const [page, setPage] = useState<ObservabilityEventPage>({ events: [], scannedSources: [], warnings: [] });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | undefined>();
@@ -50,11 +55,29 @@ export function LogsPanel({
   const [selectedId, setSelectedId] = useState<string>("");
 
   const refresh = useCallback(async () => {
+    if (tab === "runtime") {
+      setLoading(true);
+      setError(undefined);
+      try {
+        if (selectedWorkspace && selectedSession) {
+          await api.refreshRuntimeJobs({
+            workspaceId: selectedWorkspace.id,
+            sessionId: selectedSession.id,
+          });
+        }
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err));
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
+
     setLoading(true);
     setError(undefined);
     try {
       const severityFilter = severity === "all" ? undefined : severity === "failures" ? ["error" as const] : [severity];
-      const categoryFilter = category === "all" ? undefined : [category];
+      const categoryFilter = buildCategoryFilter(tab, category);
       const next = await api.listObservabilityEvents({
         severity: severityFilter,
         category: categoryFilter,
@@ -63,7 +86,7 @@ export function LogsPanel({
         includeGlobal,
         workspaceId: selectedWorkspace?.id,
         workspacePath: selectedWorkspace?.path,
-        sessionId: selectedSession?.id,
+        sessionId: tab === "app" ? undefined : selectedSession?.id,
       });
       setPage(next);
       setSelectedId((current) => current && next.events.some((event) => event.id === current) ? current : next.events[0]?.id ?? "");
@@ -72,7 +95,7 @@ export function LogsPanel({
     } finally {
       setLoading(false);
     }
-  }, [api, category, includeGlobal, query, selectedSession?.id, selectedWorkspace?.id, selectedWorkspace?.path, severity]);
+  }, [api, category, includeGlobal, query, selectedSession?.id, selectedWorkspace?.id, selectedWorkspace?.path, severity, tab]);
 
   useEffect(() => { void refresh(); }, [refresh]);
   useEffect(() => { writeLocal("logs:severity", severity); }, [severity]);
@@ -82,53 +105,171 @@ export function LogsPanel({
 
   const selected = useMemo(() => page.events.find((event) => event.id === selectedId), [page.events, selectedId]);
   const failureCount = page.events.filter((event) => event.severity === "error").length;
+  const runtimeJobs = selectedSession?.runtimeSummary?.jobs ?? [];
+  const runtimeLabel = runtimeStatusLabel(selectedSession);
 
   return (
-    <aside className="logs-panel" data-testid="logs-panel" aria-label="Logs panel">
+    <aside className="logs-panel" data-testid="logs-panel" aria-label="Runtime inspector">
       <header className="logs-panel__header">
         <div>
-          <div className="logs-panel__eyebrow">Observability</div>
-          <h2>Logs</h2>
+          <div className="logs-panel__eyebrow">Runtime</div>
+          <h2>Inspector</h2>
         </div>
-        <span className="logs-panel__failure-count" data-testid="logs-failure-count">{failureCount} failures</span>
+        <span className="logs-panel__failure-count" data-testid="logs-failure-count">
+          {tab === "runtime" ? `${runtimeJobs.length} jobs` : `${failureCount} failures`}
+        </span>
         <button className="icon-button" type="button" aria-label="Refresh logs" onClick={() => void refresh()} disabled={loading}><RefreshIcon /></button>
         <button className="icon-button" type="button" aria-label="Close logs" onClick={onClose}><CloseIcon /></button>
       </header>
-      <div className="logs-panel__filters">
-        <input aria-label="Search logs" className="logs-panel__search" placeholder="Search logs" value={query} onChange={(event) => setQuery(event.target.value)} />
-        <select aria-label="Log severity" value={severity} onChange={(event) => setSeverity(event.target.value as ObservabilitySeverity | "all" | "failures")}>
-          {SEVERITIES.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
-        </select>
-        <select aria-label="Log category" value={category} onChange={(event) => setCategory(event.target.value as ObservabilityCategory | "all")}>
-          {CATEGORIES.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
-        </select>
-        <select aria-label="Log scope" value={includeGlobal ? "global" : "current"} onChange={(event) => setIncludeGlobal(event.target.value === "global")}>
-          <option value="current">Current thread</option>
-          <option value="global">Global logs</option>
-        </select>
+      <div className="logs-panel__tabs" role="tablist" aria-label="Runtime inspector views">
+        <button className={`logs-panel__tab${tab === "runtime" ? " logs-panel__tab--active" : ""}`} role="tab" aria-selected={tab === "runtime"} type="button" onClick={() => setTab("runtime")}>Runtime</button>
+        <button className={`logs-panel__tab${tab === "task" ? " logs-panel__tab--active" : ""}`} role="tab" aria-selected={tab === "task"} type="button" onClick={() => setTab("task")}>Task logs</button>
+        <button className={`logs-panel__tab${tab === "app" ? " logs-panel__tab--active" : ""}`} role="tab" aria-selected={tab === "app"} type="button" onClick={() => setTab("app")}>App logs</button>
       </div>
-      {error ? <div className="logs-panel__error">{error}</div> : null}
-      {page.warnings.length > 0 ? <div className="logs-panel__warning">{page.warnings[0]}</div> : null}
-      <div className="logs-panel__body">
-        <div className="logs-panel__list" role="list" aria-label="Log events">
-          {page.events.length === 0 ? <div className="logs-panel__empty">No log events match this filter.</div> : page.events.map((event) => (
-            <button
-              key={event.id}
-              className={`logs-panel__event logs-panel__event--${event.severity}${selectedId === event.id ? " logs-panel__event--selected" : ""}`}
-              type="button"
-              role="listitem"
-              onClick={() => setSelectedId(event.id)}
-            >
-              <span className="logs-panel__event-time">{formatTime(event.timestamp)}</span>
-              <span className="logs-panel__event-title">{event.title}</span>
-              <span className="logs-panel__event-meta">{event.category} · {event.source.kind}</span>
-              {event.message ? <span className="logs-panel__event-message">{event.message}</span> : null}
-            </button>
-          ))}
-        </div>
-        <EventDetails event={selected} />
-      </div>
+      {tab === "runtime" ? (
+        <RuntimeTab api={api} loading={loading} session={selectedSession} runtimeLabel={runtimeLabel} />
+      ) : (
+        <>
+          <div className="logs-panel__filters">
+            <input aria-label="Search logs" className="logs-panel__search" placeholder="Search logs" value={query} onChange={(event) => setQuery(event.target.value)} />
+            <select aria-label="Log severity" value={severity} onChange={(event) => setSeverity(event.target.value as ObservabilitySeverity | "all" | "failures")}>
+              {SEVERITIES.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+            </select>
+            {tab === "task" ? (
+              <div className="logs-panel__fixed-filter" aria-label="Log category">
+                <span className="logs-panel__fixed-filter-label">Log category</span>
+                <strong>Tools</strong>
+              </div>
+            ) : tab === "app" ? (
+              <div className="logs-panel__fixed-filter" aria-label="Log category">
+                <span className="logs-panel__fixed-filter-label">Log category</span>
+                <strong>Desktop + Renderer</strong>
+              </div>
+            ) : (
+              <select aria-label="Log category" value={category} onChange={(event) => setCategory(event.target.value as ObservabilityCategory | "all")}>
+                {CATEGORIES.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+              </select>
+            )}
+            <select aria-label="Log scope" value={includeGlobal ? "global" : "current"} onChange={(event) => setIncludeGlobal(event.target.value === "global")}>
+              <option value="current">Current thread</option>
+              <option value="global">Global logs</option>
+            </select>
+          </div>
+          <div className="logs-panel__runtime-note">
+            {tab === "task"
+              ? "Task logs are filtered to tools only."
+              : tab === "app"
+                ? "App logs show Electron and renderer diagnostics only."
+                : ""}
+          </div>
+          {error ? <div className="logs-panel__error">{error}</div> : null}
+          {page.warnings.length > 0 ? <div className="logs-panel__warning">{page.warnings[0]}</div> : null}
+          <EventBrowser
+            emptyMessage={tab === "task" ? "No task log events match this filter." : "No app log events match this filter."}
+            events={page.events}
+            selected={selected}
+            selectedId={selectedId}
+            onSelect={setSelectedId}
+          />
+        </>
+      )}
     </aside>
+  );
+}
+
+function RuntimeTab({
+  api,
+  loading,
+  session,
+  runtimeLabel,
+}: {
+  readonly api: PiDesktopApi;
+  readonly loading: boolean;
+  readonly session: SessionRecord | undefined;
+  readonly runtimeLabel: string;
+}) {
+  const jobs = session?.runtimeSummary?.jobs ?? [];
+
+  return (
+    <div className="logs-panel__runtime" data-testid="runtime-panel">
+      <div className="logs-panel__runtime-status">
+        <span className="logs-panel__runtime-label">Status</span>
+        <strong>{runtimeLabel}</strong>
+      </div>
+      {jobs.length === 0 ? (
+        <div className="logs-panel__empty">No runtime jobs for the selected session.</div>
+      ) : (
+        <div className="logs-panel__runtime-jobs" role="list" aria-label="Runtime jobs">
+          {jobs.map((job) => {
+            const canStop = canStopRuntimeJob(job);
+            const target = { workspaceId: job.sessionRef.workspaceId, sessionId: job.sessionRef.sessionId };
+            return (
+              <div className="logs-panel__runtime-job" key={job.id} role="listitem">
+                <div className="logs-panel__runtime-job-title">{job.title}</div>
+                <div className="logs-panel__runtime-job-meta">{job.status} · {job.confidence}</div>
+                {job.message ? <div className="logs-panel__runtime-job-message">{job.message}</div> : null}
+                <div className="runtime-job-card__actions">
+                  <button
+                    className="secondary-button"
+                    type="button"
+                    disabled={loading}
+                    onClick={() => void api.refreshRuntimeJobs(target)}
+                  >
+                    Refresh status
+                  </button>
+                  {canStop ? (
+                    <button
+                      className="secondary-button"
+                      type="button"
+                      disabled={loading}
+                      onClick={() => void api.stopRuntimeJob(target, job.id)}
+                    >
+                      Stop
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function EventBrowser({
+  emptyMessage,
+  events,
+  selected,
+  selectedId,
+  onSelect,
+}: {
+  readonly emptyMessage: string;
+  readonly events: readonly ObservabilityEvent[];
+  readonly selected: ObservabilityEvent | undefined;
+  readonly selectedId: string;
+  readonly onSelect: (id: string) => void;
+}) {
+  return (
+    <div className="logs-panel__body">
+      <div className="logs-panel__list" role="list" aria-label="Log events">
+        {events.length === 0 ? <div className="logs-panel__empty">{emptyMessage}</div> : events.map((event) => (
+          <button
+            key={event.id}
+            className={`logs-panel__event logs-panel__event--${event.severity}${selectedId === event.id ? " logs-panel__event--selected" : ""}`}
+            type="button"
+            role="listitem"
+            onClick={() => onSelect(event.id)}
+          >
+            <span className="logs-panel__event-time">{formatTime(event.timestamp)}</span>
+            <span className="logs-panel__event-title">{event.title}</span>
+            <span className="logs-panel__event-meta">{event.category} · {event.source.kind}</span>
+            {event.message ? <span className="logs-panel__event-message">{event.message}</span> : null}
+          </button>
+        ))}
+      </div>
+      <EventDetails event={selected} />
+    </div>
   );
 }
 
@@ -149,6 +290,22 @@ function EventDetails({ event }: { readonly event: ObservabilityEvent | undefine
       <pre>{JSON.stringify(event.raw ?? event, null, 2)}</pre>
     </section>
   );
+}
+
+function buildCategoryFilter(tab: LogsTab, category: ObservabilityCategory | "all"): readonly ObservabilityCategory[] | undefined {
+  if (tab === "task") {
+    return ["agent", "tool", "skill", "subagent", "workspace", "slash-command"];
+  }
+
+  if (tab === "app") {
+    return ["desktop", "renderer"];
+  }
+
+  if (category !== "all") {
+    return [category];
+  }
+
+  return undefined;
 }
 
 function formatTime(value: string): string {

@@ -66,6 +66,8 @@ export const desktopIpc = {
   startThread: "pi-gui:start-thread",
   cancelCurrentRun: "pi-gui:cancel-current-run",
   cancelSessionRun: "pi-gui:cancel-session-run",
+  stopRuntimeJob: "pi-gui:stop-runtime-job",
+  refreshRuntimeJobs: "pi-gui:refresh-runtime-jobs",
   setActiveView: "pi-gui:set-active-view",
   setSidebarCollapsed: "pi-gui:set-sidebar-collapsed",
   setShowThinking: "pi-gui:set-show-thinking",
@@ -306,6 +308,8 @@ export interface PiDesktopApi {
   startThread(input: StartThreadInput): Promise<DesktopAppState>;
   cancelCurrentRun(): Promise<DesktopAppState>;
   cancelSessionRun(target: WorkspaceSessionTarget): Promise<DesktopAppState>;
+  stopRuntimeJob(target: WorkspaceSessionTarget, jobId: string): Promise<DesktopAppState>;
+  refreshRuntimeJobs(target: WorkspaceSessionTarget): Promise<DesktopAppState>;
   setActiveView(view: AppView): Promise<DesktopAppState>;
   setSidebarCollapsed(collapsed: boolean): Promise<DesktopAppState>;
   setShowThinking(showThinking: boolean): Promise<DesktopAppState>;
