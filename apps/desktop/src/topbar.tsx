@@ -1,7 +1,7 @@
 import type { MouseEvent as ReactMouseEvent, Dispatch, SetStateAction } from "react";
 import type { AppView, DesktopAppState, SessionRecord, WorkspaceRecord, WorktreeRecord } from "./desktop-state";
 import type { ProjectActionRecord } from "./project-actions";
-import { DiffIcon, FolderIcon, LogsIcon, PlusIcon, SidebarToggleIcon, TerminalIcon, VSCodeIcon } from "./icons";
+import { BrowserIcon, DiffIcon, FolderIcon, LogsIcon, PlusIcon, SidebarToggleIcon, TerminalIcon, VSCodeIcon } from "./icons";
 import { getDesktopShortcutLabel, type PiDesktopApi } from "./ipc";
 import { GitQuickActions } from "./git-quick-actions";
 import type { WorkspaceMenuState } from "./hooks/use-workspace-menu";
@@ -34,6 +34,9 @@ interface TopbarProps {
   readonly planAvailable: boolean;
   readonly planPanelOpen: boolean;
   readonly onTogglePlanPanel: () => void;
+  readonly browserAvailable?: boolean;
+  readonly browserOpen?: boolean;
+  readonly onToggleBrowser?: () => void;
   readonly showDiffPanel: boolean;
   readonly onToggleDiffPanel: () => void;
   readonly logsOpen?: boolean;
@@ -71,6 +74,9 @@ export function Topbar(props: TopbarProps) {
     planAvailable,
     planPanelOpen,
     onTogglePlanPanel,
+    browserAvailable,
+    browserOpen,
+    onToggleBrowser,
     showDiffPanel,
     onToggleDiffPanel,
     logsOpen,
@@ -211,6 +217,21 @@ export function Topbar(props: TopbarProps) {
             </button>
             <span className="shortcut-tooltip topbar__tooltip" role="tooltip">
               <span>Toggle plan</span>
+            </span>
+          </div>
+        ) : null}
+        {browserAvailable && onToggleBrowser ? (
+          <div className="shortcut-tooltip-wrap topbar__tooltip-wrap">
+            <button
+              aria-label="Toggle browser"
+              className={`icon-button topbar__icon ${browserOpen ? "icon-button--active" : ""}`}
+              type="button"
+              onClick={onToggleBrowser}
+            >
+              <BrowserIcon />
+            </button>
+            <span className="shortcut-tooltip topbar__tooltip" role="tooltip">
+              <span>Toggle browser</span>
             </span>
           </div>
         ) : null}

@@ -50,6 +50,7 @@ import { NewThreadView } from "./new-thread-view";
 import { ReviewSurface } from "./review/ReviewSurface";
 import type { ReviewSnapshot } from "./review/review-types";
 import { VSCodePanel } from "./vscode-panel";
+import { BrowserPanel } from "./browser-panel";
 import { CommitDialog, CreatePrDialog, PushDialog, isSetUpstreamError, type ChangedFileSummaryItem } from "./git-action-dialogs";
 import { createProjectAction, loadProjectActions, saveProjectActions, type ProjectActionRecord, type ProjectActionsByWorkspace } from "./project-actions";
 import { buildThreadGroups } from "./thread-groups";
@@ -82,6 +83,13 @@ import {
   getMinVsCodeSidePanelWidth,
   storeVsCodeSidePanelWidth,
 } from "./vscode-panel-width";
+import {
+  clampBrowserSidePanelWidth,
+  getDefaultBrowserSidePanelWidth,
+  getMaxBrowserSidePanelWidth,
+  getMinBrowserSidePanelWidth,
+  storeBrowserSidePanelWidth,
+} from "./browser-panel-width";
 
 function useDesktopAppState() {
   const [snapshot, setSnapshot] = useState<DesktopAppState | null>(null);
@@ -303,8 +311,15 @@ export default function App() {
   const [vsCodePanelStyle, setVsCodePanelStyle] = useState<React.CSSProperties>({ visibility: "hidden" });
   const [threadVsCodeWidth, setThreadVsCodeWidth] = useState(() => getInitialVsCodeSidePanelWidth());
   const threadVsCodeWidthRef = useRef(threadVsCodeWidth);
+  const [sideBrowserOpen, setSideBrowserOpen] = useState(false);
+  const [sideBrowserUrl, setSideBrowserUrl] = useState<string | undefined>();
+  const [browserPanelWidth, setBrowserPanelWidth] = useState(() => getDefaultBrowserSidePanelWidth());
+  const browserPanelWidthRef = useRef(browserPanelWidth);
   const setThreadVsCodeCssWidth = useCallback((width: number) => {
     mainRef.current?.style.setProperty("--thread-vscode-width", `${width}px`);
+  }, []);
+  const setBrowserPanelCssWidth = useCallback((width: number) => {
+    mainRef.current?.style.setProperty("--thread-browser-width", `${width}px`);
   }, []);
   const getThreadVsCodeContainerWidth = useCallback(() => mainRef.current?.getBoundingClientRect().width ?? window.innerWidth, []);
   const applyThreadVsCodeWidth = useCallback((width: number, containerWidth = getThreadVsCodeContainerWidth()) => {
@@ -371,6 +386,58 @@ export default function App() {
     event.preventDefault();
     setThreadVsCodeWidth(applyThreadVsCodeWidth(nextWidth, containerWidth));
   }, [applyThreadVsCodeWidth, getThreadVsCodeContainerWidth]);
+  const getThreadBrowserContainerWidth = useCallback(() => mainRef.current?.getBoundingClientRect().width ?? window.innerWidth, []);
+  const applyThreadBrowserWidth = useCallback((width: number, containerWidth = getThreadBrowserContainerWidth()) => {
+    const nextWidth = clampBrowserSidePanelWidth(width, containerWidth);
+    browserPanelWidthRef.current = nextWidth;
+    setBrowserPanelCssWidth(nextWidth);
+    return nextWidth;
+  }, [getThreadBrowserContainerWidth, setBrowserPanelCssWidth]);
+  const startThreadBrowserResize = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    const startX = event.clientX;
+    const startWidth = browserPanelWidthRef.current;
+    const containerWidth = getThreadBrowserContainerWidth();
+
+    const onMove = (moveEvent: PointerEvent) => {
+      const delta = startX - moveEvent.clientX;
+      applyThreadBrowserWidth(startWidth + delta, containerWidth);
+    };
+
+    const onUp = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      setBrowserPanelWidth(browserPanelWidthRef.current);
+    };
+
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+  }, [applyThreadBrowserWidth, getThreadBrowserContainerWidth]);
+  const handleThreadBrowserResizeKeyDown = useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
+    const containerWidth = getThreadBrowserContainerWidth();
+    let nextWidth: number | undefined;
+
+    switch (event.key) {
+      case "ArrowLeft":
+        nextWidth = browserPanelWidthRef.current + 24;
+        break;
+      case "ArrowRight":
+        nextWidth = browserPanelWidthRef.current - 24;
+        break;
+      case "Home":
+        nextWidth = getMinBrowserSidePanelWidth(containerWidth);
+        break;
+      case "End":
+        nextWidth = getMaxBrowserSidePanelWidth(containerWidth);
+        break;
+      default:
+        return;
+    }
+
+    event.preventDefault();
+    setBrowserPanelWidth(applyThreadBrowserWidth(nextWidth, containerWidth));
+  }, [applyThreadBrowserWidth, getThreadBrowserContainerWidth]);
   const [openTerminalSessionKeys, setOpenTerminalSessionKeys] = useState<ReadonlySet<string>>(() => new Set());
   const [takeoverTerminalSessionKeys, setTakeoverTerminalSessionKeys] = useState<ReadonlySet<string>>(() => new Set());
   const [activeTerminalSessionKey, setActiveTerminalSessionKey] = useState("");
@@ -405,6 +472,12 @@ export default function App() {
     setThreadVsCodeCssWidth(threadVsCodeWidth);
     storeVsCodeSidePanelWidth(threadVsCodeWidth);
   }, [setThreadVsCodeCssWidth, threadVsCodeWidth]);
+
+  useEffect(() => {
+    browserPanelWidthRef.current = browserPanelWidth;
+    setBrowserPanelCssWidth(browserPanelWidth);
+    storeBrowserSidePanelWidth(browserPanelWidth);
+  }, [browserPanelWidth, setBrowserPanelCssWidth]);
 
   useLayoutEffect(() => {
     if (!vsCodeOpen || !vsCodeSlotElement) {
@@ -506,6 +579,33 @@ export default function App() {
       return alreadyTargetingSelected ? !open : true;
     });
   }, [selectedWorkspace, vsCodeFolderPath, vsCodeWorkspaceId]);
+
+  const toggleSideBrowser = useCallback(() => {
+    setSideBrowserOpen((open) => {
+      const nextOpen = !open;
+      if (nextOpen) {
+        setVsCodeOpen(false);
+      }
+      return nextOpen;
+    });
+  }, []);
+
+  const openUrl = useCallback((url: string, options?: { readonly external?: boolean }) => {
+    if (!api) return;
+    let parsed: URL;
+    try {
+      parsed = new URL(url);
+    } catch {
+      return;
+    }
+    if (options?.external || (parsed.protocol !== "http:" && parsed.protocol !== "https:")) {
+      void api.openExternal(parsed.toString());
+      return;
+    }
+    setSideBrowserUrl(parsed.toString());
+    setSideBrowserOpen(true);
+    setVsCodeOpen(false);
+  }, [api]);
 
   const setLogsPanelOpen = useCallback((open: boolean) => {
     try { localStorage.setItem("logs:open", String(open)); } catch {}
@@ -2081,13 +2181,15 @@ export default function App() {
       ? displayVsCodeTarget
       : null;
   const showPersistentVsCodePanel = vsCodeOpen && persistentVsCodeTarget !== null && (snapshot.activeView === "threads" || snapshot.activeView === "display-mode");
-  const showThreadVsCodePanel = snapshot.activeView === "threads" && showPersistentVsCodePanel && threadVsCodeTarget !== null;
+  const showThreadBrowserPanel = snapshot.activeView === "threads" && sideBrowserOpen;
+  const showThreadVsCodePanel = snapshot.activeView === "threads" && !showThreadBrowserPanel && showPersistentVsCodePanel && threadVsCodeTarget !== null;
   const showLogsPanel = logsOpen && (snapshot.activeView === "threads" || snapshot.activeView === "display-mode");
   const showPlanPanel = planPanelOpen && planSurfaceAvailable;
   const mainClassName = [
     "main",
     showDiffPanel ? "main--with-diff" : "",
     showThreadVsCodePanel ? "main--with-vscode" : "",
+    showThreadBrowserPanel ? "main--with-browser" : "",
     showPlanPanel ? "main--with-plan" : "",
     showLogsPanel ? "main--with-logs" : "",
     isTerminalVisible ? "main--with-terminal" : "",
@@ -2096,6 +2198,9 @@ export default function App() {
   const threadVsCodeContainerWidth = getThreadVsCodeContainerWidth();
   const threadVsCodeMinWidth = getMinVsCodeSidePanelWidth(threadVsCodeContainerWidth);
   const threadVsCodeMaxWidth = getMaxVsCodeSidePanelWidth(threadVsCodeContainerWidth);
+  const threadBrowserContainerWidth = getThreadBrowserContainerWidth();
+  const threadBrowserMinWidth = getMinBrowserSidePanelWidth(threadBrowserContainerWidth);
+  const threadBrowserMaxWidth = getMaxBrowserSidePanelWidth(threadBrowserContainerWidth);
   const terminalPanel = isTerminalVisible && visibleTerminalTarget ? (
     <div className="terminal-stack">
       {openTerminalTargets.length > 1 ? (
@@ -2122,6 +2227,7 @@ export default function App() {
         height={terminalHeight}
         isTakeover={isVisibleTerminalTakeover}
         onAddSelectionToComposer={addTerminalSelectionToComposer}
+        onOpenUrl={openUrl}
         onHeightChange={(nextHeight) => {
           setTerminalHeight(nextHeight);
           setTakeoverTerminalSessionKeys((current) => {
@@ -3231,7 +3337,10 @@ export default function App() {
       <main
         ref={mainRef}
         className={mainClassName}
-        style={{ "--thread-vscode-width": `${threadVsCodeWidth}px` } as React.CSSProperties}
+        style={{
+          "--thread-vscode-width": `${threadVsCodeWidth}px`,
+          "--thread-browser-width": `${browserPanelWidth}px`,
+        } as React.CSSProperties}
       >
         <Topbar
           activeView={snapshot.activeView}
@@ -3256,6 +3365,9 @@ export default function App() {
           planAvailable={planSurfaceAvailable}
           planPanelOpen={planPanelOpen}
           onTogglePlanPanel={() => setPlanPanelOpen((open) => !open)}
+          browserAvailable={snapshot.activeView === "threads" && Boolean(selectedWorkspace && selectedSession)}
+          browserOpen={sideBrowserOpen}
+          onToggleBrowser={toggleSideBrowser}
           showDiffPanel={showDiffPanel}
           onToggleDiffPanel={toggleDiffPanel}
           logsOpen={snapshot.activeView === "threads" || snapshot.activeView === "display-mode" ? logsOpen : undefined}
@@ -3385,6 +3497,7 @@ export default function App() {
                   onJumpToLatest={jumpToLatest}
                   onContentHeightChange={handleTimelineContentHeightChange}
                   onViewFileInDiff={handleViewFileInDiff}
+                  onOpenUrl={openUrl}
                 />
               </div>
             </section>
@@ -3563,7 +3676,32 @@ export default function App() {
             />
           </>
         ) : null}
-        {showPersistentVsCodePanel && persistentVsCodeTarget ? (
+        {showThreadBrowserPanel ? (
+          <>
+            <div
+              className="thread-browser-resize-handle"
+              role="separator"
+              tabIndex={0}
+              aria-label="Resize browser panel"
+              aria-orientation="vertical"
+              aria-valuemin={threadBrowserMinWidth}
+              aria-valuemax={threadBrowserMaxWidth}
+              aria-valuenow={browserPanelWidth}
+              onKeyDown={handleThreadBrowserResizeKeyDown}
+              onPointerDown={startThreadBrowserResize}
+            />
+            <BrowserPanel
+              url={sideBrowserUrl}
+              onNavigate={(nextUrl) => setSideBrowserUrl(nextUrl)}
+              onClose={() => setSideBrowserOpen(false)}
+              onOpenExternal={(nextUrl) => openUrl(nextUrl, { external: true })}
+              className="thread-browser-panel"
+              testId="thread-browser-panel"
+              style={{ "--thread-browser-width": `${browserPanelWidth}px` } as React.CSSProperties}
+            />
+          </>
+        ) : null}
+        {showPersistentVsCodePanel && !showThreadBrowserPanel && persistentVsCodeTarget ? (
           <VSCodePanel
             api={api}
             workspaceId={persistentVsCodeTarget.workspaceId}

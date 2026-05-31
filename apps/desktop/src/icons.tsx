@@ -389,6 +389,15 @@ export function VSCodeIcon() {
   );
 }
 
+export function BrowserIcon() {
+  return (
+    <Icon>
+      <circle cx="10" cy="10" r="6.6" stroke="currentColor" strokeWidth="1.35" />
+      <path d="M3.8 10h12.4M10 3.4c1.7 1.8 2.55 4 2.55 6.6S11.7 14.8 10 16.6M10 3.4C8.3 5.2 7.45 7.4 7.45 10S8.3 14.8 10 16.6" stroke="currentColor" strokeLinecap="round" strokeWidth="1.25" />
+    </Icon>
+  );
+}
+
 export function LogsIcon() {
   return (
     <Icon>

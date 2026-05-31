@@ -28,12 +28,20 @@
   grid-template-columns: minmax(0, 1fr) 5px var(--thread-vscode-width, 520px);
 }
 
+.main--with-browser {
+  grid-template-columns: minmax(0, 1fr) 5px var(--thread-browser-width, 560px);
+}
+
 .main--with-plan {
   grid-template-columns: minmax(0, 1fr) minmax(320px, 34vw);
 }
 
 .main--with-diff.main--with-vscode {
   grid-template-columns: minmax(0, 1fr) 400px 5px var(--thread-vscode-width, 520px);
+}
+
+.main--with-diff.main--with-browser {
+  grid-template-columns: minmax(0, 1fr) 400px 5px var(--thread-browser-width, 560px);
 }
 
 .main--with-diff.main--with-plan {
@@ -44,18 +52,28 @@
   grid-template-columns: minmax(0, 1fr) minmax(320px, 30vw) 5px var(--thread-vscode-width, 520px);
 }
 
+.main--with-browser.main--with-plan {
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 30vw) 5px var(--thread-browser-width, 560px);
+}
+
 .main--with-diff.main--with-vscode.main--with-plan {
   grid-template-columns: minmax(0, 1fr) minmax(320px, 24vw) 360px 5px var(--thread-vscode-width, 520px);
 }
 
+.main--with-diff.main--with-browser.main--with-plan {
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 24vw) 360px 5px var(--thread-browser-width, 560px);
+}
+
 .main--with-diff > .topbar,
 .main--with-vscode > .topbar,
+.main--with-browser > .topbar,
 .main--with-plan > .topbar {
   grid-column: 1 / -1;
 }
 
 .main--with-diff > .composer,
 .main--with-vscode > .composer,
+.main--with-browser > .composer,
 .main--with-plan > .composer {
   grid-column: 1;
 }
@@ -81,13 +99,27 @@
   grid-row: 2 / -1;
 }
 
+.main--with-browser > .thread-browser-resize-handle {
+  grid-column: 2;
+  grid-row: 2 / -1;
+}
+
+.main--with-browser > .thread-browser-panel {
+  grid-column: 3;
+  grid-row: 2 / -1;
+}
+
 .main--with-diff.main--with-vscode > .thread-vscode-resize-handle,
-.main--with-vscode.main--with-plan > .thread-vscode-resize-handle {
+.main--with-vscode.main--with-plan > .thread-vscode-resize-handle,
+.main--with-diff.main--with-browser > .thread-browser-resize-handle,
+.main--with-browser.main--with-plan > .thread-browser-resize-handle {
   grid-column: 3;
 }
 
 .main--with-diff.main--with-vscode > .thread-vscode-panel,
-.main--with-vscode.main--with-plan > .thread-vscode-panel {
+.main--with-vscode.main--with-plan > .thread-vscode-panel,
+.main--with-diff.main--with-browser > .thread-browser-panel,
+.main--with-browser.main--with-plan > .thread-browser-panel {
   grid-column: 4;
 }
 
@@ -95,11 +127,13 @@
   grid-column: 3;
 }
 
-.main--with-diff.main--with-vscode.main--with-plan > .thread-vscode-resize-handle {
+.main--with-diff.main--with-vscode.main--with-plan > .thread-vscode-resize-handle,
+.main--with-diff.main--with-browser.main--with-plan > .thread-browser-resize-handle {
   grid-column: 4;
 }
 
-.main--with-diff.main--with-vscode.main--with-plan > .thread-vscode-panel {
+.main--with-diff.main--with-vscode.main--with-plan > .thread-vscode-panel,
+.main--with-diff.main--with-browser.main--with-plan > .thread-browser-panel {
   grid-column: 5;
 }
 
@@ -109,6 +143,7 @@
 
 .main--with-diff > .terminal-panel,
 .main--with-vscode > .terminal-panel,
+.main--with-browser > .terminal-panel,
 .main--with-plan > .terminal-panel {
   grid-column: 1;
 }
@@ -6701,6 +6736,91 @@ mark.thread-find-active {
   overflow: hidden;
   background: #111318;
   border-left: 1px solid #333;
+}
+
+.thread-browser-resize-handle {
+  cursor: col-resize;
+  background: transparent;
+}
+
+.thread-browser-resize-handle:hover {
+  background: color-mix(in srgb, var(--accent, #7c3aed) 25%, transparent);
+}
+
+.thread-browser-panel,
+.browser-panel {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  border-left: 1px solid var(--border-subtle, #333);
+  background: var(--panel-background, #0f1117);
+  color: var(--text-primary, #f2f4f8);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.browser-panel__toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px;
+  border-bottom: 1px solid var(--border-subtle, #333);
+}
+
+.browser-panel__address-form {
+  flex: 1;
+  min-width: 0;
+}
+
+.browser-panel__address {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid var(--border-subtle, #333);
+  border-radius: 999px;
+  background: var(--input-background, #161b22);
+  color: inherit;
+  padding: 6px 10px;
+  font: inherit;
+}
+
+.browser-panel__title {
+  padding: 5px 10px;
+  color: var(--text-muted, #9aa4b2);
+  border-bottom: 1px solid var(--border-subtle, #333);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.browser-panel__body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+
+.browser-panel__webview {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.browser-panel__empty,
+.browser-panel__error {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  text-align: center;
+  color: var(--text-muted, #9aa4b2);
+}
+
+.browser-panel__error {
+  color: var(--danger, #f85149);
 }
 
 .display-mode-vscode__panel {

@@ -22,6 +22,7 @@ interface TerminalPanelProps {
   readonly onToggleTakeover: () => void;
   readonly onHide: () => void;
   readonly onAddSelectionToComposer?: (text: string) => void;
+  readonly onOpenUrl?: (url: string) => void;
 }
 
 export function TerminalPanel({
@@ -33,6 +34,7 @@ export function TerminalPanel({
   onToggleTakeover,
   onHide,
   onAddSelectionToComposer,
+  onOpenUrl,
 }: TerminalPanelProps) {
   const api = window.piApp;
   const panelRef = useRef<HTMLElement | null>(null);
@@ -214,6 +216,10 @@ export function TerminalPanel({
     const fitAddon = new FitAddon();
     const clipboardAddon = new ClipboardAddon();
     const webLinksAddon = new WebLinksAddon((_event, uri) => {
+      if (onOpenUrl) {
+        onOpenUrl(uri);
+        return;
+      }
       void api.openExternal(uri);
     });
 
@@ -281,7 +287,7 @@ export function TerminalPanel({
       activeTerminalIdRef.current = "";
       terminal.dispose();
     };
-  }, [activeSession?.id, api, createTerminal, fitAndResize, refreshSelectionAction]);
+  }, [activeSession?.id, api, createTerminal, fitAndResize, onOpenUrl, refreshSelectionAction]);
 
   const startResize = (event: ReactMouseEvent<HTMLDivElement>) => {
     event.preventDefault();
