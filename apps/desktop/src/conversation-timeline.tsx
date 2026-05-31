@@ -52,6 +52,7 @@ interface ConversationTimelineProps {
   readonly onJumpToLatest: () => void;
   readonly onContentHeightChange: () => void;
   readonly onViewFileInDiff?: (path: string) => void;
+  readonly onOpenUrl?: (url: string) => void;
 }
 
 export function ConversationTimeline({
@@ -67,6 +68,7 @@ export function ConversationTimeline({
   onJumpToLatest,
   onContentHeightChange,
   onViewFileInDiff,
+  onOpenUrl,
 }: ConversationTimelineProps) {
   const stableTranscript = useStableTranscriptRows(transcript);
   // Long transcripts must never fall back to full DOM rendering. The parent may
@@ -236,6 +238,7 @@ export function ConversationTimeline({
           onToggleToolCall={toggleToolCall}
           onViewFileInDiff={onViewFileInDiff}
           onContentHeightChange={onContentHeightChange}
+          onOpenUrl={onOpenUrl}
         />
         {showJumpToLatest ? (
           <button className="timeline-jump" data-testid="timeline-jump" type="button" onClick={onJumpToLatest}>
@@ -283,6 +286,7 @@ export function ConversationTimeline({
               expandedToolCallIds={expandedToolCallIds}
               onToggleToolCall={toggleToolCall}
               onViewFileInDiff={onViewFileInDiff}
+              onOpenUrl={onOpenUrl}
             />
           ))}
         </div>
@@ -304,6 +308,7 @@ function LegendTranscriptList({
   onToggleToolCall,
   onViewFileInDiff,
   onContentHeightChange,
+  onOpenUrl,
 }: {
   readonly transcript: readonly TranscriptMessage[];
   readonly assignTimelinePaneRef: RefCallback<HTMLDivElement>;
@@ -312,6 +317,7 @@ function LegendTranscriptList({
   readonly onToggleToolCall: (callId: string) => void;
   readonly onViewFileInDiff?: (path: string) => void;
   readonly onContentHeightChange: () => void;
+  readonly onOpenUrl?: (url: string) => void;
 }) {
   const legendListRef = useRef<LegendListRef | null>(null);
 
@@ -330,9 +336,10 @@ function LegendTranscriptList({
         expandedToolCallIds={expandedToolCallIds}
         onToggleToolCall={onToggleToolCall}
         onViewFileInDiff={onViewFileInDiff}
+        onOpenUrl={onOpenUrl}
       />
     </div>
-  ), [expandedToolCallIds, onToggleToolCall, onViewFileInDiff]);
+  ), [expandedToolCallIds, onOpenUrl, onToggleToolCall, onViewFileInDiff]);
 
   return (
     <LegendList<TranscriptMessage>
@@ -362,12 +369,14 @@ const MeasuredTimelineItem = memo(function MeasuredTimelineItem({
   expandedToolCallIds,
   onToggleToolCall,
   onViewFileInDiff,
+  onOpenUrl,
 }: {
   readonly item: TranscriptMessage;
   readonly onHeightChange: (id: string, height: number) => void;
   readonly expandedToolCallIds: ReadonlySet<string>;
   readonly onToggleToolCall: (callId: string) => void;
   readonly onViewFileInDiff?: (path: string) => void;
+  readonly onOpenUrl?: (url: string) => void;
 }) {
   const rowRef = useRef<HTMLDivElement | null>(null);
 
@@ -399,6 +408,7 @@ const MeasuredTimelineItem = memo(function MeasuredTimelineItem({
         expandedToolCallIds={expandedToolCallIds}
         onToggleToolCall={onToggleToolCall}
         onViewFileInDiff={onViewFileInDiff}
+        onOpenUrl={onOpenUrl}
       />
     </div>
   );
@@ -411,6 +421,7 @@ function areMeasuredTimelineItemPropsEqual(
     expandedToolCallIds: ReadonlySet<string>;
     onToggleToolCall: (callId: string) => void;
     onViewFileInDiff?: (path: string) => void;
+    onOpenUrl?: (url: string) => void;
   }>,
   next: Readonly<{
     item: TranscriptMessage;
@@ -418,13 +429,15 @@ function areMeasuredTimelineItemPropsEqual(
     expandedToolCallIds: ReadonlySet<string>;
     onToggleToolCall: (callId: string) => void;
     onViewFileInDiff?: (path: string) => void;
+    onOpenUrl?: (url: string) => void;
   }>,
 ): boolean {
   if (
     previous.item !== next.item ||
     previous.onHeightChange !== next.onHeightChange ||
     previous.onToggleToolCall !== next.onToggleToolCall ||
-    previous.onViewFileInDiff !== next.onViewFileInDiff
+    previous.onViewFileInDiff !== next.onViewFileInDiff ||
+    previous.onOpenUrl !== next.onOpenUrl
   ) {
     return false;
   }

@@ -18,17 +18,19 @@ export const TimelineItem = memo(function TimelineItem({
   expandedToolCallIds,
   onToggleToolCall,
   onViewFileInDiff,
+  onOpenUrl,
 }: {
   readonly item: TranscriptMessage;
   readonly expandedToolCallIds?: ReadonlySet<string>;
   readonly onToggleToolCall?: (callId: string) => void;
   readonly onViewFileInDiff?: (path: string) => void;
+  readonly onOpenUrl?: (url: string) => void;
 }) {
   switch (item.kind) {
     case "message":
-      return <TimelineMessage item={item} />;
+      return <TimelineMessage item={item} onOpenUrl={onOpenUrl} />;
     case "thinking":
-      return <TimelineThinkingItem item={item} />;
+      return <TimelineThinkingItem item={item} onOpenUrl={onOpenUrl} />;
     case "activity":
       return <TimelineActivityItem item={item} />;
     case "tool":
@@ -43,7 +45,7 @@ export const TimelineItem = memo(function TimelineItem({
     case "runtime-job":
       return <TimelineRuntimeJobItem item={item} />;
     case "summary":
-      return <TimelineSummaryItem item={item} />;
+      return <TimelineSummaryItem item={item} onOpenUrl={onOpenUrl} />;
     default:
       return null;
   }
@@ -55,18 +57,21 @@ function areTimelineItemPropsEqual(
     expandedToolCallIds?: ReadonlySet<string>;
     onToggleToolCall?: (callId: string) => void;
     onViewFileInDiff?: (path: string) => void;
+    onOpenUrl?: (url: string) => void;
   }>,
   next: Readonly<{
     item: TranscriptMessage;
     expandedToolCallIds?: ReadonlySet<string>;
     onToggleToolCall?: (callId: string) => void;
     onViewFileInDiff?: (path: string) => void;
+    onOpenUrl?: (url: string) => void;
   }>,
 ): boolean {
   if (
     previous.item !== next.item ||
     previous.onToggleToolCall !== next.onToggleToolCall ||
-    previous.onViewFileInDiff !== next.onViewFileInDiff
+    previous.onViewFileInDiff !== next.onViewFileInDiff ||
+    previous.onOpenUrl !== next.onOpenUrl
   ) {
     return false;
   }
@@ -81,13 +86,13 @@ function areTimelineItemPropsEqual(
   );
 }
 
-function TimelineMessage({ item }: { readonly item: SessionTranscriptMessage }) {
+function TimelineMessage({ item, onOpenUrl }: { readonly item: SessionTranscriptMessage; readonly onOpenUrl?: (url: string) => void }) {
   const [selectedShinobi] = useSelectedShinobi();
   const [subagentShinobiMap] = useSubagentShinobiMap();
   const [subagentRoleColorMap] = useSubagentRoleColorMap();
   const wrappedCompactionSummary = extractWrappedCompactionSummary(item.text);
   if (wrappedCompactionSummary) {
-    return <TimelineCompactionSummary item={{ ...item, role: "compactionSummary", text: wrappedCompactionSummary }} />;
+    return <TimelineCompactionSummary item={{ ...item, role: "compactionSummary", text: wrappedCompactionSummary }} onOpenUrl={onOpenUrl} />;
   }
 
   const subagentCard = item.role === "user" ? parseSubagentWorkflowMarker(item.text) : undefined;
@@ -154,7 +159,7 @@ function TimelineMessage({ item }: { readonly item: SessionTranscriptMessage }) 
               )}
             </div>
           ) : null}
-          <MessageMarkdown text={item.text} />
+          <MessageMarkdown text={item.text} onOpenUrl={onOpenUrl} />
         </div>
         <span className="timeline-item__user-icon-frame" aria-hidden="true" title={selectedShinobi.name}>
           <img className="timeline-item__user-icon" src={selectedShinobi.imageUrl} alt="" />
@@ -164,26 +169,26 @@ function TimelineMessage({ item }: { readonly item: SessionTranscriptMessage }) 
   }
 
   if (item.role === "compactionSummary") {
-    return <TimelineCompactionSummary item={item} />;
+    return <TimelineCompactionSummary item={item} onOpenUrl={onOpenUrl} />;
   }
 
   if (item.role === "branchSummary") {
     return (
       <article className="timeline-item timeline-item--summary-card">
         <div className="timeline-item__summary-eyebrow">Branch summary</div>
-        <MessageMarkdown text={item.text} />
+        <MessageMarkdown text={item.text} onOpenUrl={onOpenUrl} />
       </article>
     );
   }
 
   return (
     <article className="timeline-item timeline-item--assistant">
-      <MessageMarkdown text={item.text} />
+      <MessageMarkdown text={item.text} onOpenUrl={onOpenUrl} />
     </article>
   );
 }
 
-function TimelineThinkingItem({ item }: { readonly item: Extract<TranscriptMessage, { kind: "thinking" }> }) {
+function TimelineThinkingItem({ item, onOpenUrl }: { readonly item: Extract<TranscriptMessage, { kind: "thinking" }>; readonly onOpenUrl?: (url: string) => void }) {
   const [selectedShuriken] = useSelectedShuriken();
   const running = item.status === "running";
   const body = item.text.trim() || "Thinking…";
@@ -205,7 +210,7 @@ function TimelineThinkingItem({ item }: { readonly item: Extract<TranscriptMessa
         {running ? <span className="timeline-thinking__elapsed">{elapsed}</span> : null}
       </div>
       <div className="timeline-thinking__body">
-        <MessageMarkdown text={body} />
+        <MessageMarkdown text={body} onOpenUrl={onOpenUrl} />
       </div>
     </article>
   );
@@ -219,7 +224,7 @@ function extractWrappedCompactionSummary(text: string): string | undefined {
   return match?.[1]?.trim() || undefined;
 }
 
-function TimelineCompactionSummary({ item }: { readonly item: SessionTranscriptMessage }) {
+function TimelineCompactionSummary({ item, onOpenUrl }: { readonly item: SessionTranscriptMessage; readonly onOpenUrl?: (url: string) => void }) {
   const [expanded, setExpanded] = useState(false);
   const preview = compactionPreview(item.text);
 
@@ -237,7 +242,7 @@ function TimelineCompactionSummary({ item }: { readonly item: SessionTranscriptM
       </button>
       {expanded ? (
         <div className="timeline-item__compaction-body">
-          <MessageMarkdown text={item.text} />
+          <MessageMarkdown text={item.text} onOpenUrl={onOpenUrl} />
         </div>
       ) : null}
     </article>
@@ -763,7 +768,7 @@ function renderRuntimeJobElapsed(startedAt: string, active: boolean, endedAt: st
   return formatElapsed(startedAt, Date.parse(endedAt));
 }
 
-function TimelineSummaryItem({ item }: { readonly item: TimelineSummary }) {
+function TimelineSummaryItem({ item, onOpenUrl: _onOpenUrl }: { readonly item: TimelineSummary; readonly onOpenUrl?: (url: string) => void }) {
   if (item.presentation === "divider") {
     return (
       <div className="timeline-summary">
