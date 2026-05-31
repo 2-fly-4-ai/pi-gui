@@ -280,16 +280,20 @@ export function applyTimelineEvent(
     }
     case "toolFinished": {
       const outputText = textFromToolOutput(event.output);
+      const visibleOutputText = sanitizeToolOutputText(outputText);
+      const visibleOutput = visibleOutputText !== outputText && visibleOutputText !== undefined
+        ? { content: [{ type: "text", text: visibleOutputText }], sanitized: true }
+        : event.output;
       upsertToolRow(
         transcript,
         event.callId,
         undefined,
         event.success ? "success" : "error",
         undefined,
-        detailFromOutput(event.output),
+        visibleOutputText ? truncate(visibleOutputText) : undefined,
         undefined,
-        event.output,
-        outputText,
+        visibleOutput,
+        visibleOutputText,
         event.timestamp,
       );
       break;
@@ -466,9 +470,90 @@ function textFromToolOutput(output: unknown): string | undefined {
   return JSON.stringify(output);
 }
 
-function detailFromOutput(output: unknown): string | undefined {
-  const text = textFromToolOutput(output);
-  return text ? truncate(text) : undefined;
+function sanitizeToolOutputText(text: string | undefined): string | undefined {
+  if (!text || !shouldSummarizeSubagentTranscript(text)) {
+    return text;
+  }
+
+  const metadata = extractSubagentResultMetadata(text);
+  const finalStatus = extractFinalStatusBlock(text);
+  const transcriptPath = extractSubagentTranscriptPath(text);
+  const parts = [
+    metadata,
+    finalStatus ?? "Subagent result received. Raw transcript JSON hidden from chat.",
+    transcriptPath ? `Transcript: ${transcriptPath}` : undefined,
+  ].filter((part): part is string => Boolean(part?.trim()));
+
+  return parts.join("\n\n");
+}
+
+function shouldSummarizeSubagentTranscript(text: string): boolean {
+  return /(^|\n)\{"type":"(?:session|agent_start|turn_start|message_start|message_update|message_end|turn_end|agent_end)"/.test(text) ||
+    text.includes("[Result truncated:") ||
+    text.includes("[Full output:");
+}
+
+function extractSubagentResultMetadata(text: string): string | undefined {
+  const lines: string[] = [];
+  for (const line of text.split(/\r?\n/, 16)) {
+    if (/^\s*Result:\s*$/.test(line)) {
+      break;
+    }
+    if (/^\s*(Agent|Type|Description):\s*/.test(line)) {
+      lines.push(line.trim());
+    }
+  }
+  return lines.length > 0 ? lines.join("\n") : undefined;
+}
+
+function extractFinalStatusBlock(text: string): string | undefined {
+  const statusIndex = text.lastIndexOf("STATUS:");
+  if (statusIndex === -1) {
+    return undefined;
+  }
+
+  const rawBlock = text
+    .slice(statusIndex, Math.min(text.length, statusIndex + 4_000))
+    .replace(/\\n/g, "\n")
+    .replace(/\\"/g, "\"");
+  const lines: string[] = [];
+  for (const line of rawBlock.split(/\r?\n/)) {
+    const trimmed = line.trimEnd();
+    if (!trimmed) {
+      if (lines.length > 0) {
+        break;
+      }
+      continue;
+    }
+    if (
+      trimmed.startsWith("{\"type\":") ||
+      trimmed.startsWith("[Result truncated") ||
+      trimmed.startsWith("[Full output:") ||
+      trimmed.includes("\"api\":") ||
+      trimmed.includes("\"timestamp\":")
+    ) {
+      break;
+    }
+    const jsonStringTailIndex = trimmed.search(/"\}\]}/);
+    lines.push((jsonStringTailIndex >= 0 ? trimmed.slice(0, jsonStringTailIndex) : trimmed).replace(/"?\}\]?[,]?$/, ""));
+    if (jsonStringTailIndex >= 0 || lines.length >= 20) {
+      break;
+    }
+  }
+
+  const firstLine = lines[0]?.trim();
+  if (!firstLine || /\||\bor\b/i.test(firstLine)) {
+    return undefined;
+  }
+  if (!/^STATUS:\s*(DONE|DONE_WITH_CONCERNS|NEEDS_CONTEXT|BLOCKED|APPROVED|CHANGES_REQUESTED)\b/.test(firstLine)) {
+    return undefined;
+  }
+  return lines.join("\n").trim() || undefined;
+}
+
+function extractSubagentTranscriptPath(text: string): string | undefined {
+  const match = text.match(/\/[^\]\s]+\/tasks\/[A-Za-z0-9-]+\.output/);
+  return match?.[0];
 }
 
 function looksLikeSearch(toolName: string, input: unknown): boolean {

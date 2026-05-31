@@ -181,3 +181,70 @@ test("shows running command output without foregrounding raw JSON", async () => 
     await harness.close();
   }
 });
+
+test("summarizes subagent result transcripts instead of rendering raw JSONL", async () => {
+  const userDataDir = await makeUserDataDir();
+  const workspacePath = await makeWorkspace("timeline-subagent-result-workspace");
+  const harness = await launchDesktop(userDataDir, {
+    initialWorkspaces: [workspacePath],
+    testMode: "background",
+  });
+
+  try {
+    const window = await harness.firstWindow();
+    await waitForWorkspaceByPath(window, workspacePath);
+    await createSessionViaIpc(window, workspacePath, "Subagent result visibility");
+
+    const state = await getDesktopState(window);
+    const sessionRef = {
+      workspaceId: state.selectedWorkspaceId,
+      sessionId: state.selectedSessionId,
+    };
+    const timestamp = new Date().toISOString();
+    const rawResult = [
+      "Agent: 466fd35c-91a5-450",
+      "Type: Reviewer | Status: completed | Tool uses: 10 | Duration: 38.2s",
+      "Description: Task 1 spec review",
+      "",
+      "Result:",
+      '{"type":"session","version":3,"id":"raw-session"}',
+      '{"type":"message_update","assistantMessageEvent":{"type":"thinking_delta","delta":"**Evaluating tool usage for compliance**"}}',
+      '{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"STATUS: APPROVED\\nISSUES: none\\nTESTS_CHECKED: pnpm typecheck passed"}]}}',
+      "[Result truncated: showing 20,000 of 3,247,498 characters.]",
+      "[Full output: /var/folders/example/tasks/466fd35c-91a5-450.output]",
+    ].join("\n");
+
+    await emitTestSessionEvent(harness, {
+      type: "toolStarted",
+      sessionRef,
+      timestamp,
+      toolName: "get_subagent_result",
+      callId: "subagent-result-1",
+      input: { agent_id: "466fd35c-91a5-450" },
+    } satisfies Extract<SessionDriverEvent, { type: "toolStarted" }>);
+    await emitTestSessionEvent(harness, {
+      type: "toolFinished",
+      sessionRef,
+      timestamp: new Date().toISOString(),
+      callId: "subagent-result-1",
+      success: true,
+      output: rawResult,
+    } satisfies Extract<SessionDriverEvent, { type: "toolFinished" }>);
+
+    const transcript = window.getByTestId("transcript");
+    const toolButton = transcript.getByRole("button", { name: /get_subagent_result/ });
+    await expect(toolButton).toHaveAttribute("aria-expanded", "false");
+    await toolButton.click();
+    await expect(toolButton).toHaveAttribute("aria-expanded", "true");
+
+    await expect(transcript).toContainText("Agent: 466fd35c-91a5-450");
+    await expect(transcript).toContainText("STATUS: APPROVED");
+    await expect(transcript).toContainText("ISSUES: none");
+    await expect(transcript).toContainText("Transcript: /var/folders/example/tasks/466fd35c-91a5-450.output");
+    await expect(transcript).not.toContainText('"type":"message_update"');
+    await expect(transcript).not.toContainText("thinking_delta");
+    await expect(transcript).not.toContainText("Result truncated");
+  } finally {
+    await harness.close();
+  }
+});
