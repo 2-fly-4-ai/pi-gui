@@ -1,4 +1,4 @@
-import { memo, useMemo } from "react";
+import { memo, useCallback, useMemo } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -10,6 +10,16 @@ export interface MessageMarkdownProps {
 }
 
 export const MessageMarkdown = memo(function MessageMarkdown({ text, onOpenUrl }: MessageMarkdownProps) {
+  const openLinkFromEvent = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
+    if (!onOpenUrl || event.defaultPrevented) return;
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) return;
+    const anchor = target.closest("a[href]");
+    if (!(anchor instanceof HTMLAnchorElement)) return;
+    event.preventDefault();
+    onOpenUrl(anchor.href);
+  }, [onOpenUrl]);
+
   const components = useMemo(() => ({
     code: ({ className, children }: { className?: string; children?: React.ReactNode }) => {
       const language = className?.replace(/^language-/, "");
@@ -32,23 +42,14 @@ export const MessageMarkdown = memo(function MessageMarkdown({ text, onOpenUrl }
       );
     },
     a: ({ href, children }: { href?: string; children?: React.ReactNode }) => (
-      <a
-        href={href}
-        rel="noreferrer"
-        target="_blank"
-        onClick={(event) => {
-          if (!href || !onOpenUrl) return;
-          event.preventDefault();
-          onOpenUrl(href);
-        }}
-      >
+      <a href={href} rel="noreferrer" target="_blank">
         {children}
       </a>
     ),
-  }), [onOpenUrl]);
+  }), []);
 
   return (
-    <div className="message__content">
+    <div className="message__content" onClickCapture={openLinkFromEvent}>
       <ReactMarkdown remarkPlugins={REMARK_PLUGINS} components={components}>
         {text}
       </ReactMarkdown>

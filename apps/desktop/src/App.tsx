@@ -607,6 +607,22 @@ export default function App() {
     setVsCodeOpen(false);
   }, [api]);
 
+  useEffect(() => {
+    const handleDocumentLinkClick = (event: MouseEvent) => {
+      if (snapshot?.activeView !== "threads") return;
+      if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      const target = event.target;
+      if (!(target instanceof HTMLElement)) return;
+      const anchor = target.closest("a[href]");
+      if (!(anchor instanceof HTMLAnchorElement)) return;
+      if (!mainRef.current?.contains(anchor)) return;
+      event.preventDefault();
+      openUrl(anchor.href);
+    };
+    document.addEventListener("click", handleDocumentLinkClick, true);
+    return () => document.removeEventListener("click", handleDocumentLinkClick, true);
+  }, [openUrl, snapshot?.activeView]);
+
   const setLogsPanelOpen = useCallback((open: boolean) => {
     try { localStorage.setItem("logs:open", String(open)); } catch {}
     setLogsOpen(open);

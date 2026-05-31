@@ -81,15 +81,20 @@ export function BrowserPanel({
   const refreshNavigationState = useCallback(() => {
     const webview = webviewRef.current;
     if (!webview) return;
-    setCanGoBack(webview.canGoBack());
-    setCanGoForward(webview.canGoForward());
-    const nextUrl = webview.getURL();
-    if (nextUrl) {
-      setCurrentUrl(nextUrl);
-      setAddressValue(nextUrl);
+    try {
+      setCanGoBack(webview.canGoBack());
+      setCanGoForward(webview.canGoForward());
+      const nextUrl = webview.getURL();
+      if (nextUrl) {
+        setCurrentUrl(nextUrl);
+        setAddressValue(nextUrl);
+      }
+      const nextTitle = webview.getTitle();
+      if (nextTitle) setTitle(nextTitle);
+    } catch {
+      setCanGoBack(false);
+      setCanGoForward(false);
     }
-    const nextTitle = webview.getTitle();
-    if (nextTitle) setTitle(nextTitle);
   }, []);
 
   const setWebviewRef = useCallback((node: HTMLElement | null) => {
@@ -155,6 +160,13 @@ export function BrowserPanel({
   }, [onNavigate, onOpenExternal, refreshNavigationState]);
 
   const webview = webviewRef.current;
+  const runWebviewCommand = (command: "goBack" | "goForward" | "reload" | "stop") => {
+    try {
+      webview?.[command]();
+    } catch {
+      refreshNavigationState();
+    }
+  };
   const resolvedTitle = useMemo(() => title || currentUrl || "Browser", [currentUrl, title]);
 
   const submitAddress = (event: React.FormEvent<HTMLFormElement>) => {
@@ -166,13 +178,13 @@ export function BrowserPanel({
   return (
     <aside className={className} data-testid={testId} style={style}>
       <div className="browser-panel__toolbar">
-        <button className="icon-button" type="button" aria-label="Back" disabled={!canGoBack} onClick={() => webview?.goBack()}>
+        <button className="icon-button" type="button" aria-label="Back" disabled={!canGoBack} onClick={() => runWebviewCommand("goBack")}>
           ←
         </button>
-        <button className="icon-button" type="button" aria-label="Forward" disabled={!canGoForward} onClick={() => webview?.goForward()}>
+        <button className="icon-button" type="button" aria-label="Forward" disabled={!canGoForward} onClick={() => runWebviewCommand("goForward")}>
           →
         </button>
-        <button className="icon-button" type="button" aria-label={loading ? "Stop" : "Reload"} onClick={() => (loading ? webview?.stop() : webview?.reload())}>
+        <button className="icon-button" type="button" aria-label={loading ? "Stop" : "Reload"} onClick={() => runWebviewCommand(loading ? "stop" : "reload")}>
           {loading ? "×" : "↻"}
         </button>
         <form className="browser-panel__address-form" onSubmit={submitAddress}>

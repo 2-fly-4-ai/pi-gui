@@ -1,5 +1,5 @@
 import { LegendList, type LegendListRef } from "@legendapp/list/react";
-import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState, type MutableRefObject, type RefCallback, type RefObject } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type MutableRefObject, type RefCallback, type RefObject } from "react";
 import type { TranscriptMessage } from "./desktop-state";
 import { ThreadSearchBar } from "./thread-search";
 import { TimelineItem } from "./timeline-item";
@@ -227,9 +227,19 @@ export function ConversationTimeline({
     timelinePaneElementRef?.(node);
   }, [timelinePaneElementRef, timelinePaneRef]);
 
+  const handleTimelineClickCapture = useCallback((event: ReactMouseEvent<HTMLElement>) => {
+    if (!onOpenUrl || event.defaultPrevented) return;
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) return;
+    const anchor = target.closest("a[href]");
+    if (!(anchor instanceof HTMLAnchorElement)) return;
+    event.preventDefault();
+    onOpenUrl(anchor.href);
+  }, [onOpenUrl]);
+
   if (shouldVirtualize && !isTranscriptLoading && stableTranscript.length > 0) {
     return (
-      <div className="timeline-pane-frame timeline-pane-frame--thread" data-testid="transcript">
+      <div className="timeline-pane-frame timeline-pane-frame--thread" data-testid="transcript" onClickCapture={handleTimelineClickCapture}>
         <LegendTranscriptList
           transcript={stableTranscript}
           assignTimelinePaneRef={assignTimelinePaneRef}
@@ -254,6 +264,7 @@ export function ConversationTimeline({
       className="timeline-pane timeline-pane--thread"
       data-testid="timeline-pane"
       ref={assignTimelinePaneRef}
+      onClickCapture={handleTimelineClickCapture}
       onScroll={onTimelineScroll}
     >
       {threadSearch.isOpen ? (
