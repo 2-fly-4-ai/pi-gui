@@ -369,17 +369,15 @@ export class DesktopAppStore implements AppStoreInternals {
         return Date.parse(b.session.updatedAt) - Date.parse(a.session.updatedAt);
       });
 
-    await Promise.all(entries.map(({ workspace: workspaceEntry, session }) =>
-      this.ensureTranscriptLoaded({ workspaceId: workspaceEntry.id, sessionId: session.id }),
-    ));
-
-    return entries.map(({ workspace: workspaceEntry, session }) => ({
-      workspace: structuredClone(workspaceEntry),
-      session: structuredClone(session),
-      transcript: (this.sessionState.transcriptCache.get(sessionKey({ workspaceId: workspaceEntry.id, sessionId: session.id })) ?? [])
-        .filter((item) => this.state.showThinking || item.kind !== "thinking")
-        .map(cloneTranscriptMessage),
-    }));
+    return entries.map(({ workspace: workspaceEntry, session }) => {
+      const key = sessionKey({ workspaceId: workspaceEntry.id, sessionId: session.id });
+      const cachedTranscript = this.sessionState.transcriptCache.get(key) ?? [];
+      return {
+        workspace: lightweightDisplayModeWorkspace(workspaceEntry),
+        session: structuredClone(session),
+        transcript: recentDisplayModeTranscript(cachedTranscript, this.state.showThinking),
+      };
+    });
   }
 
   async flushPersistence(): Promise<void> {
@@ -2747,6 +2745,27 @@ export class DesktopAppStore implements AppStoreInternals {
 }
 
 /* ── Module-private free functions ───────────────────────── */
+
+const DISPLAY_MODE_TRANSCRIPT_LIMIT = 12;
+
+function lightweightDisplayModeWorkspace(
+  workspace: DesktopAppState["workspaces"][number],
+): DesktopAppState["workspaces"][number] {
+  return {
+    ...structuredClone(workspace),
+    sessions: [],
+  };
+}
+
+function recentDisplayModeTranscript(
+  transcript: readonly TranscriptMessage[],
+  showThinking: boolean,
+): TranscriptMessage[] {
+  return transcript
+    .filter((item) => showThinking || item.kind !== "thinking")
+    .slice(-DISPLAY_MODE_TRANSCRIPT_LIMIT)
+    .map(cloneTranscriptMessage);
+}
 
 function normalizePersistedTranscript(transcript: readonly TranscriptMessage[]): TranscriptMessage[] {
   return transcript

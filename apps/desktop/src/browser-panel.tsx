@@ -36,21 +36,54 @@ export interface BrowserPanelProps {
   readonly style?: React.CSSProperties;
 }
 
-function isHttpUrl(value: string): boolean {
+function parseHttpUrl(value: string): URL | undefined {
   try {
     const parsed = new URL(value);
-    return parsed.protocol === "http:" || parsed.protocol === "https:";
+    return parsed.protocol === "http:" || parsed.protocol === "https:" ? parsed : undefined;
   } catch {
-    return false;
+    return undefined;
   }
+}
+
+function isHttpUrl(value: string): boolean {
+  return parseHttpUrl(value) !== undefined;
+}
+
+function looksLikeLocalAddress(value: string): boolean {
+  const host = value.split(/[/?#]/, 1)[0] ?? "";
+  return /^(localhost|127(?:\.\d{1,3}){3}|0\.0\.0\.0|\[::1\])(?::\d+)?$/i.test(host);
+}
+
+function looksLikeDomainAddress(value: string): boolean {
+  if (/\s/.test(value)) return false;
+  const host = value.split(/[/?#]/, 1)[0] ?? "";
+  return /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+(?:\:\d+)?$/i.test(host);
+}
+
+function searchUrlForQuery(query: string): string {
+  return `https://www.google.com/search?q=${encodeURIComponent(query)}`;
 }
 
 function normalizeTypedUrl(value: string): string | undefined {
   const trimmed = value.trim();
   if (!trimmed) return undefined;
-  if (isHttpUrl(trimmed)) return trimmed;
-  const withScheme = `https://${trimmed}`;
-  return isHttpUrl(withScheme) ? withScheme : undefined;
+
+  const parsed = parseHttpUrl(trimmed);
+  if (parsed) return parsed.href;
+
+  if (looksLikeLocalAddress(trimmed)) {
+    return parseHttpUrl(`http://${trimmed}`)?.href;
+  }
+
+  if (looksLikeDomainAddress(trimmed)) {
+    return parseHttpUrl(`https://${trimmed}`)?.href;
+  }
+
+  if (/^[a-z][a-z\d+.-]*:/i.test(trimmed)) {
+    return undefined;
+  }
+
+  return searchUrlForQuery(trimmed);
 }
 
 export function BrowserPanel({
@@ -63,6 +96,9 @@ export function BrowserPanel({
   style,
 }: BrowserPanelProps) {
   const webviewRef = useRef<BrowserWebviewElement | null>(null);
+  const addressInputRef = useRef<HTMLInputElement | null>(null);
+  const addressDirtyRef = useRef(false);
+  const pendingNavigationUrlRef = useRef<string | undefined>(undefined);
   const [addressValue, setAddressValue] = useState(url ?? "");
   const [currentUrl, setCurrentUrl] = useState(url ?? "");
   const [title, setTitle] = useState("Browser");
@@ -71,12 +107,19 @@ export function BrowserPanel({
   const [canGoBack, setCanGoBack] = useState(false);
   const [canGoForward, setCanGoForward] = useState(false);
 
+  const syncAddressValue = useCallback((nextValue: string, options: { readonly force?: boolean } = {}) => {
+    if (options.force || !addressDirtyRef.current) {
+      setAddressValue(nextValue);
+    }
+  }, []);
+
   useEffect(() => {
     if (!url || url === currentUrl) return;
+    pendingNavigationUrlRef.current = url;
     setCurrentUrl(url);
-    setAddressValue(url);
+    syncAddressValue(url);
     setLoadError(undefined);
-  }, [currentUrl, url]);
+  }, [currentUrl, syncAddressValue, url]);
 
   const refreshNavigationState = useCallback(() => {
     const webview = webviewRef.current;
@@ -86,8 +129,14 @@ export function BrowserPanel({
       setCanGoForward(webview.canGoForward());
       const nextUrl = webview.getURL();
       if (nextUrl) {
-        setCurrentUrl(nextUrl);
-        setAddressValue(nextUrl);
+        const pendingUrl = pendingNavigationUrlRef.current;
+        if (!pendingUrl || nextUrl === pendingUrl) {
+          if (nextUrl === pendingUrl) {
+            pendingNavigationUrlRef.current = undefined;
+          }
+          setCurrentUrl(nextUrl);
+          syncAddressValue(nextUrl);
+        }
       }
       const nextTitle = webview.getTitle();
       if (nextTitle) setTitle(nextTitle);
@@ -95,7 +144,7 @@ export function BrowserPanel({
       setCanGoBack(false);
       setCanGoForward(false);
     }
-  }, []);
+  }, [syncAddressValue]);
 
   const setWebviewRef = useCallback((node: HTMLElement | null) => {
     webviewRef.current = node as BrowserWebviewElement | null;
@@ -116,9 +165,15 @@ export function BrowserPanel({
     };
     const handleNavigate = (event: BrowserNavigationEvent) => {
       if (event.url && isHttpUrl(event.url)) {
-        setCurrentUrl(event.url);
-        setAddressValue(event.url);
-        onNavigate(event.url);
+        const pendingUrl = pendingNavigationUrlRef.current;
+        if (!pendingUrl || event.url === pendingUrl) {
+          if (event.url === pendingUrl) {
+            pendingNavigationUrlRef.current = undefined;
+          }
+          setCurrentUrl(event.url);
+          syncAddressValue(event.url);
+          onNavigate(event.url);
+        }
       }
       refreshNavigationState();
     };
@@ -157,7 +212,7 @@ export function BrowserPanel({
       webview.removeEventListener("did-fail-load", handleFailLoad as EventListener);
       webview.removeEventListener("new-window", handleNewWindow as EventListener);
     };
-  }, [onNavigate, onOpenExternal, refreshNavigationState]);
+  }, [onNavigate, onOpenExternal, refreshNavigationState, syncAddressValue]);
 
   const webview = webviewRef.current;
   const runWebviewCommand = (command: "goBack" | "goForward" | "reload" | "stop") => {
@@ -171,8 +226,14 @@ export function BrowserPanel({
 
   const submitAddress = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    const nextUrl = normalizeTypedUrl(addressValue);
-    if (nextUrl) onNavigate(nextUrl);
+    const nextUrl = normalizeTypedUrl(addressInputRef.current?.value ?? addressValue);
+    if (!nextUrl) return;
+    addressDirtyRef.current = false;
+    pendingNavigationUrlRef.current = nextUrl;
+    setCurrentUrl(nextUrl);
+    syncAddressValue(nextUrl, { force: true });
+    setLoadError(undefined);
+    onNavigate(nextUrl);
   };
 
   return (
@@ -189,11 +250,15 @@ export function BrowserPanel({
         </button>
         <form className="browser-panel__address-form" onSubmit={submitAddress}>
           <input
+            ref={addressInputRef}
             aria-label="Browser address"
             className="browser-panel__address"
             value={addressValue}
-            placeholder="Enter a URL"
-            onChange={(event) => setAddressValue(event.target.value)}
+            placeholder="Search or enter address"
+            onChange={(event) => {
+              addressDirtyRef.current = true;
+              setAddressValue(event.target.value);
+            }}
           />
         </form>
         <button

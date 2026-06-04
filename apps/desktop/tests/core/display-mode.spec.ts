@@ -70,6 +70,41 @@ test("opens a Display Mode tile back into Threads with its transcript hydrated",
   }
 });
 
+test("loads Display Mode with clipped recent transcript rows", async () => {
+  const userDataDir = await makeUserDataDir();
+  const workspacePath = await makeWorkspace("display-mode-clipped-transcript");
+  const harness = await launchDesktop(userDataDir, {
+    initialWorkspaces: [workspacePath],
+    testMode: "background",
+  });
+
+  try {
+    const window = await harness.firstWindow();
+    await waitForWorkspaceByPath(window, workspacePath);
+    await createNamedThread(window, "Display mode clipped transcript");
+    await seedTranscriptMessages(harness, window, {
+      count: 40,
+      textFactory: (index) => `Display mode clipped transcript row ${index}`,
+    });
+
+    await window.locator(".sidebar__nav").getByRole("button", { name: "Display Mode" }).click();
+    await expect.poll(async () => window.evaluate(() => window.piApp?.getState().then((state) => state.activeView) ?? "missing")).toBe("display-mode");
+
+    await expect
+      .poll(async () => window.evaluate(async () => {
+        const records = await window.piApp?.getDisplayModeThreads();
+        return records?.find((record) => record.session.title === "Display mode clipped transcript")?.transcript.length ?? -1;
+      }))
+      .toBeLessThanOrEqual(12);
+
+    const tile = window.getByTestId("display-mode-thread-tile").filter({ hasText: "Display mode clipped transcript" });
+    await expect(tile).toContainText("Display mode clipped transcript row 39");
+    await expect(tile).not.toContainText("Display mode clipped transcript row 0");
+  } finally {
+    await harness.close();
+  }
+});
+
 test("uses the thread composer input in Display Mode tiles", async () => {
   const userDataDir = await makeUserDataDir();
   const workspacePath = await makeWorkspace("display-mode-composer-parity");

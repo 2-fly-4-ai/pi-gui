@@ -260,6 +260,7 @@ export function applyTimelineEvent(
       }
       state.runMetricsBySession.set(key, metrics);
       upsertToolRow(transcript, event.callId, event.toolName, "running", toolLabel(event.toolName, event.input), undefined, event.input);
+      removeRuntimeJobRowsForToolCall(transcript, event.callId);
       break;
     }
     case "toolUpdated": {
@@ -276,6 +277,7 @@ export function applyTimelineEvent(
         text,
         event.timestamp,
       );
+      removeRuntimeJobRowsForToolCall(transcript, event.callId);
       break;
     }
     case "toolFinished": {
@@ -296,6 +298,7 @@ export function applyTimelineEvent(
         visibleOutputText,
         event.timestamp,
       );
+      removeRuntimeJobRowsForToolCall(transcript, event.callId);
       break;
     }
     case "runtimeJobUpdated":
@@ -349,6 +352,14 @@ export function applyTimelineEvent(
 function upsertRuntimeJobRow(transcript: TranscriptMessage[], job: RuntimeJobSnapshot): void {
   const id = `runtime-job:${job.id}`;
   const index = transcript.findIndex((item) => item.kind === "runtime-job" && item.id === id);
+
+  if (isDuplicateToolRuntimeJob(transcript, job)) {
+    if (index >= 0) {
+      transcript.splice(index, 1);
+    }
+    return;
+  }
+
   const next = {
     kind: "runtime-job" as const,
     id,
@@ -362,6 +373,23 @@ function upsertRuntimeJobRow(transcript: TranscriptMessage[], job: RuntimeJobSna
   }
 
   transcript.push(next);
+}
+
+function isDuplicateToolRuntimeJob(transcript: readonly TranscriptMessage[], job: RuntimeJobSnapshot): boolean {
+  return Boolean(
+    job.kind === "tool" &&
+      job.toolCallId &&
+      transcript.some((item) => item.kind === "tool" && item.callId === job.toolCallId),
+  );
+}
+
+function removeRuntimeJobRowsForToolCall(transcript: TranscriptMessage[], callId: string): void {
+  for (let index = transcript.length - 1; index >= 0; index -= 1) {
+    const item = transcript[index];
+    if (item?.kind === "runtime-job" && item.job.kind === "tool" && item.job.toolCallId === callId) {
+      transcript.splice(index, 1);
+    }
+  }
 }
 
 function upsertToolRow(

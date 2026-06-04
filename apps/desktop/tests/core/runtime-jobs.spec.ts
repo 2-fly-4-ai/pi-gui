@@ -7,6 +7,7 @@ import {
   createNamedThread,
   emitTestSessionEvent,
   getDesktopState,
+  getSelectedTranscript,
   launchDesktop,
   makeUserDataDir,
   makeWorkspace,
@@ -242,6 +243,90 @@ test("shows runtime job visibility for running tools and background jobs", async
       })
       .toContain('"transcript"');
     expect(await readFile(transcriptPath, "utf8")).not.toMatch(/"kind"\s*:\s*"runtime-job"/);
+  } finally {
+    await harness.close();
+  }
+});
+
+test("hides duplicate runtime cards for visible tool calls", async () => {
+  test.setTimeout(90_000);
+
+  const userDataDir = await makeUserDataDir();
+  const workspacePath = await makeWorkspace("runtime-tool-dedupe-workspace");
+  const harness = await launchDesktop(userDataDir, {
+    initialWorkspaces: [workspacePath],
+    testMode: "background",
+  });
+
+  try {
+    const window = await harness.firstWindow();
+    await waitForWorkspaceByPath(window, workspacePath);
+    await createNamedThread(window, "Runtime tool dedupe");
+
+    const state = await getDesktopState(window);
+    const workspaceId = state.selectedWorkspaceId;
+    const sessionId = state.selectedSessionId;
+    expect(workspaceId).toBeTruthy();
+    expect(sessionId).toBeTruthy();
+    const sessionRef = {
+      workspaceId: workspaceId!,
+      sessionId: sessionId!,
+    };
+    const timestamp = new Date().toISOString();
+
+    await emitTestSessionEvent(harness, {
+      type: "toolStarted",
+      sessionRef,
+      timestamp,
+      callId: "bash-dedupe-1",
+      toolName: "bash",
+      input: { command: "echo duplicate-runtime-card" },
+    } satisfies Extract<SessionDriverEvent, { type: "toolStarted" }>);
+
+    const matchingToolJob = {
+      id: "tool:bash-dedupe-1",
+      sessionRef,
+      runId: "runtime-tool-dedupe-run",
+      toolCallId: "bash-dedupe-1",
+      kind: "tool",
+      status: "running",
+      confidence: "tracked",
+      title: "Bash",
+      command: "echo duplicate-runtime-card",
+      cwd: workspacePath,
+      startedAt: timestamp,
+      updatedAt: timestamp,
+      process: {
+        pid: NONEXISTENT_REFRESH_TEST_PID,
+        command: "echo duplicate-runtime-card",
+        cwd: workspacePath,
+        status: "running",
+        confidence: "tracked",
+        startedAt: timestamp,
+        updatedAt: timestamp,
+      },
+      message: "Shell tool still running",
+    } satisfies RuntimeJobSnapshot;
+
+    await emitTestSessionEvent(harness, {
+      type: "runtimeJobUpdated",
+      sessionRef,
+      timestamp,
+      job: matchingToolJob,
+      summary: {
+        agentStatus: "running",
+        activeToolCount: 1,
+        backgroundJobCount: 0,
+        unknownJobCount: 0,
+        jobs: [matchingToolJob],
+      },
+    } satisfies Extract<SessionDriverEvent, { type: "runtimeJobUpdated" }>);
+
+    await expect(window.locator(".timeline-tool").filter({ hasText: "duplicate-runtime-card" })).toBeVisible();
+    await expect(window.getByTestId("runtime-job-card").filter({ hasText: "Bash" })).toHaveCount(0);
+    await expect
+      .poll(async () => (await getSelectedTranscript(window))?.transcript.filter((item) => item.kind === "runtime-job").length ?? -1)
+      .toBe(0);
   } finally {
     await harness.close();
   }
