@@ -1,8 +1,8 @@
 import crypto from "node:crypto";
-import { existsSync } from "node:fs";
+import { closeSync, existsSync, fstatSync, readdirSync } from "node:fs";
 import { basename } from "node:path";
 import { platform } from "node:os";
-import { spawn as spawnPty, type IPty } from "node-pty";
+import { spawn as spawnPty, type IDisposable, type IPty } from "node-pty";
 import { createBashToolDefinition, defineTool, type BashOperations } from "@earendil-works/pi-coding-agent";
 
 export interface PtyBashLifecycleEvent {
@@ -86,6 +86,82 @@ function trySignalPty(pty: IPty | undefined, signal: NodeJS.Signals): boolean {
   }
 }
 
+type DestroyablePty = IPty & { readonly destroy?: () => void };
+type PtyWithFd = IPty & { readonly fd?: number };
+
+function captureOpenDarwinPtmxFds(): ReadonlySet<number> | undefined {
+  if (platform() !== "darwin") {
+    return undefined;
+  }
+  try {
+    const fds = new Set<number>();
+    for (const entry of readdirSync("/dev/fd")) {
+      const fd = Number(entry);
+      if (Number.isInteger(fd) && isDarwinPtmxFd(fd)) {
+        fds.add(fd);
+      }
+    }
+    return fds;
+  } catch {
+    return undefined;
+  }
+}
+
+function closeNewDarwinPtmxFds(before: ReadonlySet<number> | undefined, pty: IPty | undefined): void {
+  if (platform() !== "darwin" || !before) {
+    return;
+  }
+  const retainedFd = (pty as PtyWithFd | undefined)?.fd;
+  let currentEntries: readonly string[];
+  try {
+    currentEntries = readdirSync("/dev/fd");
+  } catch {
+    return;
+  }
+  for (const entry of currentEntries) {
+    const fd = Number(entry);
+    if (!Number.isInteger(fd) || before.has(fd) || fd === retainedFd || !isDarwinPtmxFd(fd)) {
+      continue;
+    }
+    try {
+      closeSync(fd);
+    } catch {
+      // Best-effort cleanup for node-pty's macOS low-fd guard leak.
+    }
+  }
+}
+
+function isDarwinPtmxFd(fd: number): boolean {
+  try {
+    const stats = fstatSync(fd);
+    // Darwin PTY master devices use major 15. This catches the extra
+    // posix_openpt fd that node-pty's macOS spawn path leaves open, while the
+    // real PTY master is retained via PtyWithFd.fd.
+    return (stats.mode & 0o170000) === 0o020000 && Math.floor(stats.rdev / 0x1000000) === 15;
+  } catch {
+    return false;
+  }
+}
+
+function destroyPty(pty: IPty | undefined): void {
+  if (!pty) return;
+  const destroy = (pty as DestroyablePty).destroy;
+  if (typeof destroy === "function") {
+    try {
+      destroy.call(pty);
+      return;
+    } catch {
+      // Fall back to kill below. Cleanup is best-effort because the child may
+      // already have exited by the time we release the master side.
+    }
+  }
+  try {
+    pty.kill();
+  } catch {
+    // Best-effort cleanup.
+  }
+}
+
 export function createPtyBashOperations(options: PtyBashOptions = {}): BashOperations {
   return {
     exec(command, cwd, { onData, signal, timeout, env }) {
@@ -113,11 +189,23 @@ export function createPtyBashOperations(options: PtyBashOptions = {}): BashOpera
           }
         };
         let pty: IPty | undefined;
+        let dataSubscription: IDisposable | undefined;
+        let exitSubscription: IDisposable | undefined;
         let settled = false;
         let timedOut = false;
         let timeoutHandle: NodeJS.Timeout | undefined;
         let killEscalationHandle: NodeJS.Timeout | undefined;
         let abortedLifecycleEmitted = false;
+
+        const cleanupPty = () => {
+          dataSubscription?.dispose();
+          exitSubscription?.dispose();
+          dataSubscription = undefined;
+          exitSubscription = undefined;
+          const currentPty = pty;
+          pty = undefined;
+          destroyPty(currentPty);
+        };
 
         const finish = (callback: () => void) => {
           if (settled) {
@@ -149,6 +237,7 @@ export function createPtyBashOperations(options: PtyBashOptions = {}): BashOpera
           killEscalationHandle.unref?.();
         };
 
+        const darwinPtmxFdsBeforeSpawn = captureOpenDarwinPtmxFds();
         try {
           pty = spawnPty(shell, args, {
             name: "xterm-256color",
@@ -157,21 +246,25 @@ export function createPtyBashOperations(options: PtyBashOptions = {}): BashOpera
             cwd,
             env: buildPtyEnv(env),
           });
+          closeNewDarwinPtmxFds(darwinPtmxFdsBeforeSpawn, pty);
         } catch (error) {
+          closeNewDarwinPtmxFds(darwinPtmxFdsBeforeSpawn, undefined);
           finish(() => reject(error instanceof Error ? error : new Error(String(error))));
           return;
         }
 
         emitLifecycle(pty.pid !== undefined ? { event: "spawned", pid: pty.pid } : { event: "spawned" });
 
-        pty.onData((chunk) => {
+        dataSubscription = pty.onData((chunk) => {
           onData(Buffer.from(chunk));
           emitLifecycle(pty?.pid !== undefined ? { event: "output", pid: pty.pid, outputText: chunk } : { event: "output", outputText: chunk });
         });
 
-        pty.onExit(({ exitCode }) => {
-          emitLifecycle(pty?.pid !== undefined ? { event: "exited", pid: pty.pid, exitCode } : { event: "exited", exitCode });
+        exitSubscription = pty.onExit(({ exitCode }) => {
+          const pid = pty?.pid;
+          emitLifecycle(pid !== undefined ? { event: "exited", pid, exitCode } : { event: "exited", exitCode });
           finish(() => {
+            cleanupPty();
             if (signal?.aborted) {
               reject(new Error("aborted"));
               return;

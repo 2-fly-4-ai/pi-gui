@@ -1,6 +1,6 @@
 import type { WebContents } from "electron";
 import { createRequire } from "node:module";
-import { accessSync, chmodSync, constants, existsSync, realpathSync, statSync } from "node:fs";
+import { accessSync, chmodSync, closeSync, constants, existsSync, fstatSync, readdirSync, realpathSync, statSync } from "node:fs";
 import path from "node:path";
 import type {
   TerminalPanelSnapshot,
@@ -14,6 +14,8 @@ import { appendTerminalReplay } from "../src/terminal-model";
 type NodePty = typeof import("node-pty");
 type IPty = import("node-pty").IPty;
 type IDisposable = import("node-pty").IDisposable;
+type DestroyablePty = IPty & { readonly destroy?: () => void };
+type PtyWithFd = IPty & { readonly fd?: number };
 
 const require = createRequire(__filename);
 let nodePty: NodePty | undefined;
@@ -269,6 +271,7 @@ export class TerminalService {
   }
 
   private spawnPty(webContents: WebContents, session: TerminalSession): void {
+    const darwinPtmxFdsBeforeSpawn = captureOpenDarwinPtmxFds();
     try {
       ensureNodePtySpawnHelperExecutable(this.options.isPackaged);
       session.pty = loadNodePty().spawn(session.shell, [], {
@@ -278,7 +281,9 @@ export class TerminalService {
         cwd: session.cwd,
         env: buildTerminalEnv(),
       });
+      closeNewDarwinPtmxFds(darwinPtmxFdsBeforeSpawn, session.pty);
     } catch (error) {
+      closeNewDarwinPtmxFds(darwinPtmxFdsBeforeSpawn, undefined);
       session.status = "error";
       const message = error instanceof Error ? error.message : String(error);
       this.appendReplay(session, `${message}\r\n`);
@@ -299,6 +304,7 @@ export class TerminalService {
         exitCode,
         signal,
       });
+      this.releaseExitedPty(session);
     });
   }
 
@@ -364,21 +370,30 @@ export class TerminalService {
     this.disposePty(session);
   }
 
+  private releaseExitedPty(session: TerminalSession): void {
+    const pty = this.detachPty(session);
+    destroyPty(pty);
+  }
+
   private disposePty(session: TerminalSession): void {
+    const pty = this.detachPty(session);
+    if (!pty) {
+      return;
+    }
+    if (process.platform !== "win32") {
+      killUnixProcessGroup(pty.pid);
+    }
+    destroyPty(pty);
+  }
+
+  private detachPty(session: TerminalSession): IPty | undefined {
     const pty = session.pty;
     session.dataSubscription?.dispose();
     session.exitSubscription?.dispose();
     session.dataSubscription = undefined;
     session.exitSubscription = undefined;
-    if (pty && process.platform !== "win32") {
-      killUnixProcessGroup(pty.pid);
-    }
-    try {
-      pty?.kill();
-    } catch {
-      // Best-effort cleanup when the child process has already exited.
-    }
     session.pty = undefined;
+    return pty;
   }
 
   private defaultTitle(session: TerminalSession): string {
@@ -502,6 +517,81 @@ function killUnixProcessGroup(pid: number): void {
   }
   try {
     process.kill(pid, "SIGHUP");
+  } catch {
+    // Best-effort cleanup; the process may already be gone.
+  }
+}
+
+function captureOpenDarwinPtmxFds(): ReadonlySet<number> | undefined {
+  if (process.platform !== "darwin") {
+    return undefined;
+  }
+  try {
+    const fds = new Set<number>();
+    for (const entry of readdirSync("/dev/fd")) {
+      const fd = Number(entry);
+      if (Number.isInteger(fd) && isDarwinPtmxFd(fd)) {
+        fds.add(fd);
+      }
+    }
+    return fds;
+  } catch {
+    return undefined;
+  }
+}
+
+function closeNewDarwinPtmxFds(before: ReadonlySet<number> | undefined, pty: IPty | undefined): void {
+  if (process.platform !== "darwin" || !before) {
+    return;
+  }
+  const retainedFd = (pty as PtyWithFd | undefined)?.fd;
+  let currentEntries: readonly string[];
+  try {
+    currentEntries = readdirSync("/dev/fd");
+  } catch {
+    return;
+  }
+  for (const entry of currentEntries) {
+    const fd = Number(entry);
+    if (!Number.isInteger(fd) || before.has(fd) || fd === retainedFd || !isDarwinPtmxFd(fd)) {
+      continue;
+    }
+    try {
+      closeSync(fd);
+    } catch {
+      // Best-effort cleanup for node-pty's macOS low-fd guard leak.
+    }
+  }
+}
+
+function isDarwinPtmxFd(fd: number): boolean {
+  try {
+    const stats = fstatSync(fd);
+    // Darwin PTY master devices use major 15. This catches the extra
+    // posix_openpt fd that node-pty's macOS spawn path leaves open, while the
+    // real PTY master is retained via PtyWithFd.fd.
+    return (stats.mode & 0o170000) === 0o020000 && Math.floor(stats.rdev / 0x1000000) === 15;
+  } catch {
+    return false;
+  }
+}
+
+function destroyPty(pty: IPty | undefined): void {
+  if (!pty) {
+    return;
+  }
+  const destroy = (pty as DestroyablePty).destroy;
+  if (typeof destroy === "function") {
+    try {
+      destroy.call(pty);
+      return;
+    } catch {
+      // Fall back to kill below. PTY cleanup is best-effort because the child
+      // process may already have exited by the time we release the master side.
+    }
+  }
+  try {
+    pty.kill();
   } catch {
     // Best-effort cleanup; the process may already be gone.
   }

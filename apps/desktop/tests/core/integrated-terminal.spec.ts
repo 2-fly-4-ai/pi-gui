@@ -1,4 +1,6 @@
+import { execFile } from "node:child_process";
 import { basename } from "node:path";
+import { promisify } from "node:util";
 import { expect, test } from "@playwright/test";
 import {
   createNamedThread,
@@ -11,6 +13,8 @@ import {
   TINY_PNG_BASE64,
   waitForWorkspaceByPath,
 } from "../helpers/electron-app";
+
+const execFileAsync = promisify(execFile);
 
 test("opens a workspace terminal with persistent output, tabs, and takeover controls", async () => {
   test.setTimeout(90_000);
@@ -114,6 +118,39 @@ test("opens a workspace terminal with persistent output, tabs, and takeover cont
   }
 });
 
+test("releases the backend PTY when a terminal shell exits", async () => {
+  test.skip(process.platform !== "darwin", "PTY fd regression check is macOS-specific.");
+
+  const userDataDir = await makeUserDataDir();
+  const workspacePath = await makeWorkspace("terminal-pty-release");
+  const harness = await launchDesktop(userDataDir, {
+    initialWorkspaces: [workspacePath],
+    testMode: "background",
+  });
+
+  try {
+    const window = await harness.firstWindow();
+    await waitForWorkspaceByPath(window, workspacePath);
+    await createNamedThread(window, "Terminal PTY release thread");
+
+    const electronPid = await harness.electronApp.evaluate(() => process.pid);
+    const baselinePtmxCount = await countOpenPtmxForPid(electronPid);
+
+    await window.getByLabel("Toggle terminal").click();
+    const terminal = window.getByTestId("integrated-terminal");
+    await expect(terminal).toBeVisible();
+    await expect.poll(() => countOpenPtmxForPid(electronPid), { timeout: 15_000 }).toBeGreaterThanOrEqual(baselinePtmxCount + 1);
+
+    await terminal.locator(".xterm").click();
+    await window.keyboard.type("exit");
+    await window.keyboard.press("Enter");
+    await expect(terminal.locator(".terminal-panel__status--exited")).toHaveCount(1, { timeout: 15_000 });
+    await expect.poll(() => countOpenPtmxForPid(electronPid), { timeout: 15_000 }).toBeLessThanOrEqual(baselinePtmxCount);
+  } finally {
+    await harness.close();
+  }
+});
+
 test("persists the integrated terminal shell setting", async () => {
   const userDataDir = await makeUserDataDir();
   const workspacePath = await makeWorkspace("terminal-settings");
@@ -137,6 +174,20 @@ test("persists the integrated terminal shell setting", async () => {
     await harness.close();
   }
 });
+
+async function countOpenPtmxForPid(pid: number): Promise<number> {
+  try {
+    const { stdout } = await execFileAsync("lsof", ["-nP", "-p", String(pid)]);
+    return countPtmxLines(stdout);
+  } catch (error) {
+    const stdout = typeof error === "object" && error && "stdout" in error ? String((error as { readonly stdout?: unknown }).stdout ?? "") : "";
+    return countPtmxLines(stdout);
+  }
+}
+
+function countPtmxLines(output: string): number {
+  return output.split("\n").filter((line) => /\s\/dev\/ptmx$/.test(line)).length;
+}
 
 test("adds selected terminal output to the current composer", async () => {
   test.setTimeout(90_000);
