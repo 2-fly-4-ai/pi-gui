@@ -106,6 +106,45 @@ test("existing thread highlights and accepts dropped images and files", async ()
   }
 });
 
+test("dark mode drag hover stays dark and non-flickery", async () => {
+  test.setTimeout(60_000);
+  const userDataDir = await makeUserDataDir();
+  const workspacePath = await makeWorkspace("composer-drop-dark-hover");
+  const imagePath = join(workspacePath, "dark-hover-image.png");
+  await writeTinyPng(imagePath);
+
+  const harness = await launchDesktop(userDataDir, {
+    initialWorkspaces: [workspacePath],
+    testMode: "background",
+  });
+
+  try {
+    const window = await harness.firstWindow();
+    await createNamedThread(window, "Dark drop hover");
+    await window.evaluate(() => document.documentElement.classList.add("dark"));
+
+    await dragFilesOverComposer(window, [imagePath], "composer-surface");
+    const overlay = window.getByTestId("composer-drop-indicator");
+    await expect(overlay).toBeVisible();
+
+    await expect.poll(async () => overlay.evaluate((element) => {
+      const style = getComputedStyle(element);
+      return {
+        background: style.backgroundColor,
+        pointerEvents: style.pointerEvents,
+      };
+    })).toMatchObject({
+      background: expect.not.stringMatching(/^rgba?\(25[05],\s*25[15],\s*255/i),
+      pointerEvents: "none",
+    });
+
+    const cardBackground = await window.locator(".composer__drop-card").evaluate((element) => getComputedStyle(element).backgroundColor);
+    expect(cardBackground).not.toMatch(/^rgb\(255,\s*255,\s*255\)$/i);
+  } finally {
+    await harness.close();
+  }
+});
+
 test("dropping files on the text input renders image and file previews", async () => {
   test.setTimeout(60_000);
   const userDataDir = await makeUserDataDir();

@@ -122,15 +122,16 @@ export const ComposerSurface = memo(function ComposerSurface({
     setIsDragActive(true);
   }, []);
 
-  const handleDragLeave = useCallback((_event: DragEvent<HTMLDivElement>) => {
-    if (!isDragActive) {
+  const handleDragLeave = useCallback((event: DragEvent<HTMLDivElement>) => {
+    const relatedTarget = event.relatedTarget;
+    if (relatedTarget instanceof Node && event.currentTarget.contains(relatedTarget)) {
       return;
     }
     dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
     if (dragDepthRef.current === 0) {
       setIsDragActive(false);
     }
-  }, [isDragActive]);
+  }, []);
 
   const handleDragOver = useCallback((event: DragEvent<HTMLDivElement>) => {
     if (!hasFilesInDataTransfer(event.dataTransfer)) {
@@ -160,6 +161,7 @@ export const ComposerSurface = memo(function ComposerSurface({
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
       onDragOver={handleDragOver}
+      onDragEnd={clearDragState}
     >
       {isDragActive ? (
         <div className="composer__drop-overlay" data-testid="composer-drop-indicator">

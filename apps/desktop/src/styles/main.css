@@ -2136,7 +2136,8 @@
   display: grid;
   place-items: center;
   border-radius: inherit;
-  background: rgba(250, 251, 255, 0.82);
+  pointer-events: none;
+  background: color-mix(in srgb, var(--surface) 82%, transparent);
   backdrop-filter: blur(6px);
 }
 
@@ -2148,7 +2149,7 @@
   padding: 22px 20px;
   border: 1px solid rgba(107, 125, 216, 0.28);
   border-radius: 18px;
-  background: #fff;
+  background: color-mix(in srgb, var(--surface) 96%, white 4%);
   color: var(--muted-strong);
   text-align: center;
   box-shadow: 0 18px 48px rgba(42, 57, 115, 0.14);
@@ -3045,14 +3046,17 @@
 
 .composer-attachment--image {
   min-height: 76px;
-  align-items: flex-end;
+  align-items: center;
 }
 
 .composer-attachment__preview {
-  width: 58px;
-  height: 58px;
+  flex: none;
+  width: 72px;
+  height: 52px;
+  border: 1px solid rgba(122, 134, 158, 0.28);
   border-radius: 10px;
-  object-fit: cover;
+  object-fit: contain;
+  background: #e8ecf5;
 }
 
 .composer-attachment__icon {
@@ -5518,7 +5522,17 @@ mark.thread-find-active {
   box-shadow: 0 0 0 3px rgba(143, 160, 255, 0.18), 0 12px 28px rgba(0, 0, 0, 0.36);
 }
 
-:root.dark .composer__drop-indicator {
+:root.dark .composer__drop-overlay {
+  background: rgba(24, 26, 31, 0.78);
+}
+
+:root.dark .composer__drop-card {
+  border-color: rgba(143, 160, 255, 0.32);
+  background: rgba(35, 38, 47, 0.94);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.34);
+}
+
+:root.dark .composer__drop-icon {
   background: rgba(143, 160, 255, 0.16);
   color: #c6d0ff;
 }
