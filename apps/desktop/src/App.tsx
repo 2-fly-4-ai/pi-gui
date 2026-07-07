@@ -3392,6 +3392,9 @@ export default function App() {
           onToggleDrawer={snapshot.activeView === "display-mode" ? toggleDmDrawer : undefined}
           vsCodeOpen={snapshot.activeView === "threads" || snapshot.activeView === "display-mode" ? vsCodeOpen : undefined}
           onToggleVsCode={snapshot.activeView === "threads" ? toggleSelectedWorkspaceVsCode : snapshot.activeView === "display-mode" ? toggleVsCode : undefined}
+          extensionDock={snapshot.activeView === "threads" ? selectedExtensionDock : undefined}
+          extensionDockExpanded={isSelectedExtensionDockExpanded}
+          onToggleExtensionDock={snapshot.activeView === "threads" ? handleToggleExtensionDock : undefined}
           onGitCommit={snapshot.activeView === "threads" ? () => openGitDialog("commit") : undefined}
           onGitPush={snapshot.activeView === "threads" ? () => openGitDialog("push") : undefined}
           onGitCreatePr={snapshot.activeView === "threads" ? () => openGitDialog("pr") : undefined}
@@ -3585,9 +3588,6 @@ export default function App() {
               mentionOptions={mentionMenu.mentionOptions}
               selectedMentionIndex={mentionMenu.selectedIndex}
               onSelectMention={mentionMenu.insertMention}
-              extensionDock={selectedExtensionDock}
-              extensionDockExpanded={isSelectedExtensionDockExpanded}
-              onToggleExtensionDock={handleToggleExtensionDock}
               checkoutSelector={createCheckoutSelector(selectedWorkspace)}
             />
             {activeExtensionDialog ? (

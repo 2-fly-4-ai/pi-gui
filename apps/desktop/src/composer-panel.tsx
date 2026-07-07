@@ -12,7 +12,6 @@ import { ComposerSurface } from "./composer-surface";
 import { ModelOnboardingNoticeBanner } from "./model-onboarding-notice";
 import type { ModelOnboardingState, ModelOnboardingSettingsSection } from "./model-onboarding";
 import { ModelSelector } from "./model-selector";
-import type { ExtensionDockModel } from "./extension-session-ui";
 import { ComposerControlBar } from "./composer-control-bar";
 import { ReasoningSelector } from "./reasoning-selector";
 import { ToolAccessSelector } from "./tool-access-selector";
@@ -74,9 +73,6 @@ interface ComposerPanelProps {
   readonly mentionOptions: readonly string[];
   readonly selectedMentionIndex: number;
   readonly onSelectMention: (filePath: string) => void;
-  readonly extensionDock?: ExtensionDockModel;
-  readonly extensionDockExpanded: boolean;
-  readonly onToggleExtensionDock: () => void;
   readonly checkoutSelector?: ReactNode;
 }
 
@@ -134,9 +130,6 @@ export const ComposerPanel = memo(function ComposerPanel({
   mentionOptions,
   selectedMentionIndex,
   onSelectMention,
-  extensionDock,
-  extensionDockExpanded,
-  onToggleExtensionDock,
   checkoutSelector,
 }: ComposerPanelProps) {
   const hasComposerInput = composerDraft.trim().length > 0 || attachments.length > 0;
@@ -146,6 +139,12 @@ export const ComposerPanel = memo(function ComposerPanel({
   return (
     <footer className="composer">
       <div className="conversation conversation--composer">
+        <div className="composer-status-strip" aria-label="Composer status">
+          {checkoutSelector}
+          <span className="composer-runtime-status" data-testid="composer-runtime-status">
+            {runtimeStatusText}
+          </span>
+        </div>
         <ComposerSurface
           lastError={lastError}
           activeSlashCommand={activeSlashCommand}
@@ -184,14 +183,8 @@ export const ComposerPanel = memo(function ComposerPanel({
           textareaLabel="Composer"
           textareaTestId="composer"
           textareaPlaceholder="Ask pi to inspect the repo, run a fix, or continue the current thread..."
-          extensionDock={extensionDock}
-          extensionDockExpanded={extensionDockExpanded}
-          onToggleExtensionDock={onToggleExtensionDock}
           footer={(
             <div className="composer__footer">
-              <span className="composer-runtime-status" data-testid="composer-runtime-status">
-                {runtimeStatusText}
-              </span>
               <ComposerControlBar
                 modelControl={(
                   <ModelSelector
@@ -248,7 +241,6 @@ export const ComposerPanel = memo(function ComposerPanel({
             </div>
           )}
         />
-        {checkoutSelector}
       </div>
     </footer>
   );

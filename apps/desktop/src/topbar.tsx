@@ -6,6 +6,7 @@ import { getDesktopShortcutLabel, type PiDesktopApi } from "./ipc";
 import { GitQuickActions } from "./git-quick-actions";
 import type { WorkspaceMenuState } from "./hooks/use-workspace-menu";
 import { runtimeStatusLabel } from "./runtime-status";
+import { ExtensionDock, type ExtensionDockModel } from "./extension-session-ui";
 
 interface TopbarProps {
   readonly activeView: AppView;
@@ -45,6 +46,9 @@ interface TopbarProps {
   readonly onToggleDrawer?: () => void;
   readonly vsCodeOpen?: boolean;
   readonly onToggleVsCode?: () => void;
+  readonly extensionDock?: ExtensionDockModel;
+  readonly extensionDockExpanded?: boolean;
+  readonly onToggleExtensionDock?: () => void;
   readonly onGitCommit?: () => void;
   readonly onGitPush?: () => void;
   readonly onGitCreatePr?: () => void;
@@ -85,6 +89,9 @@ export function Topbar(props: TopbarProps) {
     onToggleDrawer,
     vsCodeOpen,
     onToggleVsCode,
+    extensionDock,
+    extensionDockExpanded = false,
+    onToggleExtensionDock,
     onGitCommit,
     onGitPush,
     onGitCreatePr,
@@ -172,6 +179,11 @@ export function Topbar(props: TopbarProps) {
                 <span className="topbar__running-dot" aria-hidden="true" />
                 <span>{selectedSessionRunningLabel}</span>
               </span>
+            ) : null}
+            {extensionDock && onToggleExtensionDock ? (
+              <div className="topbar__extension-dock">
+                <ExtensionDock dock={extensionDock} expanded={extensionDockExpanded} onToggle={onToggleExtensionDock} />
+              </div>
             ) : null}
           </>
         ) : activeView === "new-thread" && rootWorkspace ? (

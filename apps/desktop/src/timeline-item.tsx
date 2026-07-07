@@ -498,6 +498,7 @@ function TimelineRuntimeJobItem({ item }: { readonly item: Extract<TranscriptMes
   const process = job.process;
   const isActive = isRuntimeJobActive(job);
   const canStop = canStopRuntimeJob(job);
+  const [expanded, setExpanded] = useState(true);
   const [pendingAction, setPendingAction] = useState<"refresh" | "stop" | null>(null);
   const children = job.children ?? [];
   const backgroundJobSummary = job.status === "background"
@@ -531,98 +532,111 @@ function TimelineRuntimeJobItem({ item }: { readonly item: Extract<TranscriptMes
 
   return (
     <article
-      className={`runtime-job-card runtime-job-card--${job.status}`}
+      className={`runtime-job-card runtime-job-card--${job.status}${expanded ? "" : " runtime-job-card--collapsed"}`}
       data-testid="runtime-job-card"
     >
-      <header className="runtime-job-card__header">
+      <button
+        type="button"
+        className="runtime-job-card__header"
+        aria-expanded={expanded}
+        data-testid="runtime-job-toggle"
+        onClick={() => setExpanded((value) => !value)}
+      >
+        <span className={`timeline-tool__chevron ${expanded ? "timeline-tool__chevron--expanded" : ""}`}>
+          <ChevronRightIcon />
+        </span>
         {isActive ? <span className="timeline-tool__spinner" aria-hidden="true" /> : null}
         <div className="runtime-job-card__title-block">
           <div className="runtime-job-card__eyebrow">Runtime</div>
           <h3 className="runtime-job-card__title">{job.title}</h3>
-          {backgroundJobSummary ? <div className="runtime-job-card__subtitle">{backgroundJobSummary}</div> : null}
+          {expanded && backgroundJobSummary ? <div className="runtime-job-card__subtitle">{backgroundJobSummary}</div> : null}
         </div>
         <span className="runtime-job-card__status">
-          {job.status} · {job.confidence}
+          {job.status} · {job.confidence} · {renderRuntimeJobElapsed(job.startedAt, isActive, job.endedAt ?? job.updatedAt)}
         </span>
-      </header>
-      {job.command ? <pre className="runtime-job-card__command">$ {job.command}</pre> : null}
-      <dl className="runtime-job-card__meta">
-        {job.cwd ? (
-          <>
-            <dt>cwd</dt>
-            <dd title={job.cwd}>{job.cwd}</dd>
-          </>
-        ) : null}
-        {process?.pid ? (
-          <>
-            <dt>pid</dt>
-            <dd>{process.pid}</dd>
-          </>
-        ) : null}
-        {process?.processGroupId ? (
-          <>
-            <dt>pgid</dt>
-            <dd>{process.processGroupId}</dd>
-          </>
-        ) : null}
+      </button>
+      {expanded ? (
         <>
-          <dt>elapsed</dt>
-          <dd>{renderRuntimeJobElapsed(job.startedAt, isActive, job.endedAt ?? job.updatedAt)}</dd>
+          {job.command ? <pre className="runtime-job-card__command">$ {job.command}</pre> : null}
+          <dl className="runtime-job-card__meta">
+            {job.cwd ? (
+              <>
+                <dt>cwd</dt>
+                <dd title={job.cwd}>{job.cwd}</dd>
+              </>
+            ) : null}
+            {process?.pid ? (
+              <>
+                <dt>pid</dt>
+                <dd>{process.pid}</dd>
+              </>
+            ) : null}
+            {process?.processGroupId ? (
+              <>
+                <dt>pgid</dt>
+                <dd>{process.processGroupId}</dd>
+              </>
+            ) : null}
+            <>
+              <dt>elapsed</dt>
+              <dd>{renderRuntimeJobElapsed(job.startedAt, isActive, job.endedAt ?? job.updatedAt)}</dd>
+            </>
+          </dl>
+          {children.length > 0 ? (
+            <ul className="runtime-job-card__children" aria-label="Runtime child processes">
+              {children.map((child) => (
+                <li key={child.pid}>
+                  <span className="runtime-job-card__child-pill">pid {child.pid}</span>
+                  <span className="runtime-job-card__child-pill">{child.status}</span>
+                  <span className="runtime-job-card__child-pill">{child.confidence}</span>
+                  {child.command ? <code>{shortenCommand(child.command)}</code> : null}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+          {job.logPaths?.length ? (
+            <div className="runtime-job-card__paths">
+              <span className="runtime-job-card__paths-label">Logs</span>
+              <ul>
+                {job.logPaths.map((path) => (
+                  <li key={path} title={path}>{path}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+          <div className="runtime-job-card__actions">
+            <button
+              type="button"
+              className="secondary-button"
+              data-testid="runtime-job-refresh-button"
+              disabled={pendingAction !== null}
+              onClick={handleRefresh}
+            >
+              Refresh status
+            </button>
+            {canStop ? (
+              <button
+                type="button"
+                className="secondary-button"
+                data-testid="runtime-job-stop-button"
+                disabled={pendingAction !== null}
+                onClick={handleStop}
+              >
+                Stop
+              </button>
+            ) : null}
+            {copyText ? (
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={() => void navigator.clipboard?.writeText?.(copyText).catch(() => {})}
+              >
+                Copy details
+              </button>
+            ) : null}
+          </div>
         </>
-      </dl>
-      {children.length > 0 ? (
-        <ul className="runtime-job-card__children" aria-label="Runtime child processes">
-          {children.map((child) => (
-            <li key={child.pid}>
-              <span className="runtime-job-card__child-pill">pid {child.pid}</span>
-              <span className="runtime-job-card__child-pill">{child.status}</span>
-              <span className="runtime-job-card__child-pill">{child.confidence}</span>
-              {child.command ? <code>{shortenCommand(child.command)}</code> : null}
-            </li>
-          ))}
-        </ul>
       ) : null}
-      {job.logPaths?.length ? (
-        <div className="runtime-job-card__paths">
-          <span className="runtime-job-card__paths-label">Logs</span>
-          <ul>
-            {job.logPaths.map((path) => (
-              <li key={path} title={path}>{path}</li>
-            ))}
-          </ul>
-        </div>
-      ) : null}
-      <div className="runtime-job-card__actions">
-        <button
-          type="button"
-          className="secondary-button"
-          data-testid="runtime-job-refresh-button"
-          disabled={pendingAction !== null}
-          onClick={handleRefresh}
-        >
-          Refresh status
-        </button>
-        {canStop ? (
-          <button
-            type="button"
-            className="secondary-button"
-            data-testid="runtime-job-stop-button"
-            disabled={pendingAction !== null}
-            onClick={handleStop}
-          >
-            Stop
-          </button>
-        ) : null}
-        {copyText ? (
-          <button
-            type="button"
-            className="secondary-button"
-            onClick={() => void navigator.clipboard?.writeText?.(copyText).catch(() => {})}
-          >
-            Copy details
-          </button>
-        ) : null}
-      </div>
     </article>
   );
 }

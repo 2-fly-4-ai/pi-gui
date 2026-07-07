@@ -7,7 +7,6 @@ import type {
   ComposerSlashOptionEmptyState,
 } from "./composer-commands";
 import { hasFilesInDataTransfer } from "./composer-attachments";
-import { ExtensionDock, type ExtensionDockModel } from "./extension-session-ui";
 import { FileIcon, ModelIcon, ReasoningIcon, SettingsIcon, SkillIcon, SparkIcon, StatusIcon } from "./icons";
 import { QueuedComposerMessages } from "./queued-composer-messages";
 
@@ -49,9 +48,6 @@ interface ComposerSurfaceProps {
   readonly textareaPlaceholder: string;
   readonly textareaClassName?: string;
   readonly compactSlashDescriptions?: boolean;
-  readonly extensionDock?: ExtensionDockModel;
-  readonly extensionDockExpanded?: boolean;
-  readonly onToggleExtensionDock?: () => void;
   readonly footer: ReactNode;
 }
 
@@ -93,9 +89,6 @@ export const ComposerSurface = memo(function ComposerSurface({
   textareaPlaceholder,
   textareaClassName,
   compactSlashDescriptions = false,
-  extensionDock,
-  extensionDockExpanded = false,
-  onToggleExtensionDock,
   footer,
 }: ComposerSurfaceProps) {
   const exposeRenderCount =
@@ -230,9 +223,6 @@ export const ComposerSurface = memo(function ComposerSurface({
             </div>
           ))}
         </div>
-      ) : null}
-      {extensionDock && onToggleExtensionDock ? (
-        <ExtensionDock dock={extensionDock} expanded={extensionDockExpanded} onToggle={onToggleExtensionDock} />
       ) : null}
       {lastError ? (
         <div className="composer__error error-banner" data-testid="composer-error-banner">

@@ -180,6 +180,11 @@ export function NewThreadView({
 
         <div className="new-thread__composer composer">
           <div className="conversation conversation--composer">
+            {checkoutSelector ? (
+              <div className="composer-status-strip" aria-label="Composer status">
+                {checkoutSelector}
+              </div>
+            ) : null}
             <ComposerSurface
               lastError={lastError}
               activeSlashCommand={activeSlashCommand}
@@ -244,7 +249,6 @@ export function NewThreadView({
                 />
               )}
             />
-            {checkoutSelector}
           </div>
         </div>
       </div>

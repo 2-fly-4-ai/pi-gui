@@ -256,6 +256,60 @@
   white-space: nowrap;
 }
 
+.topbar__extension-dock,
+.topbar__extension-dock * {
+  -webkit-app-region: no-drag;
+}
+
+.topbar__extension-dock {
+  position: relative;
+  flex: 0 1 280px;
+  min-width: 0;
+  max-width: min(280px, 32vw);
+}
+
+.topbar__extension-dock .extension-dock {
+  margin: 0;
+  min-width: 0;
+}
+
+.topbar__extension-dock .extension-dock--expanded {
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
+.topbar__extension-dock .extension-dock__toggle {
+  min-height: 24px;
+  width: 100%;
+  padding: 0 8px 0 9px;
+  border-radius: 999px;
+}
+
+.topbar__extension-dock .extension-dock__summary {
+  font-size: 12px;
+}
+
+.topbar__extension-dock .extension-dock__chevron,
+.topbar__extension-dock .extension-dock__chevron svg {
+  width: 13px;
+  height: 13px;
+}
+
+.topbar__extension-dock .extension-dock__body {
+  position: absolute;
+  left: 0;
+  top: calc(100% + 8px);
+  z-index: 35;
+  width: min(420px, calc(100vw - 32px));
+  max-height: min(320px, 44vh);
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid #d9e0ec;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 18px 50px rgba(22, 29, 41, 0.16);
+}
+
 .topbar__actions,
 .empty-panel__actions {
   display: flex;
@@ -1354,9 +1408,37 @@
 
 .runtime-job-card__header {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 10px;
   min-width: 0;
+  width: 100%;
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.runtime-job-card--collapsed {
+  gap: 0;
+  padding: 8px 14px;
+}
+
+.runtime-job-card--collapsed .runtime-job-card__title-block {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.runtime-job-card--collapsed .runtime-job-card__title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.runtime-job-card__header .timeline-tool__chevron {
+  flex: none;
 }
 
 .runtime-job-card__title-block {
@@ -2252,9 +2334,24 @@
 }
 
 .composer__footer {
-  display: grid;
-  gap: 10px;
+  display: block;
   width: 100%;
+}
+
+.composer-status-strip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  width: 100%;
+  max-width: 100%;
+  margin: 0 2px -4px;
+  position: relative;
+  z-index: 3;
+}
+
+.composer-status-strip:empty {
+  display: none;
 }
 
 .composer__footer-meta {
@@ -2265,6 +2362,9 @@
 .composer-runtime-status {
   display: inline-flex;
   align-items: center;
+  justify-self: start;
+  width: fit-content;
+  max-width: 100%;
   min-height: 24px;
   padding: 0 9px;
   border: 1px solid var(--line);
@@ -2442,6 +2542,12 @@
   margin-top: -6px;
 }
 
+.composer-status-strip .checkout-selector {
+  width: auto;
+  max-width: min(100%, 360px);
+  margin-top: 0;
+}
+
 .checkout-selector__bar {
   display: flex;
   align-items: center;
@@ -2455,6 +2561,10 @@
 
 .checkout-selector__label {
   min-width: 0;
+}
+
+.composer-status-strip .checkout-selector__label {
+  display: none;
 }
 
 .checkout-selector__button {
@@ -2472,6 +2582,25 @@
   font-size: 12px;
   line-height: 1;
   cursor: pointer;
+}
+
+.composer-status-strip .checkout-selector__bar {
+  justify-content: flex-start;
+  min-height: 24px;
+  padding: 0;
+}
+
+.composer-status-strip .checkout-selector__button {
+  max-width: 100%;
+  border-radius: 999px;
+  padding: 0 9px 0 10px;
+}
+
+.composer-status-strip .checkout-selector__button > span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .checkout-selector__branch-icon {
@@ -2503,6 +2632,13 @@
   border-radius: 12px;
   background: #fff;
   box-shadow: 0 18px 50px rgba(22, 29, 41, 0.16);
+}
+
+.composer-status-strip .checkout-selector__popover {
+  left: 0;
+  right: auto;
+  bottom: calc(100% + 8px);
+  width: min(320px, calc(100vw - 32px));
 }
 
 .checkout-selector__search {
@@ -5847,6 +5983,11 @@ mark.thread-find-active {
 :root.dark .extension-dock--expanded,
 :root.dark .extension-dialog,
 :root.dark .action-dialog {
+  border-color: var(--line);
+  background: var(--surface);
+}
+
+:root.dark .topbar__extension-dock .extension-dock__body {
   border-color: var(--line);
   background: var(--surface);
 }
