@@ -205,7 +205,7 @@ async function requestNotificationPermissionInternal(
     }
   }
 
-  if (!window || window.isDestroyed() || window.webContents.isDestroyed()) {
+  if (!canExecuteRendererScript(window)) {
     if (override) {
       testPermissionStatus = override;
       return override;
@@ -280,7 +280,7 @@ async function openSystemNotificationSettingsInternal(): Promise<void> {
 async function readRendererNotificationPermission(
   window: BrowserWindow | null,
 ): Promise<DesktopNotificationPermissionStatus> {
-  if (!window || window.isDestroyed() || window.webContents.isDestroyed()) {
+  if (!canExecuteRendererScript(window)) {
     return "unknown";
   }
 
@@ -293,6 +293,13 @@ async function readRendererNotificationPermission(
   } catch {
     return "unknown";
   }
+}
+
+function canExecuteRendererScript(window: BrowserWindow | null): window is BrowserWindow {
+  if (!window || window.isDestroyed() || window.webContents.isDestroyed() || window.webContents.isCrashed()) {
+    return false;
+  }
+  return !window.webContents.isLoadingMainFrame();
 }
 
 async function readPackagedMacOsNotificationPermissionStatus(): Promise<DesktopNotificationPermissionStatus | undefined> {
