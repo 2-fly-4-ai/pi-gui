@@ -1121,13 +1121,13 @@ void app.whenReady().then(async () => {
   });
   handleMainFrameIpc(
     desktopIpc.submitComposer,
-    async (_event, text: string, options?: { readonly deliverAs?: "steer" | "followUp" }) => {
+    async (_event, text: string, options?: { readonly deliverAs?: "steer" | "followUp"; readonly messageMetadata?: unknown }) => {
       await store.submitComposer(text, options);
     },
   );
   handleMainFrameIpc(
     desktopIpc.submitComposerToSession,
-    async (_event, target: WorkspaceSessionTarget, text: string, options?: { readonly deliverAs?: "steer" | "followUp" }) => {
+    async (_event, target: WorkspaceSessionTarget, text: string, options?: { readonly deliverAs?: "steer" | "followUp"; readonly messageMetadata?: unknown }) => {
       await store.submitComposerToSession(target, text, options);
     },
   );

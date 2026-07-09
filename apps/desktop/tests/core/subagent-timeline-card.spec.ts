@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { join } from "node:path";
-import { parseSubagentWorkflowMarker } from "../../src/subagent-timeline-card";
+import { parseSubagentWorkflowMarker, subagentWorkflowCardFromMessage } from "../../src/subagent-timeline-card";
 import { createNamedThread, launchDesktop, makeUserDataDir, makeWorkspace, seedAgentDir, streamAssistantDeltas } from "../helpers/electron-app";
 
 test("subagent workflow marker parser stops metadata before body text", () => {
@@ -17,6 +17,30 @@ test("subagent workflow marker parser stops metadata before body text", () => {
 
   expect(parsed?.workflowRunId).toBe("workflow-run-123");
   expect(parsed?.artifacts).toEqual(["review-correctness.md", "review-tests.md"]);
+});
+
+test("subagent workflow card reads structured metadata before marker text", () => {
+  const parsed = subagentWorkflowCardFromMessage({
+    kind: "message",
+    id: "metadata-message",
+    role: "user",
+    text: "ordinary user prompt without a marker",
+    createdAt: new Date().toISOString(),
+    metadata: {
+      kind: "subagent-workflow",
+      workflowRunId: "metadata-workflow-run",
+      workflow: "Metadata workflow",
+      roles: ["scout", "planner"],
+      artifacts: ["context.md", "plan.md"],
+    },
+  });
+
+  expect(parsed).toEqual({
+    workflowRunId: "metadata-workflow-run",
+    workflow: "Metadata workflow",
+    roles: ["scout", "planner"],
+    artifacts: ["context.md", "plan.md"],
+  });
 });
 
 test("timeline renders subagent workflow marker as a compact card", async () => {

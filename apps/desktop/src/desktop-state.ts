@@ -64,6 +64,7 @@ export interface QueuedComposerMessage {
   readonly mode: QueuedComposerMessageMode;
   readonly text: string;
   readonly attachments: readonly ComposerAttachment[];
+  readonly metadata?: unknown;
   readonly createdAt: string;
   readonly updatedAt: string;
 }

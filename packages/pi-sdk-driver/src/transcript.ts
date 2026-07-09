@@ -22,6 +22,7 @@ export interface SessionTranscriptMessage {
   readonly role: SessionTranscriptRole;
   readonly text: string;
   readonly attachments?: readonly SessionTranscriptAttachment[];
+  readonly metadata?: unknown;
   readonly createdAt: string;
   readonly id: string;
 }

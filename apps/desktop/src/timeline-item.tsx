@@ -8,7 +8,7 @@ import { useSelectedShinobi } from "./shinobi-roster";
 import { BUILTIN_AGENT_CONFIGS, canonicalRoleForAgentName } from "./agent-definitions";
 import { resolveSubagentShinobiFromMap, useSubagentShinobiMap } from "./subagent-shinobi-roster";
 import { resolveSubagentRoleColor, useSubagentRoleColorMap } from "./subagent-role-colors";
-import { parseSubagentWorkflowMarker } from "./subagent-timeline-card";
+import { subagentWorkflowCardFromMessage } from "./subagent-timeline-card";
 import { useSelectedShuriken } from "./shuriken-roster";
 import { canStopRuntimeJob, isRuntimeJobActive } from "./runtime-jobs";
 import { logIgnoredError } from "./renderer-diagnostics";
@@ -105,7 +105,7 @@ function TimelineMessage({ item, onOpenUrl }: { readonly item: SessionTranscript
     return <TimelineCompactionSummary item={{ ...item, role: "compactionSummary", text: wrappedCompactionSummary }} onOpenUrl={onOpenUrl} />;
   }
 
-  const subagentCard = item.role === "user" ? parseSubagentWorkflowMarker(item.text) : undefined;
+  const subagentCard = item.role === "user" ? subagentWorkflowCardFromMessage(item) : undefined;
   if (subagentCard) {
     return (
       <article className="subagent-timeline-card" data-testid="subagent-timeline-card" data-workflow-run-id={subagentCard.workflowRunId}>

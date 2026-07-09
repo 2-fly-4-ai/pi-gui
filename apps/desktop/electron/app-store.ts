@@ -712,7 +712,7 @@ export class DesktopAppStore implements AppStoreInternals {
 
   async submitComposer(
     textInput: string,
-    options?: { readonly deliverAs?: "steer" | "followUp" },
+    options?: { readonly deliverAs?: "steer" | "followUp"; readonly messageMetadata?: unknown },
   ): Promise<DesktopAppState> {
     return composer.submitComposer(this, textInput, options);
   }
@@ -720,7 +720,7 @@ export class DesktopAppStore implements AppStoreInternals {
   async submitComposerToSession(
     target: WorkspaceSessionTarget,
     textInput: string,
-    options?: { readonly deliverAs?: "steer" | "followUp" },
+    options?: { readonly deliverAs?: "steer" | "followUp"; readonly messageMetadata?: unknown },
   ): Promise<DesktopAppState> {
     return composer.submitComposerToSession(this, target, textInput, options);
   }

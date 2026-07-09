@@ -254,6 +254,7 @@ export async function submitComposer(
   textInput: string,
   options: {
     readonly deliverAs?: "steer" | "followUp";
+    readonly messageMetadata?: unknown;
   } = {},
 ): Promise<DesktopAppState> {
   await store.initialize();
@@ -319,6 +320,7 @@ export async function submitComposer(
         text,
         attachments,
         mode: deliverAs,
+        metadata: options.messageMetadata,
       });
       const nextQueuedMessages = editingState
         ? replaceQueuedComposerMessage(
@@ -343,17 +345,19 @@ export async function submitComposer(
       });
     }
 
-    await sendMessageToSession(store, sessionRef, text, attachments);
+    await sendMessageToSession(store, sessionRef, text, attachments, { messageMetadata: options.messageMetadata });
     const runtimeCommandOutcome = resolvedRuntimeSlashCommand
       ? store.finishRuntimeCommandExecution(sessionRef)
       : undefined;
     if (runtimeSlashCommand) {
       await store.refreshSessionCommandsFor(sessionRef);
     }
-    return store.refreshState({
+    const nextState = await store.refreshState({
       clearLastError: !runtimeCommandOutcome?.blockedMessage,
       markSelectedSessionViewed: false,
     });
+    applyMessageMetadataToLatestUserMessage(store, sessionRef, text, options.messageMetadata);
+    return nextState;
   } catch (error) {
     if (text.startsWith("/")) {
       void appendAgentActivity({
@@ -440,7 +444,7 @@ export async function submitComposerToSession(
   store: AppStoreInternals,
   target: WorkspaceSessionTarget,
   textInput: string,
-  options: { readonly deliverAs?: "steer" | "followUp" } = {},
+  options: { readonly deliverAs?: "steer" | "followUp"; readonly messageMetadata?: unknown } = {},
 ): Promise<DesktopAppState> {
   await store.initialize();
   const text = textInput.trim();
@@ -475,6 +479,7 @@ export async function submitComposerToSession(
         text,
         attachments: [],
         mode: deliverAs,
+        metadata: options.messageMetadata,
       });
       const nextQueuedMessages = [
         ...store.getQueuedComposerMessages(sessionRef),
@@ -488,11 +493,13 @@ export async function submitComposerToSession(
       });
     }
 
-    await sendMessageToSession(store, sessionRef, text, []);
-    return store.refreshState({
+    await sendMessageToSession(store, sessionRef, text, [], { messageMetadata: options.messageMetadata });
+    const nextState = await store.refreshState({
       clearLastError: true,
       markSelectedSessionViewed: false,
     });
+    applyMessageMetadataToLatestUserMessage(store, sessionRef, text, options.messageMetadata);
+    return nextState;
   } catch (error) {
     store.sessionState.sessionErrorsBySession.set(key, error instanceof Error ? error.message : String(error));
     return store.withError(error);
@@ -539,6 +546,7 @@ export async function sendMessageToSession(
   attachments: readonly ComposerAttachment[],
   options: {
     readonly rollbackOptimisticMessageOnError?: boolean;
+    readonly messageMetadata?: unknown;
   } = {},
 ): Promise<void> {
   const key = sessionKey(sessionRef);
@@ -554,6 +562,7 @@ export async function sendMessageToSession(
     sessionRef,
     text,
     toTranscriptAttachments(attachments),
+    options.messageMetadata,
   );
   markSessionOptimisticallyRunning(store, sessionRef);
   store.publishSelectedTranscriptFor(sessionRef);
@@ -569,6 +578,7 @@ export async function sendMessageToSession(
     await store.driver.sendUserMessage(sessionRef, {
       text,
       attachments: toSessionAttachments(attachments),
+      ...(options.messageMetadata !== undefined ? { metadata: options.messageMetadata } : {}),
     });
   } catch (error) {
     if (rollbackOptimisticMessageOnError) {
@@ -640,6 +650,7 @@ function buildQueuedComposerMessage(options: {
   readonly text: string;
   readonly attachments: readonly ComposerAttachment[];
   readonly mode: "steer" | "followUp";
+  readonly metadata?: unknown;
   readonly existing?: QueuedComposerMessage;
 }): QueuedComposerMessage {
   const timestamp = new Date().toISOString();
@@ -648,9 +659,40 @@ function buildQueuedComposerMessage(options: {
     text: options.text,
     mode: options.mode,
     attachments: cloneComposerAttachments(options.attachments),
+    ...(options.metadata !== undefined ? { metadata: options.metadata } : {}),
     createdAt: options.existing?.createdAt ?? timestamp,
     updatedAt: timestamp,
   };
+}
+
+function applyMessageMetadataToLatestUserMessage(
+  store: AppStoreInternals,
+  sessionRef: SessionRef,
+  text: string,
+  metadata: unknown,
+): void {
+  if (metadata === undefined) {
+    return;
+  }
+  const key = sessionKey(sessionRef);
+  const transcript = store.sessionState.transcriptCache.get(key);
+  if (!transcript) {
+    return;
+  }
+  for (let index = transcript.length - 1; index >= 0; index -= 1) {
+    const item = transcript[index];
+    if (item?.kind !== "message" || item.role !== "user" || item.text !== text) {
+      continue;
+    }
+    if (item.metadata !== undefined) {
+      return;
+    }
+    transcript[index] = { ...item, metadata };
+    store.sessionState.transcriptCache.set(key, transcript);
+    store.publishSelectedTranscriptFor(sessionRef);
+    store.persistTranscriptCacheForSession(sessionRef);
+    return;
+  }
 }
 
 function replaceQueuedComposerMessage(

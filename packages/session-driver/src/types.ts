@@ -74,6 +74,7 @@ export interface SessionQueuedMessage {
   readonly mode: SessionMessageDeliveryMode;
   readonly text: string;
   readonly attachments?: readonly SessionAttachment[];
+  readonly metadata?: unknown;
   readonly createdAt: Timestamp;
   readonly updatedAt: Timestamp;
 }
@@ -165,6 +166,7 @@ export interface SessionModelSelection {
 export interface SessionMessageInput {
   readonly text: string;
   readonly attachments?: readonly SessionAttachment[];
+  readonly metadata?: unknown;
   readonly deliverAs?: SessionMessageDeliveryMode;
 }
 

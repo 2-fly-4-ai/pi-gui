@@ -507,7 +507,7 @@ test("settings subagents submits a built-in workflow and persists the run record
     await expect(run).toContainText("scout → planner");
     await expect(run.getByRole("button", { name: "Open transcript" })).toBeVisible();
 
-    const workflowCorrelation = await window.evaluate(async () => {
+    const readWorkflowCorrelation = () => window.evaluate(async () => {
       const state = await window.piApp?.getState();
       if (!state?.selectedWorkspaceId) {
         return undefined;
@@ -518,14 +518,28 @@ test("settings subagents submits a built-in workflow and persists the run record
       const markerText = transcript?.transcript.find((item) =>
         item.role === "user" && item.text.includes("SUBAGENT_WORKFLOW_RUN")
       )?.text;
+      const markerMetadata = transcript?.transcript.find((item) =>
+        item.role === "user" && item.text.includes("SUBAGENT_WORKFLOW_RUN")
+      )?.metadata;
       return {
         runId: latestRun?.id,
         workflowRunId: latestRun?.workflowRunId,
         markerHasRunId: latestRun?.id ? markerText?.includes(`workflow_run_id: ${latestRun.id}`) ?? false : false,
+        markerMetadata,
       };
     });
+    await expect.poll(async () => (await readWorkflowCorrelation())?.markerMetadata).toMatchObject({
+      kind: "subagent-workflow",
+    });
+    const workflowCorrelation = await readWorkflowCorrelation();
     expect(workflowCorrelation?.workflowRunId).toBe(workflowCorrelation?.runId);
     expect(workflowCorrelation?.markerHasRunId).toBe(true);
+    expect(workflowCorrelation?.markerMetadata).toMatchObject({
+      kind: "subagent-workflow",
+      workflow: "Scout then plan",
+      roles: ["scout", "planner"],
+      artifacts: ["context.md", "plan.md"],
+    });
     workflowRunId = workflowCorrelation?.runId ?? "";
 
     const state = await getDesktopState(window);

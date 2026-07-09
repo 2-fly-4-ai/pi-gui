@@ -84,6 +84,7 @@ declare module "@pi-gui/session-driver" {
     readonly mode: SessionMessageDeliveryMode;
     readonly text: string;
     readonly attachments?: readonly SessionAttachment[];
+    readonly metadata?: unknown;
     readonly createdAt: Timestamp;
     readonly updatedAt: Timestamp;
   }
@@ -142,6 +143,7 @@ declare module "@pi-gui/session-driver" {
   export interface SessionMessageInput {
     readonly text: string;
     readonly attachments?: readonly SessionAttachment[];
+    readonly metadata?: unknown;
     readonly deliverAs?: SessionMessageDeliveryMode;
   }
 

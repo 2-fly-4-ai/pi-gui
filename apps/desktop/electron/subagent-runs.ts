@@ -4,6 +4,7 @@ import { isAbsolute, relative, resolve } from "node:path";
 import type { DesktopAppStore } from "./app-store";
 import { JsonFileStore } from "./json-file-store";
 import {
+  buildSubagentWorkflowMessageMetadata,
   buildSubagentWorkflowPrompt,
   workflowById,
   type RunSubagentWorkflowInput,
@@ -74,6 +75,7 @@ export class SubagentRunStore {
     void store
       .submitComposerToSession(input.target, buildSubagentWorkflowPrompt(workflow, input.userInstruction, workflowRunId), {
         deliverAs: "followUp",
+        messageMetadata: buildSubagentWorkflowMessageMetadata(workflow, workflowRunId),
       })
       .then((state) => {
         if (state.lastError) {

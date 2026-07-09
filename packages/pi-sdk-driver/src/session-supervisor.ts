@@ -2625,6 +2625,7 @@ function queuedMessageFromInput(input: SessionMessageInput, timestamp: string): 
           attachments: input.attachments.map((attachment) => ({ ...attachment })),
         }
       : {}),
+    ...(input.metadata !== undefined ? { metadata: input.metadata } : {}),
     createdAt: timestamp,
     updatedAt: timestamp,
   };

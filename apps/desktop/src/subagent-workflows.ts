@@ -18,6 +18,14 @@ export interface SubagentWorkflowTemplate {
   readonly artifacts: readonly string[];
 }
 
+export interface SubagentWorkflowMessageMetadata {
+  readonly kind: "subagent-workflow";
+  readonly workflowRunId?: string;
+  readonly workflow: string;
+  readonly roles: readonly string[];
+  readonly artifacts: readonly string[];
+}
+
 export interface SubagentWorkflowRoleValidation {
   readonly missingRoles: readonly string[];
 }
@@ -143,6 +151,19 @@ export function buildSubagentWorkflowPrompt(
     "",
     `User instruction: ${instruction}`,
   ].join("\n");
+}
+
+export function buildSubagentWorkflowMessageMetadata(
+  workflow: SubagentWorkflowTemplate,
+  workflowRunId?: string,
+): SubagentWorkflowMessageMetadata {
+  return {
+    kind: "subagent-workflow",
+    ...(workflowRunId ? { workflowRunId } : {}),
+    workflow: workflow.title,
+    roles: [...workflow.roles],
+    artifacts: [...workflow.artifacts],
+  };
 }
 
 function addRoleAliases(roles: Set<string>, role: string): void {

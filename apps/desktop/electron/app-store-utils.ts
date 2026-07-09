@@ -264,12 +264,13 @@ export function toSessionRef(target: WorkspaceSessionTarget): SessionRef {
   };
 }
 
-export function makeTranscriptMessage(role: "user" | "assistant", text: string): TranscriptMessage {
+export function makeTranscriptMessage(role: "user" | "assistant", text: string, metadata?: unknown): TranscriptMessage {
   return {
     kind: "message",
     id: randomUUID(),
     role,
     text,
+    ...(metadata !== undefined ? { metadata } : {}),
     createdAt: new Date().toISOString(),
   };
 }
@@ -278,9 +279,10 @@ export function makeTranscriptMessageWithAttachments(
   role: "user" | "assistant",
   text: string,
   attachments: NonNullable<Extract<TranscriptMessage, { kind: "message" }>["attachments"]>,
+  metadata?: unknown,
 ): TranscriptMessage {
   return {
-    ...makeTranscriptMessage(role, text),
+    ...makeTranscriptMessage(role, text, metadata),
     ...(attachments?.length ? { attachments: attachments.map((attachment) => ({ ...attachment })) } : {}),
   };
 }
@@ -334,6 +336,7 @@ export function toSessionQueuedMessages(
           attachments: toSessionAttachments(message.attachments),
         }
       : {}),
+    ...(message.metadata !== undefined ? { metadata: message.metadata } : {}),
     createdAt: message.createdAt,
     updatedAt: message.updatedAt,
   }));
@@ -355,6 +358,7 @@ export function mergeQueuedComposerMessages(
       mode: message.mode,
       text: message.text,
       attachments: mergeQueuedComposerAttachments(existing?.attachments, message.attachments, message.id),
+      ...(message.metadata !== undefined ? { metadata: message.metadata } : {}),
       createdAt: message.createdAt,
       updatedAt: message.updatedAt,
     };

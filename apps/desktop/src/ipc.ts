@@ -527,11 +527,11 @@ export interface PiDesktopApi {
   removeQueuedComposerMessage(messageId: string): Promise<void>;
   steerQueuedComposerMessage(messageId: string): Promise<void>;
   updateComposerDraft(composerDraft: string): Promise<void>;
-  submitComposer(text: string, options?: { readonly deliverAs?: "steer" | "followUp" }): Promise<void>;
+  submitComposer(text: string, options?: { readonly deliverAs?: "steer" | "followUp"; readonly messageMetadata?: unknown }): Promise<void>;
   submitComposerToSession(
     target: WorkspaceSessionTarget,
     text: string,
-    options?: { readonly deliverAs?: "steer" | "followUp" },
+    options?: { readonly deliverAs?: "steer" | "followUp"; readonly messageMetadata?: unknown },
   ): Promise<void>;
   getSessionTree(target: WorkspaceSessionTarget): Promise<SessionTreeSnapshot>;
   navigateSessionTree(
