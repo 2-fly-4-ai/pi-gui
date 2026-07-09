@@ -14,11 +14,11 @@ archived elsewhere.
 - [`active/phase-4-state-sync-rearchitecture.md`](active/phase-4-state-sync-rearchitecture.md) - state/transcript sync rearchitecture and timeline correctness.
 - [`active/phase-5-product.md`](active/phase-5-product.md) - product maturity: updates, crash reporting, onboarding, platforms, website/docs.
 - [`active/agents-and-subagents.md`](active/agents-and-subagents.md) - typed subagent lifecycle, durable runs, and structured results.
-- [`active/ui-polish.md`](active/ui-polish.md) - minimalist visual polish batches.
 
 ## Standalone Or Archived
 
 - [`display-mode.md`](display-mode.md) - display mode plan; partially superseded by the active roadmap's state-sync and polish work.
+- [`ui-polish.md`](ui-polish.md) - completed 2026-07-10 minimalist visual polish cleanup pass.
 - [`phase-1-codex-parity/plan.md`](phase-1-codex-parity/plan.md) - early Codex parity plan retained for historical context.
 - [`pi-app-mvp/plan.md`](pi-app-mvp/plan.md) - MVP plan retained for historical context.
 - [`sidebar-unseen-notification-consistency/plan.md`](sidebar-unseen-notification-consistency/plan.md) - sidebar unread/notification consistency plan retained for historical context.

@@ -7,6 +7,7 @@ import {
   type PiDesktopCommand,
   type RendererDiagnosticPayload,
   type StatePatchEvent,
+  type SubagentTranscriptPreview,
   type TerminalDataEvent,
   type TerminalErrorEvent,
   type TerminalExitEvent,
@@ -305,6 +306,8 @@ contextBridge.exposeInMainWorld("piApp", {
   pickComposerAttachments: () => ipcRenderer.invoke(desktopIpc.pickComposerAttachments) as Promise<void>,
   readClipboardImage: () =>
     ipcRenderer.invoke(desktopIpc.readClipboardImage) as Promise<ComposerImageAttachment | null>,
+  readSubagentTranscript: (path: string) =>
+    ipcRenderer.invoke(desktopIpc.readSubagentTranscript, path) as Promise<SubagentTranscriptPreview>,
   addComposerAttachments: (attachments: readonly ComposerAttachment[]) =>
     ipcRenderer.invoke(desktopIpc.addComposerAttachments, attachments) as Promise<void>,
   removeComposerAttachment: (attachmentId: string) =>

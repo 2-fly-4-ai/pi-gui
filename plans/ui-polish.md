@@ -1,5 +1,7 @@
 # UI Polish — Minimalist Cleanup Pass
 
+Status: complete and archived 2026-07-10. All listed batches have implementation notes and real-Electron screenshot/regression proof below; future polish findings should start a new focused plan instead of reopening this cleanup pass.
+
 ## Goal
 
 Understated, high-leverage visual polish. No redesign, no new chrome: consistency, restraint, and small fixes that make the whole surface feel intentional. Verified against real-Electron screenshots (captured 2026-07-08 via `apps/desktop/tests/dev/ui-review-screenshots.spec.ts`).

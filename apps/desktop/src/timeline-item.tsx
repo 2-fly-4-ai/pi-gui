@@ -1,6 +1,7 @@
 import { memo, useEffect, useState, type CSSProperties } from "react";
 import type { SessionTranscriptMessage } from "@pi-gui/pi-sdk-driver";
 import type { TimelineActivity, TimelineToolCall, TimelineSummary, TranscriptMessage } from "./timeline-types";
+import type { SubagentTranscriptPreview } from "./ipc";
 import { MessageMarkdown } from "./message-markdown";
 import { InlineDiff, extractDiffFromOutput } from "./diff-inline";
 import { ChevronRightIcon, CopyIcon, DiffIcon, FileIcon } from "./icons";
@@ -22,6 +23,8 @@ import {
   shortenPath,
   statusLabel,
 } from "./timeline-item-formatters";
+
+const MAX_TRANSCRIPT_PREVIEW_BYTES = 256 * 1024;
 
 export const TimelineItem = memo(function TimelineItem({
   item,
@@ -305,6 +308,12 @@ function RunningToolMeta({ toolName, startedAt }: { readonly toolName: string; r
   );
 }
 
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.ceil(bytes / 1024)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
 function CommandOutputTitle({
   running,
   startedAt,
@@ -333,6 +342,10 @@ function TimelineToolCallItem({
   readonly onToggle?: (callId: string) => void;
   readonly onViewFileInDiff?: (path: string) => void;
 }) {
+  type TranscriptDrawerState =
+    | { readonly status: "loading"; readonly path: string }
+    | { readonly status: "loaded"; readonly preview: SubagentTranscriptPreview }
+    | { readonly status: "error"; readonly path: string; readonly message: string };
   const command = extractCommand(item.input);
   const outputText = item.outputText ?? extractToolText(item.output) ?? item.detail;
   const [subagentShinobiMap] = useSubagentShinobiMap();
@@ -344,6 +357,7 @@ function TimelineToolCallItem({
   const hasVisibleOutput = Boolean(outputText?.trim());
   const hasFullOutputPath = Boolean(item.fullOutputPath?.trim());
   const fullOutputLabel = isAgentTool(item.toolName) ? "Full transcript" : "Full output";
+  const canOpenTranscript = isAgentTool(item.toolName) && hasFullOutputPath;
   const hasDetails = item.input !== undefined || item.output !== undefined || hasFullOutputPath;
   const running = item.status === "running";
   const diffText = isWriteTool(item.toolName) ? extractDiffFromOutput(item.output) : undefined;
@@ -351,6 +365,11 @@ function TimelineToolCallItem({
   const compactLabel = buildCompactLabel(item);
   const filePath = isWriteTool(item.toolName) ? extractFilename(item.input) || undefined : undefined;
   const diffLanguage = diffText && filePath ? extensionToLanguage(filePath) : undefined;
+  const [transcriptDrawer, setTranscriptDrawer] = useState<TranscriptDrawerState | undefined>();
+
+  useEffect(() => {
+    setTranscriptDrawer(undefined);
+  }, [item.fullOutputPath]);
 
   const handleCopy = () => {
     const text = diffText ?? outputText ?? command ?? formatToolContent(item.input, item.output);
@@ -360,6 +379,26 @@ function TimelineToolCallItem({
   const handleCopyFullOutputPath = () => {
     if (!item.fullOutputPath) return;
     void navigator.clipboard?.writeText?.(item.fullOutputPath).catch((error) => logIgnoredError("timeline-tool.copy-full-output-path", error));
+  };
+
+  const handleOpenTranscript = () => {
+    const transcriptPath = item.fullOutputPath?.trim();
+    const app = window.piApp;
+    if (!transcriptPath) return;
+    if (!app) {
+      setTranscriptDrawer({ status: "error", path: transcriptPath, message: "Desktop bridge is unavailable." });
+      return;
+    }
+    setTranscriptDrawer({ status: "loading", path: transcriptPath });
+    void app.readSubagentTranscript(transcriptPath).then((preview) => {
+      setTranscriptDrawer({ status: "loaded", preview });
+    }).catch((error: unknown) => {
+      setTranscriptDrawer({
+        status: "error",
+        path: transcriptPath,
+        message: error instanceof Error ? error.message : String(error),
+      });
+    });
   };
 
   return (
@@ -487,11 +526,45 @@ function TimelineToolCallItem({
                   <summary>{fullOutputLabel}</summary>
                   <div className="timeline-tool__full-output-row">
                     <code>{item.fullOutputPath}</code>
+                    {canOpenTranscript ? (
+                      <button className="button button--secondary button--small" type="button" onClick={handleOpenTranscript}>
+                        Open transcript
+                      </button>
+                    ) : null}
                     <button className="icon-button timeline-tool__copy" type="button" onClick={handleCopyFullOutputPath} aria-label={`Copy ${fullOutputLabel.toLowerCase()} path`}>
                       <CopyIcon />
                     </button>
                   </div>
                 </details>
+              ) : null}
+              {transcriptDrawer ? (
+                <section className="timeline-transcript-drawer" role="dialog" aria-label="Subagent transcript">
+                  <div className="timeline-transcript-drawer__header">
+                    <div>
+                      <strong>Subagent transcript</strong>
+                      <span title={transcriptDrawer.status === "loaded" ? transcriptDrawer.preview.path : transcriptDrawer.path}>
+                        {shortenPath(transcriptDrawer.status === "loaded" ? transcriptDrawer.preview.path : transcriptDrawer.path)}
+                      </span>
+                    </div>
+                    <button className="button button--secondary button--small" type="button" onClick={() => setTranscriptDrawer(undefined)}>
+                      Close
+                    </button>
+                  </div>
+                  {transcriptDrawer.status === "loading" ? (
+                    <div className="timeline-transcript-drawer__message">Loading transcript…</div>
+                  ) : transcriptDrawer.status === "error" ? (
+                    <div className="timeline-transcript-drawer__message timeline-transcript-drawer__message--error">{transcriptDrawer.message}</div>
+                  ) : (
+                    <>
+                      <pre className="timeline-transcript-drawer__content">{transcriptDrawer.preview.text || "(empty transcript)"}</pre>
+                      {transcriptDrawer.preview.truncated ? (
+                        <div className="timeline-transcript-drawer__message">
+                          Showing first {formatBytes(MAX_TRANSCRIPT_PREVIEW_BYTES)} of {formatBytes(transcriptDrawer.preview.sizeBytes)}.
+                        </div>
+                      ) : null}
+                    </>
+                  )}
+                </section>
               ) : null}
               {item.input !== undefined && !command ? (
                 <details className="timeline-tool__details">

@@ -17,7 +17,7 @@ import {
 } from "electron";
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { readFile, stat } from "node:fs/promises";
+import { open as openFile, readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { DesktopAppStore } from "./app-store";
@@ -82,6 +82,7 @@ import {
   getDesktopCommandFromShortcut,
   type DesktopUpdateStatus,
   type StatePatchEvent,
+  type SubagentTranscriptPreview,
   type TerminalSize,
   type TranscriptResetRequest,
   type TranscriptSyncEvent,
@@ -135,6 +136,7 @@ const OPEN_FOLDER_MENU_ITEM_ID = "file.open-folder";
 const CHECK_FOR_UPDATES_MENU_ITEM_ID = "app.check-for-updates";
 const MAX_CLIPBOARD_IMAGE_BYTES = 10 * 1024 * 1024;
 const MAX_CLIPBOARD_IMAGE_DIMENSION = 8_192;
+const MAX_SUBAGENT_TRANSCRIPT_PREVIEW_BYTES = 256 * 1024;
 const SIDE_BROWSER_PARTITION = "persist:pi-side-browser";
 
 function getTerminalService(): TerminalService {
@@ -182,6 +184,43 @@ function readClipboardImageAttachment(): ComposerImageAttachment | null {
     mimeType: "image/png",
     data: png.toString("base64"),
   };
+}
+
+async function readSubagentTranscriptPreview(rawPath: string): Promise<SubagentTranscriptPreview> {
+  const transcriptPath = validateSubagentTranscriptPath(rawPath);
+  const fileStats = await stat(transcriptPath);
+  if (!fileStats.isFile()) {
+    throw new Error("Subagent transcript path is not a file.");
+  }
+
+  const bytesToRead = Math.min(fileStats.size, MAX_SUBAGENT_TRANSCRIPT_PREVIEW_BYTES);
+  const buffer = Buffer.alloc(bytesToRead);
+  const handle = await openFile(transcriptPath, "r");
+  try {
+    const { bytesRead } = await handle.read(buffer, 0, bytesToRead, 0);
+    return {
+      path: transcriptPath,
+      text: buffer.subarray(0, bytesRead).toString("utf8"),
+      sizeBytes: fileStats.size,
+      truncated: fileStats.size > bytesRead,
+    };
+  } finally {
+    await handle.close();
+  }
+}
+
+function validateSubagentTranscriptPath(rawPath: string): string {
+  if (typeof rawPath !== "string" || rawPath.includes("\0")) {
+    throw new Error("Invalid subagent transcript path.");
+  }
+  const transcriptPath = path.resolve(rawPath);
+  if (!path.isAbsolute(rawPath) || transcriptPath !== rawPath) {
+    throw new Error("Subagent transcript path must be absolute and normalized.");
+  }
+  if (!/\.(?:output|jsonl)$/i.test(path.basename(transcriptPath))) {
+    throw new Error("Subagent transcript must be an .output or .jsonl file.");
+  }
+  return transcriptPath;
 }
 
 function isHttpOrHttpsUrl(rawUrl: string): boolean {
@@ -1107,6 +1146,9 @@ void app.whenReady().then(async () => {
     await store.addComposerAttachments(attachments);
   });
   handleMainFrameIpc(desktopIpc.readClipboardImage, () => readClipboardImageAttachment());
+  handleMainFrameIpc(desktopIpc.readSubagentTranscript, async (_event, transcriptPath: string) =>
+    readSubagentTranscriptPreview(transcriptPath),
+  );
   handleMainFrameIpc(desktopIpc.addComposerAttachments, async (_event, attachments: readonly ComposerAttachment[]) => {
     const validated = attachments.flatMap(validateComposerAttachmentPayload);
     await store.addComposerAttachments(validated);

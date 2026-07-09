@@ -138,6 +138,7 @@ export const desktopIpc = {
   copyText: "pi-gui:copy-text",
   pickComposerAttachments: "pi-gui:pick-composer-attachments",
   readClipboardImage: "pi-gui:read-clipboard-image",
+  readSubagentTranscript: "pi-gui:read-subagent-transcript",
   addComposerAttachments: "pi-gui:add-composer-attachments",
   removeComposerAttachment: "pi-gui:remove-composer-attachment",
   editQueuedComposerMessage: "pi-gui:edit-queued-composer-message",
@@ -357,6 +358,13 @@ export interface DesktopShortcutInput {
   readonly code?: string;
 }
 
+export interface SubagentTranscriptPreview {
+  readonly path: string;
+  readonly text: string;
+  readonly sizeBytes: number;
+  readonly truncated: boolean;
+}
+
 export function getDesktopCommandFromShortcut(input: DesktopShortcutInput): PiDesktopCommand | undefined {
   if (!input.modifier) {
     return undefined;
@@ -532,6 +540,7 @@ export interface PiDesktopApi {
   copyText(text: string): Promise<void>;
   pickComposerAttachments(): Promise<void>;
   readClipboardImage(): Promise<ComposerImageAttachment | null>;
+  readSubagentTranscript(path: string): Promise<SubagentTranscriptPreview>;
   addComposerAttachments(attachments: readonly ComposerAttachment[]): Promise<void>;
   removeComposerAttachment(attachmentId: string): Promise<void>;
   editQueuedComposerMessage(messageId: string, currentDraft?: string): Promise<void>;

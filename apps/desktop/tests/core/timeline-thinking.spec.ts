@@ -1,5 +1,7 @@
 import type { SessionDriverEvent } from "@pi-gui/session-driver";
 import { expect, test } from "@playwright/test";
+import { writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import {
   createSessionViaIpc,
   emitTestSessionEvent,
@@ -276,6 +278,12 @@ test("renders typed subagent lifecycle events in the transcript", async () => {
       sessionId: state.selectedSessionId,
     };
     const timestamp = new Date().toISOString();
+    const subagentTranscriptPath = join(workspacePath, "agent-call-1.output");
+    await writeFile(subagentTranscriptPath, [
+      '{"type":"message_start","message":{"role":"assistant"}}',
+      '{"type":"message_delta","delta":{"content":"Reviewed the diff from inside the child transcript."}}',
+      '{"type":"message_end"}',
+    ].join("\n"), "utf8");
 
     await emitTestSessionEvent(harness, {
       type: "subagentRunUpdated",
@@ -303,7 +311,7 @@ test("renders typed subagent lifecycle events in the transcript", async () => {
       toolUseCount: 3,
       elapsedMs: 2400,
       summary: "Reviewed the diff and found no blocking issues.",
-      transcriptPath: "/var/folders/example/tasks/agent-call-1.output",
+      transcriptPath: subagentTranscriptPath,
       artifacts: ["review.md"],
     } satisfies Extract<SessionDriverEvent, { type: "subagentRunUpdated" }>);
 
@@ -313,10 +321,14 @@ test("renders typed subagent lifecycle events in the transcript", async () => {
     await expect(transcript).toContainText("Reviewed the diff and found no blocking issues.");
     await expect(transcript).toContainText("Tool uses: 3");
     await expect(transcript).toContainText("Elapsed: 2s");
-    await expect(transcript).toContainText("Transcript: /var/folders/example/tasks/agent-call-1.output");
+    await expect(transcript).toContainText(`Transcript: ${subagentTranscriptPath}`);
     await expect(transcript).toContainText("Artifacts: review.md");
     await transcript.getByText("Full transcript", { exact: true }).click();
-    await expect(transcript.getByText("/var/folders/example/tasks/agent-call-1.output", { exact: true })).toBeVisible();
+    await expect(transcript.getByText(subagentTranscriptPath, { exact: true })).toBeVisible();
+    await transcript.getByRole("button", { name: "Open transcript" }).click();
+    const drawer = transcript.getByRole("dialog", { name: "Subagent transcript" });
+    await expect(drawer).toBeVisible();
+    await expect(drawer).toContainText("Reviewed the diff from inside the child transcript.");
     await expect(transcript.getByRole("button", { name: "Copy full transcript path" })).toBeVisible();
   } finally {
     await harness.close();
