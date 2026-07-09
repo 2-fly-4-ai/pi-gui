@@ -54,7 +54,7 @@ export function isHttpUrl(value: string): boolean {
 
 export function gridTemplateColumnsForMode(mode: ColumnMode): string {
   return mode === "auto"
-    ? "repeat(auto-fit, minmax(min(380px, 100%), 1fr))"
+    ? "repeat(auto-fit, minmax(min(340px, 100%), 1fr))"
     : `repeat(${mode}, minmax(0, 1fr))`;
 }
 

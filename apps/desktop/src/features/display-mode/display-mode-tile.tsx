@@ -56,6 +56,8 @@ export function DisplayModeTile({
   const tone = statusTone(record.session);
   const recentMessages = record.transcript.slice(-8);
   const hasRecentMessages = recentMessages.length > 0;
+  const sessionPreview = record.session.preview.trim();
+  const transcriptFallbackPreview = sessionPreview && sessionPreview !== record.session.title.trim() ? sessionPreview : "";
   const subagentActivity = record.subagentActivity ?? summarizeDisplayModeSubagents(record.transcript);
   const focusComposer = () => {
     window.requestAnimationFrame(() => textareaRef.current?.focus());
@@ -291,8 +293,12 @@ export function DisplayModeTile({
             />
           ))}
         </div>
+      ) : !compact && transcriptFallbackPreview ? (
+        <div className="display-mode-tile__transcript display-mode-tile__transcript--preview" ref={transcriptRef}>
+          <div className="display-mode-tile__preview-text">{transcriptFallbackPreview}</div>
+        </div>
       ) : !compact ? (
-        <div className="display-mode-tile__transcript-spacer" aria-hidden="true" />
+        <div className="display-mode-tile__empty-state">Transcript not loaded yet</div>
       ) : null}
 
       {/* Terminal (when open) */}

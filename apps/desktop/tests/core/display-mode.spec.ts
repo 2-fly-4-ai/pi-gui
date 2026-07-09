@@ -328,6 +328,7 @@ test("uses the thread composer input in Display Mode tiles", async () => {
     const tile = window.getByTestId("display-mode-thread-tile").filter({ hasText: "Display mode composer parity" });
     await expect(tile.locator(".display-mode-tile__reply > .conversation--composer")).toHaveCount(1);
     await expect(tile).not.toContainText("No messages yet");
+    await expect(tile).toContainText("Transcript not loaded yet");
     const displayComposerStyles = await tile.locator(".display-mode-tile__reply .composer__surface").evaluate(readComposerSurfaceStyles);
     const widthDelta = await tile.evaluate((tileElement) => {
       const reply = tileElement.querySelector<HTMLElement>(".display-mode-tile__reply");
@@ -350,6 +351,16 @@ test("uses the thread composer input in Display Mode tiles", async () => {
     expect(displayComposerStyles).toEqual(threadComposerStyles);
     expect(widthDelta).toBeLessThanOrEqual(2);
     expect(replyOffsetRatio).toBeGreaterThan(0.55);
+
+    await window.setViewportSize({ width: 860, height: 760 });
+    await window.getByRole("button", { name: "4 columns" }).click();
+    await expect.poll(async () => window.evaluate(() => {
+      const main = document.querySelector<HTMLElement>(".display-mode__main");
+      const grid = document.querySelector<HTMLElement>(".display-mode__grid");
+      if (!main || !grid) return false;
+      const columnCount = window.getComputedStyle(grid).gridTemplateColumns.split(" ").filter(Boolean).length;
+      return columnCount <= 2 && grid.scrollWidth <= grid.clientWidth + 1 && main.scrollWidth <= main.clientWidth + 1;
+    })).toBe(true);
   } finally {
     await harness.close();
   }
