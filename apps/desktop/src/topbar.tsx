@@ -5,7 +5,7 @@ import { BrowserIcon, DiffIcon, FolderIcon, LogsIcon, PlusIcon, SidebarToggleIco
 import { getDesktopShortcutLabel, type DesktopUpdateStatus, type PiDesktopApi } from "./ipc";
 import { GitQuickActions } from "./git-quick-actions";
 import type { WorkspaceMenuState } from "./hooks/use-workspace-menu";
-import { runtimeStatusLabel } from "./runtime-status";
+import { runtimeStatusLabel, topbarRuntimeStatusLabel } from "./runtime-status";
 import { ExtensionDock, type ExtensionDockModel } from "./extension-session-ui";
 
 interface TopbarProps {
@@ -101,6 +101,8 @@ export function Topbar(props: TopbarProps) {
   const showGitQuickActions = activeView === "threads" && Boolean(selectedWorkspace && selectedSession && onGitCommit && onGitPush && onGitCreatePr);
   const showExternalActions = showGitQuickActions || onToggleVsCode !== undefined;
   const updateAction = getTopbarUpdateAction(updateStatus);
+  const runtimeLabel = runtimeStatusLabel(selectedSession);
+  const topbarRuntimeLabel = topbarRuntimeStatusLabel(selectedSession);
 
   const handleDoubleClick = (event: ReactMouseEvent<HTMLElement>) => {
     const target = event.target;
@@ -174,8 +176,8 @@ export function Topbar(props: TopbarProps) {
           <>
             <span className="topbar__separator">/</span>
             <span className="topbar__session">{selectedSessionTitle ?? selectedSession.title}</span>
-            <span className="topbar__runtime-status" data-testid="topbar-runtime-status">
-              {runtimeStatusLabel(selectedSession)}
+            <span className="topbar__runtime-status" data-testid="topbar-runtime-status" title={runtimeLabel}>
+              {topbarRuntimeLabel}
             </span>
             {selectedSession.status === "running" && selectedSessionRunningLabel ? (
               <span className="topbar__running" aria-label={selectedSessionRunningLabel}>

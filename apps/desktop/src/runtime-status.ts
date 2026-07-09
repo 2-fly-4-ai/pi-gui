@@ -39,6 +39,11 @@ export function runtimeStatusLabel(session: SessionRecord | undefined): string {
   return summary ? "Agent idle · no tools running" : "Idle";
 }
 
+export function topbarRuntimeStatusLabel(session: SessionRecord | undefined): string {
+  const label = runtimeStatusLabel(session);
+  return label === "Agent idle · no tools running" ? "Idle" : label;
+}
+
 export function runtimeBadgeCount(session: SessionRecord | undefined): number {
   const summary = session?.runtimeSummary;
   return getCount(summary, "activeToolCount") + getCount(summary, "backgroundJobCount") + getCount(summary, "unknownJobCount");

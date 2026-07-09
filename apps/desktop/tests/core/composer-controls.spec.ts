@@ -66,7 +66,9 @@ test("supports keyboard shortcuts, slash menus, and topbar controls through the 
     await selectSession(window, "Controls session");
     await expect(composer).toBeFocused();
 
-    await expect(window.getByTestId("topbar-runtime-status")).toContainText(/idle/i);
+    const topbarRuntimeStatus = window.getByTestId("topbar-runtime-status");
+    await expect(topbarRuntimeStatus).toHaveText("Idle");
+    await expect(topbarRuntimeStatus).toHaveAttribute("title", /idle/i);
     const composerStatusStrip = window.locator(".composer > .conversation--composer .composer-status-strip").first();
     await expect(composerStatusStrip.locator(".checkout-selector__bar")).toContainText("Local checkout");
     await expect(composerStatusStrip).not.toContainText(/idle/i);
