@@ -169,6 +169,11 @@ test("new thread routes disabled-model recovery to settings models", async () =>
       }
       await app.setScopedModelPatterns(workspaceId, ["fake-provider/fake-model"]);
     }, { workspaceId: selectedWorkspaceId });
+    await expect
+      .poll(async () =>
+        (await getDesktopState(window)).runtimeByWorkspace[selectedWorkspaceId]?.settings.enabledModelPatterns,
+      )
+      .toEqual(["fake-provider/fake-model"]);
 
     await window.getByTestId("new-thread-composer").fill("try to start with all models disabled");
     const modelBadge = window.locator(".new-thread .model-selector__badge").first();
@@ -244,6 +249,123 @@ test("refreshing after a provider becomes available auto-enables that provider's
     await expect(dropdown).toContainText("GPT-4o");
   } finally {
     await harness.close();
+  }
+});
+
+test("first-run guide connects a provider and prepares a starter thread", async () => {
+  test.setTimeout(60_000);
+  const userDataDir = await makeUserDataDir();
+  const agentDir = join(userDataDir, "agent");
+  const workspacePath = await makeWorkspace("new-thread-first-run-guide-workspace");
+  await seedAgentDir(agentDir, {
+    withOpenAiAuth: false,
+    withDefaultModel: false,
+    enabledModels: ["openai/gpt-5", "openai/gpt-4o"],
+  });
+  const harness = await launchDesktop(userDataDir, {
+    agentDir,
+    initialWorkspaces: [workspacePath],
+    testMode: "background",
+    scrubProviderEnv: true,
+  });
+
+  try {
+    const window = await harness.firstWindow();
+    await openNewThread(window);
+
+    const guide = window.getByTestId("first-run-onboarding");
+    const composer = window.getByTestId("new-thread-composer");
+    await expect(guide).toContainText("First run setup");
+    await expect(guide).toContainText("Connect provider");
+    await expect(window.getByTestId("model-onboarding-notice")).toContainText("Open Settings > Providers");
+
+    await guide.getByRole("button", { name: "Use starter prompt" }).click();
+    await expect(composer).toHaveValue("Inspect this repo and suggest the first useful improvement.");
+
+    await guide.getByRole("button", { name: "Connect provider" }).click();
+    await expect(window.getByTestId("settings-surface")).toBeVisible();
+    await expect(window.locator(".view-header__title")).toHaveText("Providers");
+
+    const allProviders = window.locator(".settings-section", {
+      has: window.locator(".settings-section__title", { hasText: "All providers" }),
+    });
+    await allProviders.locator(".settings-disclosure__summary").click();
+    const openAiRow = allProviders.locator(".settings-row", {
+      has: window.locator(".settings-row__title", { hasText: /^openai$/ }),
+    });
+    await openAiRow.getByRole("button", { name: "Set API key" }).click();
+    const dialog = window.getByTestId("provider-api-key-dialog");
+    await dialog.getByLabel("openai API key").fill("test-openai-key");
+    await dialog.getByRole("button", { name: "Set API key" }).click();
+    await expect(dialog).toHaveCount(0);
+
+    await window.getByRole("button", { name: "Back to app", exact: true }).click();
+    await expect(window.getByTestId("first-run-onboarding")).toHaveCount(0);
+    await expect(window.getByTestId("new-thread-composer")).toHaveValue("Inspect this repo and suggest the first useful improvement.");
+
+    const modelBadge = window.locator(".new-thread .model-selector__badge").first();
+    await expect(modelBadge).toHaveText("Pick a model");
+    await modelBadge.click();
+    const dropdown = window.locator(".new-thread .model-selector__dropdown").first();
+    await expect(dropdown).toContainText("GPT-5");
+    await dropdown.getByRole("button", { name: /GPT-5/ }).first().click();
+
+    await expect(modelBadge).toHaveText("GPT-5");
+    await expect(window.getByRole("button", { name: "Start thread" })).toBeEnabled();
+    await window.getByRole("button", { name: "Start thread" }).click();
+    await expect(window.getByTestId("composer")).toBeVisible({ timeout: 15_000 });
+  } finally {
+    await harness.close();
+  }
+});
+
+test("first-run diagnostic reporting prompt records opt-in", async () => {
+  test.setTimeout(60_000);
+  const userDataDir = await makeUserDataDir();
+  const agentDir = join(userDataDir, "agent");
+  const workspacePath = await makeWorkspace("new-thread-diagnostic-reporting-workspace");
+  await seedAgentDir(agentDir);
+  const harness = await launchDesktop(userDataDir, {
+    agentDir,
+    initialWorkspaces: [workspacePath],
+    testMode: "background",
+  });
+
+  try {
+    const window = await harness.firstWindow();
+    await openNewThread(window);
+
+    const reportingPrompt = window.getByTestId("diagnostic-reporting-onboarding");
+    await expect(reportingPrompt).toContainText("Keep diagnostics private");
+    await expect(reportingPrompt).toContainText("Nothing is sent automatically");
+    await reportingPrompt.getByRole("button", { name: "Enable diagnostics" }).click();
+    await expect(reportingPrompt).toHaveCount(0);
+    await expect.poll(async () => (await getDesktopState(window)).diagnosticReporting).toEqual({
+      issueDraftsEnabled: true,
+      nativeCrashReportsEnabled: true,
+      onboardingDismissed: true,
+    });
+  } finally {
+    await harness.close();
+  }
+
+  const restarted = await launchDesktop(userDataDir, {
+    agentDir,
+    initialWorkspaces: [workspacePath],
+    testMode: "background",
+  });
+
+  try {
+    const window = await restarted.firstWindow();
+    await openNewThread(window);
+    await expect(window.getByTestId("diagnostic-reporting-onboarding")).toHaveCount(0);
+    await expect.poll(async () => (await getDesktopState(window)).diagnosticReporting).toEqual({
+      issueDraftsEnabled: true,
+      nativeCrashReportsEnabled: true,
+      onboardingDismissed: true,
+    });
+  } finally {
+    await restarted.close();
   }
 });
 

@@ -5,6 +5,7 @@ import * as net from "node:net";
 import * as path from "node:path";
 import * as fs from "node:fs";
 import * as os from "node:os";
+import { logIgnoredError } from "./diagnostics";
 
 interface ServerEntry {
   port: number;
@@ -117,8 +118,13 @@ function stopServer(entry: ServerEntry): void {
   }
   try {
     process.kill(-entry.process.pid);
-  } catch {
-    try { entry.process.kill(); } catch { /* ignore */ }
+  } catch (error) {
+    logIgnoredError("vscode-server.stop-process-group", error);
+    try {
+      entry.process.kill();
+    } catch (fallbackError) {
+      logIgnoredError("vscode-server.stop-process", fallbackError);
+    }
   }
 }
 

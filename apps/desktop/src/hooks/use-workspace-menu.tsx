@@ -5,11 +5,6 @@ import type { PiDesktopApi } from "../ipc";
 interface UseWorkspaceMenuParams {
   readonly api: PiDesktopApi | undefined;
   readonly setSnapshot: Dispatch<SetStateAction<DesktopAppState | null>>;
-  readonly updateSnapshot: (
-    api: PiDesktopApi,
-    setSnapshot: Dispatch<SetStateAction<DesktopAppState | null>>,
-    action: () => Promise<DesktopAppState>,
-  ) => Promise<DesktopAppState>;
 }
 
 export interface WorkspaceMenuState {
@@ -41,7 +36,7 @@ export interface WorkspaceMenuState {
 }
 
 export function useWorkspaceMenu(params: UseWorkspaceMenuParams): WorkspaceMenuState {
-  const { api, setSnapshot, updateSnapshot } = params;
+  const { api, setSnapshot } = params;
 
   const [workspaceMenuId, setWorkspaceMenuId] = useState<string | null>(null);
   const [workspaceRenameId, setWorkspaceRenameId] = useState<string | null>(null);
@@ -125,7 +120,18 @@ export function useWorkspaceMenu(params: UseWorkspaceMenuParams): WorkspaceMenuS
     if (!api) {
       return;
     }
-    void updateSnapshot(api, setSnapshot, () => api.renameWorkspace(workspace.id, nextName));
+    setSnapshot((current) =>
+      current
+        ? {
+            ...current,
+            workspaces: current.workspaces.map((entry) =>
+              entry.id === workspace.id ? { ...entry, name: nextName } : entry,
+            ),
+            lastError: undefined,
+          }
+        : current,
+    );
+    void api.renameWorkspace(workspace.id, nextName);
   };
 
   const cancelRename = () => {
@@ -140,7 +146,7 @@ export function useWorkspaceMenu(params: UseWorkspaceMenuParams): WorkspaceMenuS
     if (!confirmed || !api) {
       return;
     }
-    void updateSnapshot(api, setSnapshot, () => api.removeWorkspace(workspace.id));
+    void api.removeWorkspace(workspace.id);
   };
 
   const toggleArchived = (workspaceId: string, open: boolean) => {
@@ -164,9 +170,7 @@ export function useWorkspaceMenu(params: UseWorkspaceMenuParams): WorkspaceMenuS
     if (!api) {
       return;
     }
-    void updateSnapshot(api, setSnapshot, () =>
-      api.createWorktree({ workspaceId, fromSessionWorkspaceId, fromSessionId }),
-    );
+    void api.createWorktree({ workspaceId, fromSessionWorkspaceId, fromSessionId });
   };
 
   const removeWorktree = (workspaceId: string, worktree: WorktreeRecord) => {
@@ -175,9 +179,7 @@ export function useWorkspaceMenu(params: UseWorkspaceMenuParams): WorkspaceMenuS
     if (!confirmed || !api) {
       return;
     }
-    void updateSnapshot(api, setSnapshot, () =>
-      api.removeWorktree({ workspaceId, worktreeId: worktree.id }),
-    );
+    void api.removeWorktree({ workspaceId, worktreeId: worktree.id });
   };
 
   const selectWorkspace = (workspaceId: string) => {
@@ -185,7 +187,8 @@ export function useWorkspaceMenu(params: UseWorkspaceMenuParams): WorkspaceMenuS
     if (!api) {
       return;
     }
-    void updateSnapshot(api, setSnapshot, () => api.selectWorkspace(workspaceId));
+    setSnapshot((current) => current ? applyWorkspaceSelection(current, workspaceId) : current);
+    void api.selectWorkspace(workspaceId);
   };
 
   const runWorkspaceMenuAction = (
@@ -224,5 +227,19 @@ export function useWorkspaceMenu(params: UseWorkspaceMenuParams): WorkspaceMenuS
     removeWorktree,
     selectWorkspace,
     runWorkspaceMenuAction,
+  };
+}
+
+function applyWorkspaceSelection(state: DesktopAppState, workspaceId: string): DesktopAppState {
+  const workspace = state.workspaces.find((entry) => entry.id === workspaceId);
+  if (!workspace) {
+    return state;
+  }
+  return {
+    ...state,
+    selectedWorkspaceId: workspaceId,
+    selectedSessionId: state.selectedWorkspaceId === workspaceId ? state.selectedSessionId : "",
+    activeView: "threads",
+    lastError: undefined,
   };
 }

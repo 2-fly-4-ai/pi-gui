@@ -1,14 +1,21 @@
 node_modules/
 .turbo/
 .env
+.env.*
+!.env.example
+!.env.template
 .worktrees/
 dist/
 build/
 out/
+.vite/
+.next/
 release/
 release-*/
 playwright-report/
 test-results/
+apps/desktop/main.js
+agentlog.txt
 .claude/worktrees/
 .codex/worktrees/
 .DS_Store
@@ -16,16 +23,6 @@ tmp-chat-parity.png
 tmp-latest-design.png
 tmp-sample-design.png
 
-# Vite dev build artifacts
-*.js
-*.css
-!/apps/**/*.js
-!/apps/**/*.css
-!/packages/**/*.js
-!/packages/**/*.css
-index.html
-!apps/**/index.html
-
-# Vite hashed build output (anywhere)
+# Vite hashed build output
 *-[A-Za-z0-9][A-Za-z0-9][A-Za-z0-9][A-Za-z0-9][A-Za-z0-9][A-Za-z0-9][A-Za-z0-9][A-Za-z0-9].js
 *-[A-Za-z0-9][A-Za-z0-9][A-Za-z0-9][A-Za-z0-9][A-Za-z0-9][A-Za-z0-9][A-Za-z0-9][A-Za-z0-9].css

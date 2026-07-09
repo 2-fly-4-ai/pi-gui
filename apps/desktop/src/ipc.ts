@@ -13,11 +13,13 @@ import type {
   CreateWorktreeInput,
   DesktopAppState,
   DisplayModeThreadRecord,
+  DiagnosticReportingPreferences,
   ModelSettingsScopeMode,
   NotificationPreferences,
   RemoveWorktreeInput,
   SelectedTranscriptRecord,
   StartThreadInput,
+  TranscriptMessage,
   WorkspaceSessionTarget,
 } from "./desktop-state";
 import type { AgentDefinitionsSnapshot, DeleteAgentDefinitionInput, ResetAgentDefinitionInput, SaveAgentDefinitionInput } from "./agent-definitions";
@@ -35,9 +37,10 @@ export type DesktopNotificationPermissionStatus =
 export const desktopIpc = {
   rendererDiagnostic: "pi-gui:renderer-diagnostic",
   stateRequest: "pi-gui:state-request",
-  stateChanged: "pi-gui:state-changed",
+  statePatchChanged: "pi-gui:state-patch-changed",
   selectedTranscriptRequest: "pi-gui:selected-transcript-request",
-  selectedTranscriptChanged: "pi-gui:selected-transcript-changed",
+  transcriptEvent: "pi-gui:transcript-event",
+  transcriptResetRequest: "pi-gui:transcript-reset-request",
   displayModeThreadsRequest: "pi-gui:display-mode-threads-request",
   listObservabilityEvents: "pi-gui:list-observability-events",
   appCommand: "pi-gui:app-command",
@@ -96,8 +99,11 @@ export const desktopIpc = {
   deleteAgentDefinition: "pi-gui:delete-agent-definition",
   listSubagentRuns: "pi-gui:list-subagent-runs",
   runSubagentWorkflow: "pi-gui:run-subagent-workflow",
+  cancelSubagentRun: "pi-gui:cancel-subagent-run",
+  subagentRunsChanged: "pi-gui:subagent-runs-changed",
   respondToHostUiRequest: "pi-gui:respond-to-host-ui-request",
   setNotificationPreferences: "pi-gui:set-notification-preferences",
+  setDiagnosticReportingPreferences: "pi-gui:set-diagnostic-reporting-preferences",
   setDesktopCustomInstructions: "pi-gui:set-desktop-custom-instructions",
   setIntegratedTerminalShell: "pi-gui:set-integrated-terminal-shell",
   terminalEnsurePanel: "pi-gui:terminal-ensure-panel",
@@ -116,6 +122,11 @@ export const desktopIpc = {
   requestNotificationPermission: "pi-gui:request-notification-permission",
   openSystemNotificationSettings: "pi-gui:open-system-notification-settings",
   notificationPermissionStatusChanged: "pi-gui:notification-permission-status-changed",
+  updateStatusRequest: "pi-gui:update-status-request",
+  updateStatusChanged: "pi-gui:update-status-changed",
+  checkForUpdates: "pi-gui:check-for-updates",
+  installUpdate: "pi-gui:install-update",
+  copyText: "pi-gui:copy-text",
   pickComposerAttachments: "pi-gui:pick-composer-attachments",
   readClipboardImage: "pi-gui:read-clipboard-image",
   addComposerAttachments: "pi-gui:add-composer-attachments",
@@ -161,9 +172,112 @@ export function getDesktopShortcutLabel(platform: NodeJS.Platform, key: string):
   return `${platform === "darwin" ? "⌘" : "Ctrl+"}${key.toUpperCase()}`;
 }
 
-export type PiDesktopStateListener = (state: DesktopAppState) => void;
-export type PiDesktopSelectedTranscriptListener = (payload: SelectedTranscriptRecord | null) => void;
 export type PiDesktopCommand = (typeof desktopCommands)[keyof typeof desktopCommands];
+
+export type TranscriptSyncEvent =
+  | {
+      readonly kind: "reset";
+      readonly workspaceId: string;
+      readonly sessionId: string;
+      readonly sequence: number;
+      readonly transcript: readonly TranscriptMessage[];
+    }
+  | {
+      readonly kind: "append";
+      readonly workspaceId: string;
+      readonly sessionId: string;
+      readonly sequence: number;
+      readonly items: readonly TranscriptMessage[];
+    }
+  | {
+      readonly kind: "update-last";
+      readonly workspaceId: string;
+      readonly sessionId: string;
+      readonly sequence: number;
+      readonly item: TranscriptMessage;
+    }
+  | {
+      readonly kind: "truncate";
+      readonly workspaceId: string;
+      readonly sessionId: string;
+      readonly sequence: number;
+      readonly afterItemId?: string;
+      readonly length?: number;
+    };
+
+export type TranscriptResetReason = "gap" | "selection" | "manual";
+
+export interface TranscriptResetRequest {
+  readonly workspaceId: string;
+  readonly sessionId: string;
+  readonly expectedSequence?: number;
+  readonly reason: TranscriptResetReason;
+}
+
+export type StatePatchDomain =
+  | "selection"
+  | "workspaces"
+  | "composer"
+  | "runtime"
+  | "settings"
+  | "diagnostics";
+
+export interface StatePatchEvent {
+  readonly domain: StatePatchDomain;
+  readonly revision: number;
+  readonly patch: unknown;
+}
+
+export type PiDesktopTranscriptEventListener = (event: TranscriptSyncEvent) => void;
+export type PiDesktopStatePatchListener = (event: StatePatchEvent) => void;
+
+export type DesktopUpdateStatus =
+  | {
+      readonly status: "idle" | "checking";
+      readonly currentVersion: string;
+      readonly source: "direct" | "homebrew";
+    }
+  | {
+      readonly status: "up-to-date";
+      readonly currentVersion: string;
+      readonly latestVersion: string;
+      readonly source: "direct" | "homebrew";
+    }
+  | {
+      readonly status: "update-available";
+      readonly currentVersion: string;
+      readonly latestVersion: string;
+      readonly source: "direct";
+      readonly releasePageUrl: string;
+    }
+  | {
+      readonly status: "downloading";
+      readonly currentVersion: string;
+      readonly latestVersion: string;
+      readonly source: "direct";
+      readonly percent?: number;
+    }
+  | {
+      readonly status: "ready";
+      readonly currentVersion: string;
+      readonly latestVersion: string;
+      readonly source: "direct";
+    }
+  | {
+      readonly status: "homebrew-update-available";
+      readonly currentVersion: string;
+      readonly latestVersion: string;
+      readonly source: "homebrew";
+      readonly command: string;
+    }
+  | {
+      readonly status: "error";
+      readonly currentVersion: string;
+      readonly source: "direct" | "homebrew";
+      readonly message: string;
+    };
+
+export type PiDesktopUpdateStatusListener = (status: DesktopUpdateStatus) => void;
 
 export interface RendererDiagnosticPayload {
   readonly kind: string;
@@ -276,84 +390,87 @@ export interface PiDesktopApi {
   reportRendererDiagnostic(payload: RendererDiagnosticPayload): void;
   ping(): Promise<string>;
   getState(): Promise<DesktopAppState>;
-  onStateChanged(listener: PiDesktopStateListener): () => void;
+  onStatePatchChanged(listener: PiDesktopStatePatchListener): () => void;
   getSelectedTranscript(): Promise<SelectedTranscriptRecord | null>;
-  onSelectedTranscriptChanged(listener: PiDesktopSelectedTranscriptListener): () => void;
+  onTranscriptEvent(listener: PiDesktopTranscriptEventListener): () => void;
+  requestTranscriptReset(input: TranscriptResetRequest): Promise<SelectedTranscriptRecord | null>;
   getDisplayModeThreads(): Promise<readonly DisplayModeThreadRecord[]>;
   listObservabilityEvents(input?: ObservabilityQuery): Promise<ObservabilityEventPage>;
   onCommand(listener: (command: PiDesktopCommand) => void): () => void;
   onWorkspacePicked(listener: (workspaceId: string) => void): () => void;
   onClipboardImagePasted(listener: (attachment: ComposerImageAttachment) => void): () => void;
   getPathForFile(file: File): string;
-  addWorkspacePath(path: string): Promise<DesktopAppState>;
-  pickWorkspace(): Promise<DesktopAppState>;
-  selectWorkspace(workspaceId: string): Promise<DesktopAppState>;
-  renameWorkspace(workspaceId: string, displayName: string): Promise<DesktopAppState>;
-  removeWorkspace(workspaceId: string): Promise<DesktopAppState>;
-  reorderWorkspaces(workspaceOrder: readonly string[]): Promise<DesktopAppState>;
+  addWorkspacePath(path: string): Promise<void>;
+  pickWorkspace(): Promise<void>;
+  selectWorkspace(workspaceId: string): Promise<void>;
+  renameWorkspace(workspaceId: string, displayName: string): Promise<void>;
+  removeWorkspace(workspaceId: string): Promise<void>;
+  reorderWorkspaces(workspaceOrder: readonly string[]): Promise<void>;
   openWorkspaceInFinder(workspaceId: string): Promise<void>;
   openWorkspaceInVSCode(workspaceId: string): Promise<void>;
-  createWorktree(input: CreateWorktreeInput): Promise<DesktopAppState>;
-  removeWorktree(input: RemoveWorktreeInput): Promise<DesktopAppState>;
+  createWorktree(input: CreateWorktreeInput): Promise<void>;
+  removeWorktree(input: RemoveWorktreeInput): Promise<void>;
   openSkillInFinder(workspaceId: string, filePath: string): Promise<void>;
   openExtensionInFinder(workspaceId: string, filePath: string): Promise<void>;
-  syncCurrentWorkspace(): Promise<DesktopAppState>;
-  selectSession(target: WorkspaceSessionTarget): Promise<DesktopAppState>;
-  renameSession(target: WorkspaceSessionTarget, title: string): Promise<DesktopAppState>;
+  syncCurrentWorkspace(): Promise<void>;
+  selectSession(target: WorkspaceSessionTarget): Promise<void>;
+  renameSession(target: WorkspaceSessionTarget, title: string): Promise<void>;
   ensureVSCodeServer(workspaceId: string): Promise<number>;
   killVSCodeServer(workspaceId: string): Promise<void>;
-  archiveSession(target: WorkspaceSessionTarget): Promise<DesktopAppState>;
-  unarchiveSession(target: WorkspaceSessionTarget): Promise<DesktopAppState>;
-  createSession(input: CreateSessionInput): Promise<DesktopAppState>;
-  startThread(input: StartThreadInput): Promise<DesktopAppState>;
-  cancelCurrentRun(): Promise<DesktopAppState>;
-  cancelSessionRun(target: WorkspaceSessionTarget): Promise<DesktopAppState>;
-  stopRuntimeJob(target: WorkspaceSessionTarget, jobId: string): Promise<DesktopAppState>;
-  refreshRuntimeJobs(target: WorkspaceSessionTarget): Promise<DesktopAppState>;
-  setActiveView(view: AppView): Promise<DesktopAppState>;
-  setSidebarCollapsed(collapsed: boolean): Promise<DesktopAppState>;
-  setShowThinking(showThinking: boolean): Promise<DesktopAppState>;
-  setFastMode(enabled: boolean): Promise<DesktopAppState>;
-  refreshRuntime(workspaceId?: string): Promise<DesktopAppState>;
-  setModelSettingsScopeMode(mode: ModelSettingsScopeMode): Promise<DesktopAppState>;
-  setDefaultModel(workspaceId: string, provider: string, modelId: string): Promise<DesktopAppState>;
+  archiveSession(target: WorkspaceSessionTarget): Promise<void>;
+  unarchiveSession(target: WorkspaceSessionTarget): Promise<void>;
+  createSession(input: CreateSessionInput): Promise<void>;
+  startThread(input: StartThreadInput): Promise<void>;
+  cancelCurrentRun(): Promise<void>;
+  cancelSessionRun(target: WorkspaceSessionTarget): Promise<void>;
+  stopRuntimeJob(target: WorkspaceSessionTarget, jobId: string): Promise<void>;
+  refreshRuntimeJobs(target: WorkspaceSessionTarget): Promise<void>;
+  setActiveView(view: AppView): Promise<void>;
+  setSidebarCollapsed(collapsed: boolean): Promise<void>;
+  setShowThinking(showThinking: boolean): Promise<void>;
+  setFastMode(enabled: boolean): Promise<void>;
+  refreshRuntime(workspaceId?: string): Promise<void>;
+  setModelSettingsScopeMode(mode: ModelSettingsScopeMode): Promise<void>;
+  setDefaultModel(workspaceId: string, provider: string, modelId: string): Promise<void>;
   setDefaultThinkingLevel(
     workspaceId: string,
     thinkingLevel: RuntimeSettingsSnapshot["defaultThinkingLevel"],
-  ): Promise<DesktopAppState>;
+  ): Promise<void>;
   setSessionModel(
     workspaceId: string,
     sessionId: string,
     provider: string,
     modelId: string,
-  ): Promise<DesktopAppState>;
+  ): Promise<void>;
   setSessionThinkingLevel(
     workspaceId: string,
     sessionId: string,
     thinkingLevel: NonNullable<RuntimeSettingsSnapshot["defaultThinkingLevel"]>,
-  ): Promise<DesktopAppState>;
+  ): Promise<void>;
   setSessionToolAccess(
     workspaceId: string,
     sessionId: string,
     toolAccess: ToolAccessSelection,
-  ): Promise<DesktopAppState>;
-  loginProvider(workspaceId: string, providerId: string): Promise<DesktopAppState>;
-  logoutProvider(workspaceId: string, providerId: string): Promise<DesktopAppState>;
-  setProviderApiKey(workspaceId: string, providerId: string, apiKey: string): Promise<DesktopAppState>;
-  setEnableSkillCommands(workspaceId: string, enabled: boolean): Promise<DesktopAppState>;
-  setScopedModelPatterns(workspaceId: string, patterns: readonly string[]): Promise<DesktopAppState>;
-  setSkillEnabled(workspaceId: string, filePath: string, enabled: boolean): Promise<DesktopAppState>;
-  setSkillMode(workspaceId: string, filePath: string, mode: "auto" | "manual" | "off"): Promise<DesktopAppState>;
-  setActiveSkillProfile(workspaceId: string, profileId: string): Promise<DesktopAppState>;
-  saveSkillProfile(workspaceId: string, profile: RuntimeSkillProfileRecord): Promise<DesktopAppState>;
-  deleteSkillProfile(workspaceId: string, profileId: string): Promise<DesktopAppState>;
-  setExtensionEnabled(workspaceId: string, filePath: string, enabled: boolean): Promise<DesktopAppState>;
+  ): Promise<void>;
+  loginProvider(workspaceId: string, providerId: string): Promise<void>;
+  logoutProvider(workspaceId: string, providerId: string): Promise<void>;
+  setProviderApiKey(workspaceId: string, providerId: string, apiKey: string): Promise<void>;
+  setEnableSkillCommands(workspaceId: string, enabled: boolean): Promise<void>;
+  setScopedModelPatterns(workspaceId: string, patterns: readonly string[]): Promise<void>;
+  setSkillEnabled(workspaceId: string, filePath: string, enabled: boolean): Promise<void>;
+  setSkillMode(workspaceId: string, filePath: string, mode: "auto" | "manual" | "off"): Promise<void>;
+  setActiveSkillProfile(workspaceId: string, profileId: string): Promise<void>;
+  saveSkillProfile(workspaceId: string, profile: RuntimeSkillProfileRecord): Promise<void>;
+  deleteSkillProfile(workspaceId: string, profileId: string): Promise<void>;
+  setExtensionEnabled(workspaceId: string, filePath: string, enabled: boolean): Promise<void>;
   listAgentDefinitions(workspaceId: string): Promise<AgentDefinitionsSnapshot>;
   saveAgentDefinition(workspaceId: string, input: SaveAgentDefinitionInput): Promise<AgentDefinitionsSnapshot>;
   resetAgentDefinition(workspaceId: string, input: ResetAgentDefinitionInput): Promise<AgentDefinitionsSnapshot>;
   deleteAgentDefinition(workspaceId: string, input: DeleteAgentDefinitionInput): Promise<AgentDefinitionsSnapshot>;
   listSubagentRuns(workspaceId: string): Promise<readonly SubagentRunRecord[]>;
   runSubagentWorkflow(workspaceId: string, input: RunSubagentWorkflowInput): Promise<readonly SubagentRunRecord[]>;
+  cancelSubagentRun(workspaceId: string, runId: string): Promise<readonly SubagentRunRecord[]>;
+  onSubagentRunsChanged(listener: (workspaceId: string) => void): () => void;
   respondToHostUiRequest(
     workspaceId: string,
     sessionId: string,
@@ -361,10 +478,11 @@ export interface PiDesktopApi {
       | { readonly requestId: string; readonly value: string }
       | { readonly requestId: string; readonly confirmed: boolean }
       | { readonly requestId: string; readonly cancelled: true },
-  ): Promise<DesktopAppState>;
-  setNotificationPreferences(preferences: Partial<NotificationPreferences>): Promise<DesktopAppState>;
-  setDesktopCustomInstructions(input: Partial<DesktopAppState["desktopCustomInstructions"]>): Promise<DesktopAppState>;
-  setIntegratedTerminalShell(shell: string): Promise<DesktopAppState>;
+  ): Promise<void>;
+  setNotificationPreferences(preferences: Partial<NotificationPreferences>): Promise<void>;
+  setDiagnosticReportingPreferences(preferences: Partial<DiagnosticReportingPreferences>): Promise<void>;
+  setDesktopCustomInstructions(input: Partial<DesktopAppState["desktopCustomInstructions"]>): Promise<void>;
+  setIntegratedTerminalShell(shell: string): Promise<void>;
   ensureTerminalPanel(
     workspaceId: string,
     terminalScopeId: string,
@@ -395,21 +513,26 @@ export interface PiDesktopApi {
   onNotificationPermissionStatusChanged(
     callback: (status: DesktopNotificationPermissionStatus) => void,
   ): () => void;
-  pickComposerAttachments(): Promise<DesktopAppState>;
-  readClipboardImage(): ComposerImageAttachment | null;
-  addComposerAttachments(attachments: readonly ComposerAttachment[]): Promise<DesktopAppState>;
-  removeComposerAttachment(attachmentId: string): Promise<DesktopAppState>;
-  editQueuedComposerMessage(messageId: string, currentDraft?: string): Promise<DesktopAppState>;
-  cancelQueuedComposerEdit(): Promise<DesktopAppState>;
-  removeQueuedComposerMessage(messageId: string): Promise<DesktopAppState>;
-  steerQueuedComposerMessage(messageId: string): Promise<DesktopAppState>;
-  updateComposerDraft(composerDraft: string): Promise<DesktopAppState>;
-  submitComposer(text: string, options?: { readonly deliverAs?: "steer" | "followUp" }): Promise<DesktopAppState>;
+  getUpdateStatus(): Promise<DesktopUpdateStatus>;
+  onUpdateStatusChanged(listener: PiDesktopUpdateStatusListener): () => void;
+  checkForUpdates(): Promise<DesktopUpdateStatus>;
+  installUpdate(): Promise<void>;
+  copyText(text: string): Promise<void>;
+  pickComposerAttachments(): Promise<void>;
+  readClipboardImage(): Promise<ComposerImageAttachment | null>;
+  addComposerAttachments(attachments: readonly ComposerAttachment[]): Promise<void>;
+  removeComposerAttachment(attachmentId: string): Promise<void>;
+  editQueuedComposerMessage(messageId: string, currentDraft?: string): Promise<void>;
+  cancelQueuedComposerEdit(): Promise<void>;
+  removeQueuedComposerMessage(messageId: string): Promise<void>;
+  steerQueuedComposerMessage(messageId: string): Promise<void>;
+  updateComposerDraft(composerDraft: string): Promise<void>;
+  submitComposer(text: string, options?: { readonly deliverAs?: "steer" | "followUp" }): Promise<void>;
   submitComposerToSession(
     target: WorkspaceSessionTarget,
     text: string,
     options?: { readonly deliverAs?: "steer" | "followUp" },
-  ): Promise<DesktopAppState>;
+  ): Promise<void>;
   getSessionTree(target: WorkspaceSessionTarget): Promise<SessionTreeSnapshot>;
   navigateSessionTree(
     target: WorkspaceSessionTarget,

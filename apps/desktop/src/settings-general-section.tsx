@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { RuntimeSnapshot } from "@pi-gui/session-driver/runtime-types";
-import type { DesktopCustomInstructionsRecord, ModelSettingsScopeMode } from "./desktop-state";
+import type { DesktopCustomInstructionsRecord, DiagnosticReportingPreferences, ModelSettingsScopeMode } from "./desktop-state";
 import { SettingsGroup, SettingsInfoRow, SettingsRow } from "./settings-utils";
 
 interface SettingsGeneralSectionProps {
@@ -8,9 +8,11 @@ interface SettingsGeneralSectionProps {
   readonly modelSettingsScopeMode: ModelSettingsScopeMode;
   readonly integratedTerminalShell: string;
   readonly desktopCustomInstructions: DesktopCustomInstructionsRecord;
+  readonly diagnosticReporting: DiagnosticReportingPreferences;
   readonly onSetModelSettingsScopeMode: (mode: ModelSettingsScopeMode) => void;
   readonly onSetIntegratedTerminalShell: (shellPath: string) => void;
   readonly onSetDesktopCustomInstructions: (input: Partial<DesktopCustomInstructionsRecord>) => void;
+  readonly onSetDiagnosticReportingPreferences: (input: Partial<DiagnosticReportingPreferences>) => void;
   readonly onToggleSkillCommands: (enabled: boolean) => void;
 }
 
@@ -19,9 +21,11 @@ export function SettingsGeneralSection({
   modelSettingsScopeMode,
   integratedTerminalShell,
   desktopCustomInstructions,
+  diagnosticReporting,
   onSetModelSettingsScopeMode,
   onSetIntegratedTerminalShell,
   onSetDesktopCustomInstructions,
+  onSetDiagnosticReportingPreferences,
   onToggleSkillCommands,
 }: SettingsGeneralSectionProps) {
   const connectedCount = runtime?.providers.filter((p) => p.hasAuth).length ?? 0;
@@ -50,7 +54,7 @@ export function SettingsGeneralSection({
 
   return (
     <>
-      <SettingsGroup title="General">
+      <SettingsGroup>
         <SettingsInfoRow
           label="Connected providers"
           value={connectedCount > 0 ? String(connectedCount) : "None"}
@@ -99,6 +103,41 @@ export function SettingsGeneralSection({
                 event.currentTarget.blur();
               }
             }}
+          />
+        </SettingsRow>
+      </SettingsGroup>
+
+      <SettingsGroup title="Diagnostics">
+        <SettingsRow
+          title="Enable diagnostic issue drafts"
+          description="Allow App Logs to prefill a redacted GitHub issue. Nothing is sent automatically."
+        >
+          <input
+            aria-label="Enable diagnostic issue drafts"
+            checked={diagnosticReporting.issueDraftsEnabled}
+            type="checkbox"
+            onChange={(event) =>
+              onSetDiagnosticReportingPreferences({
+                issueDraftsEnabled: event.target.checked,
+                onboardingDismissed: true,
+              })
+            }
+          />
+        </SettingsRow>
+        <SettingsRow
+          title="Enable local native crash reports"
+          description="Allow Electron to save local native crash artifacts for App Logs. Uploads stay off."
+        >
+          <input
+            aria-label="Enable local native crash reports"
+            checked={diagnosticReporting.nativeCrashReportsEnabled}
+            type="checkbox"
+            onChange={(event) =>
+              onSetDiagnosticReportingPreferences({
+                nativeCrashReportsEnabled: event.target.checked,
+                onboardingDismissed: true,
+              })
+            }
           />
         </SettingsRow>
       </SettingsGroup>

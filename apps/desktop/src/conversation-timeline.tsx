@@ -7,6 +7,10 @@ import { useStableTranscriptRows } from "./conversation-timeline-rows";
 
 export const VIRTUALIZATION_THRESHOLD = 80;
 
+type TimelinePaneElement = HTMLDivElement & {
+  __legendListRef?: LegendListRef | null;
+};
+
 function isCommandTool(item: TranscriptMessage): item is Extract<TranscriptMessage, { kind: "tool" }> {
   if (item.kind !== "tool") {
     return false;
@@ -40,6 +44,7 @@ interface ThreadSearchModel {
 }
 
 interface ConversationTimelineProps {
+  readonly timelineSessionKey: string;
   readonly transcript: readonly TranscriptMessage[];
   readonly isTranscriptLoading: boolean;
   readonly timelinePaneRef: MutableRefObject<HTMLDivElement | null>;
@@ -56,6 +61,7 @@ interface ConversationTimelineProps {
 }
 
 export function ConversationTimeline({
+  timelineSessionKey,
   transcript,
   isTranscriptLoading,
   timelinePaneRef,
@@ -171,16 +177,6 @@ export function ConversationTimeline({
     }
   }, [scheduleMeasurementVersionUpdate, stableTranscript]);
 
-  useEffect(() => {
-    if (!disableVirtualization || isTranscriptLoading || stableTranscript.length <= VIRTUALIZATION_THRESHOLD) {
-      return undefined;
-    }
-    const frame = window.requestAnimationFrame(() => {
-      onDisableVirtualizationReady?.();
-    });
-    return () => window.cancelAnimationFrame(frame);
-  }, [disableVirtualization, isTranscriptLoading, onDisableVirtualizationReady, stableTranscript.length]);
-
   useLayoutEffect(() => {
     if (!disableVirtualization || isTranscriptLoading || stableTranscript.length === 0) {
       return;
@@ -223,9 +219,29 @@ export function ConversationTimeline({
   }, [scheduleMeasurementVersionUpdate]);
 
   const assignTimelinePaneRef = useCallback((node: HTMLDivElement | null) => {
+    if (node) {
+      node.dataset.timelineSessionKey = timelineSessionKey;
+    }
     timelinePaneRef.current = node;
     timelinePaneElementRef?.(node);
-  }, [timelinePaneElementRef, timelinePaneRef]);
+  }, [timelinePaneElementRef, timelinePaneRef, timelineSessionKey]);
+
+  useLayoutEffect(() => {
+    const pane = timelinePaneRef.current;
+    if (!pane) {
+      return undefined;
+    }
+
+    const observer = new MutationObserver(() => {
+      onContentHeightChange();
+    });
+    observer.observe(pane, {
+      childList: true,
+      characterData: true,
+      subtree: true,
+    });
+    return () => observer.disconnect();
+  }, [onContentHeightChange, timelinePaneRef, timelineSessionKey]);
 
   const handleTimelineClickCapture = useCallback((event: ReactMouseEvent<HTMLElement>) => {
     if (!onOpenUrl || event.defaultPrevented) return;
@@ -241,6 +257,7 @@ export function ConversationTimeline({
     return (
       <div className="timeline-pane-frame timeline-pane-frame--thread" data-testid="transcript" onClickCapture={handleTimelineClickCapture}>
         <LegendTranscriptList
+          timelineSessionKey={timelineSessionKey}
           transcript={stableTranscript}
           assignTimelinePaneRef={assignTimelinePaneRef}
           onTimelineScroll={onTimelineScroll}
@@ -250,8 +267,15 @@ export function ConversationTimeline({
           onContentHeightChange={onContentHeightChange}
           onOpenUrl={onOpenUrl}
         />
+        <div className="timeline-scrollbar-hit-area" aria-hidden="true" />
         {showJumpToLatest ? (
-          <button className="timeline-jump" data-testid="timeline-jump" type="button" onClick={onJumpToLatest}>
+          <button
+            className="timeline-jump"
+            data-testid="timeline-jump"
+            type="button"
+            onPointerDown={onJumpToLatest}
+            onClick={onJumpToLatest}
+          >
             New activity below
           </button>
         ) : null}
@@ -262,6 +286,7 @@ export function ConversationTimeline({
   return (
     <div
       className="timeline-pane timeline-pane--thread"
+      data-timeline-session-key={timelineSessionKey}
       data-testid="timeline-pane"
       ref={assignTimelinePaneRef}
       onClickCapture={handleTimelineClickCapture}
@@ -312,6 +337,7 @@ export function ConversationTimeline({
 }
 
 function LegendTranscriptList({
+  timelineSessionKey,
   transcript,
   assignTimelinePaneRef,
   onTimelineScroll,
@@ -321,6 +347,7 @@ function LegendTranscriptList({
   onContentHeightChange,
   onOpenUrl,
 }: {
+  readonly timelineSessionKey: string;
   readonly transcript: readonly TranscriptMessage[];
   readonly assignTimelinePaneRef: RefCallback<HTMLDivElement>;
   readonly onTimelineScroll: () => void;
@@ -334,14 +361,21 @@ function LegendTranscriptList({
 
   useLayoutEffect(() => {
     const node = legendListRef.current?.getScrollableNode?.();
-    assignTimelinePaneRef(node instanceof HTMLDivElement ? node : null);
+    const pane = node instanceof HTMLDivElement ? (node as TimelinePaneElement) : null;
+    if (pane) {
+      pane.__legendListRef = legendListRef.current;
+    }
+    assignTimelinePaneRef(pane);
     return () => {
+      if (pane) {
+        pane.__legendListRef = null;
+      }
       assignTimelinePaneRef(null);
     };
   }, [assignTimelinePaneRef]);
 
   const renderItem = useCallback(({ item }: { item: TranscriptMessage }) => (
-    <div className="timeline__legend-row" data-timeline-row-id={item.id}>
+    <div className="timeline__legend-row timeline__virtual-row" data-timeline-row-id={item.id}>
       <TimelineItem
         item={item}
         expandedToolCallIds={expandedToolCallIds}
@@ -361,6 +395,7 @@ function LegendTranscriptList({
       estimatedItemSize={90}
       getEstimatedItemSize={estimateLegendTimelineItemHeightForRow}
       drawDistance={2_400}
+      initialScrollAtEnd
       maintainScrollAtEnd
       maintainScrollAtEndThreshold={0.1}
       maintainVisibleContentPosition
@@ -368,8 +403,9 @@ function LegendTranscriptList({
       extraData={expandedToolCallIds}
       onItemSizeChanged={onContentHeightChange}
       onScroll={onTimelineScroll}
+      data-timeline-session-key={timelineSessionKey}
       data-testid="timeline-pane"
-      className="timeline-pane timeline-pane--thread timeline-pane--legend"
+      className="timeline-pane timeline-pane--thread timeline-pane--legend timeline--virtualized"
     />
   );
 }

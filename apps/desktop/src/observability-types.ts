@@ -11,7 +11,7 @@ export type ObservabilityCategory =
   | "slash-command";
 
 export interface ObservabilityEventSource {
-  readonly kind: "desktop-log" | "subagents-audit" | "session-jsonl" | "transcript" | "ledger";
+  readonly kind: "desktop-log" | "native-crash-report" | "subagents-audit" | "session-jsonl" | "transcript" | "ledger";
   readonly path?: string;
   readonly line?: number;
 }

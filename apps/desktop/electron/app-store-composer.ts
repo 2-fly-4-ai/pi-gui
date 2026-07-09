@@ -379,6 +379,14 @@ export async function submitComposer(
     if (editingState) {
       store.setQueuedComposerEditState(sessionRef, editingState);
     }
+    store.state = {
+      ...store.state,
+      composerDraft: textInput,
+      composerDraftSyncSource: "command",
+      composerDraftSyncNonce: store.state.composerDraftSyncNonce + 1,
+      composerAttachments: attachments.length > 0 ? cloneComposerAttachments(attachments) : [],
+      revision: store.state.revision + 1,
+    };
     return store.withError(error);
   }
 }
@@ -451,9 +459,6 @@ export async function submitComposerToSession(
   const runtime = store.runtimeByWorkspace.get(sessionRef.workspaceId);
   const sessionCommands = store.sessionState.sessionCommandsBySession.get(key) ?? [];
   const runtimeSlashCommand = hasRuntimeSlashCommand(text, runtime, sessionCommands);
-  const resolvedRuntimeSlashCommand = runtimeSlashCommand
-    ? resolveRuntimeSlashCommand(text, runtime, sessionCommands)
-    : undefined;
 
   if (text.startsWith("/") && !runtimeSlashCommand) {
     const handled = await runComposerCommand(store, sessionRef, text);

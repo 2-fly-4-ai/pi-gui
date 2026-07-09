@@ -40,6 +40,7 @@ import {
   type AppView,
   type ComposerAttachment,
   type ComposerDraftSyncSource,
+  type DiagnosticReportingPreferences,
   type ExtensionCommandCompatibilityRecord,
   type ModelSettingsScopeMode,
   createEmptyDesktopAppState,
@@ -56,11 +57,11 @@ import {
   type TranscriptMessage,
   type WorkspaceSessionTarget,
 } from "../src/desktop-state";
+import { logIgnoredError } from "./diagnostics";
 import {
   applyTimelineEvent,
   appendAssistantDelta,
   appendAssistantThinkingDelta,
-  clearActiveAssistantMessage,
   finishAssistantThinking,
 } from "./app-store-timeline";
 import { applySessionEventState, updateSessionRecord } from "./app-store-session-state";
@@ -90,10 +91,10 @@ import {
   mergeQueuedComposerMessages,
   mapToRecord,
   previewFromTranscript,
-  toSessionQueuedMessages,
   toSessionRef,
 } from "./app-store-utils";
 import { resolveRepoWorkspaceId } from "../src/workspace-roots";
+import { summarizeDisplayModeSubagents } from "../src/display-mode-subagent-activity";
 import { SessionStateMap, type QueuedComposerEditState } from "./session-state-map";
 import { createEmptyExtensionUiState, serializeExtensionUiState } from "./session-state-map";
 import { GitWorktreeManager } from "./worktree-manager";
@@ -104,9 +105,11 @@ import { isSessionActivelyViewed } from "./session-visibility";
 import { AssistantDeltaBatcher } from "./assistant-delta-batcher";
 import { readFastModeState, writeFastModeEnabled } from "./fast-mode-config";
 import type { MemoryMonitorStoreSnapshot } from "./memory-monitor";
+import type { TranscriptResetRequest, TranscriptSyncEvent } from "../src/ipc";
 
 type StateListener = (state: DesktopAppState) => void;
 type SelectedTranscriptListener = (payload: SelectedTranscriptRecord | null) => void;
+type TranscriptEventListener = (event: TranscriptSyncEvent) => void;
 type SessionEventListener = (event: SessionDriverEvent, state: DesktopAppState) => void | Promise<void>;
 type TranscriptMessageRow = Extract<TranscriptMessage, { kind: "message" }>;
 
@@ -201,6 +204,7 @@ function transcriptItemPublishMarker(item: TranscriptMessage): string {
         item.detail ?? "",
         item.outputText?.length ?? 0,
         item.outputText?.slice(-64) ?? "",
+        item.fullOutputPath ?? "",
       ].join(":");
     case "activity":
       return [item.id, item.kind, item.label, item.detail ?? "", item.metadata ?? "", item.tone ?? ""].join(":");
@@ -217,6 +221,26 @@ function transcriptItemPublishMarker(item: TranscriptMessage): string {
         item.job.message ?? "",
       ].join(":");
   }
+}
+
+function transcriptPrefixMatches(
+  expectedPrefix: readonly TranscriptMessage[],
+  candidate: readonly TranscriptMessage[],
+  length: number,
+): boolean {
+  if (length < 0 || expectedPrefix.length < length || candidate.length < length) {
+    return false;
+  }
+
+  for (let index = 0; index < length; index += 1) {
+    const expected = expectedPrefix[index];
+    const actual = candidate[index];
+    if (!expected || !actual || transcriptItemPublishMarker(expected) !== transcriptItemPublishMarker(actual)) {
+      return false;
+    }
+  }
+
+  return true;
 }
 
 function approximateObjectBytes(value: unknown, seen = new WeakSet<object>()): number {
@@ -272,11 +296,25 @@ export class DesktopAppStore implements AppStoreInternals {
   state = createEmptyDesktopAppState();
   private readonly listeners = new Set<StateListener>();
   private readonly selectedTranscriptListeners = new Set<SelectedTranscriptListener>();
+  private readonly transcriptEventListeners = new Set<TranscriptEventListener>();
   private readonly sessionEventListeners = new Set<SessionEventListener>();
+  private readonly transcriptSequenceBySession = new Map<string, number>();
   private readonly diagnostics = {
     selectedTranscriptPublishCount: 0,
     statePublishCount: 0,
     assistantDeltaFlushCount: 0,
+    stateChangedIpcCount: 0,
+    stateChangedIpcBytes: 0,
+    stateChangedLastIpcBytes: 0,
+    selectedTranscriptChangedIpcCount: 0,
+    selectedTranscriptChangedIpcBytes: 0,
+    selectedTranscriptChangedLastIpcBytes: 0,
+    transcriptEventIpcCount: 0,
+    transcriptEventIpcBytes: 0,
+    transcriptEventLastIpcBytes: 0,
+    statePatchChangedIpcCount: 0,
+    statePatchChangedIpcBytes: 0,
+    statePatchChangedLastIpcBytes: 0,
   };
   private sessionEventChain: Promise<void> = Promise.resolve();
   private readonly assistantDeltaBatcher = new AssistantDeltaBatcher(32, () => {
@@ -369,15 +407,18 @@ export class DesktopAppStore implements AppStoreInternals {
         return Date.parse(b.session.updatedAt) - Date.parse(a.session.updatedAt);
       });
 
-    return entries.map(({ workspace: workspaceEntry, session }) => {
-      const key = sessionKey({ workspaceId: workspaceEntry.id, sessionId: session.id });
-      const cachedTranscript = this.sessionState.transcriptCache.get(key) ?? [];
+    return Promise.all(entries.map(async ({ workspace: workspaceEntry, session }) => {
+      const cachedTranscript = await this.displayModeTranscriptFor({
+        workspaceId: workspaceEntry.id,
+        sessionId: session.id,
+      });
       return {
         workspace: lightweightDisplayModeWorkspace(workspaceEntry),
         session: structuredClone(session),
         transcript: recentDisplayModeTranscript(cachedTranscript, this.state.showThinking),
+        subagentActivity: summarizeDisplayModeSubagents(cachedTranscript),
       };
-    });
+    }));
   }
 
   async flushPersistence(): Promise<void> {
@@ -406,12 +447,59 @@ export class DesktopAppStore implements AppStoreInternals {
     await this.handleSessionEvent(event);
   }
 
+  async emitTestTranscriptEvent(event: TranscriptSyncEvent): Promise<void> {
+    await this.initialize();
+    this.emitTranscriptEvent(event);
+  }
+
   getDiagnostics(): {
     readonly selectedTranscriptPublishCount: number;
     readonly statePublishCount: number;
     readonly assistantDeltaFlushCount: number;
+    readonly stateChangedIpcCount: number;
+    readonly stateChangedIpcBytes: number;
+    readonly stateChangedLastIpcBytes: number;
+    readonly selectedTranscriptChangedIpcCount: number;
+    readonly selectedTranscriptChangedIpcBytes: number;
+    readonly selectedTranscriptChangedLastIpcBytes: number;
+    readonly transcriptEventIpcCount: number;
+    readonly transcriptEventIpcBytes: number;
+    readonly transcriptEventLastIpcBytes: number;
+    readonly statePatchChangedIpcCount: number;
+    readonly statePatchChangedIpcBytes: number;
+    readonly statePatchChangedLastIpcBytes: number;
   } {
     return { ...this.diagnostics };
+  }
+
+  recordIpcPublish(
+    channel: "state-changed" | "selected-transcript-changed" | "transcript-event" | "state-patch-changed",
+    bytes: number,
+  ): void {
+    if (channel === "state-changed") {
+      this.diagnostics.stateChangedIpcCount += 1;
+      this.diagnostics.stateChangedIpcBytes += bytes;
+      this.diagnostics.stateChangedLastIpcBytes = bytes;
+      return;
+    }
+
+    if (channel === "transcript-event") {
+      this.diagnostics.transcriptEventIpcCount += 1;
+      this.diagnostics.transcriptEventIpcBytes += bytes;
+      this.diagnostics.transcriptEventLastIpcBytes = bytes;
+      return;
+    }
+
+    if (channel === "state-patch-changed") {
+      this.diagnostics.statePatchChangedIpcCount += 1;
+      this.diagnostics.statePatchChangedIpcBytes += bytes;
+      this.diagnostics.statePatchChangedLastIpcBytes = bytes;
+      return;
+    }
+
+    this.diagnostics.selectedTranscriptChangedIpcCount += 1;
+    this.diagnostics.selectedTranscriptChangedIpcBytes += bytes;
+    this.diagnostics.selectedTranscriptChangedLastIpcBytes = bytes;
   }
 
   getMemoryMonitorSnapshot(): MemoryMonitorStoreSnapshot {
@@ -439,7 +527,7 @@ export class DesktopAppStore implements AppStoreInternals {
 
   subscribe(listener: StateListener): () => void {
     this.listeners.add(listener);
-    void this.getState().then(listener).catch(() => undefined);
+    void this.getState().then(listener).catch((error) => logIgnoredError("app-store.subscribe.initial-state", error));
     return () => {
       this.listeners.delete(listener);
     };
@@ -447,10 +535,35 @@ export class DesktopAppStore implements AppStoreInternals {
 
   subscribeToSelectedTranscript(listener: SelectedTranscriptListener): () => void {
     this.selectedTranscriptListeners.add(listener);
-    void this.getSelectedTranscript().then(listener).catch(() => undefined);
+    void this.getSelectedTranscript()
+      .then(listener)
+      .catch((error) => logIgnoredError("app-store.subscribe.initial-selected-transcript", error));
     return () => {
       this.selectedTranscriptListeners.delete(listener);
     };
+  }
+
+  subscribeToTranscriptEvents(listener: TranscriptEventListener): () => void {
+    this.transcriptEventListeners.add(listener);
+    void this.getSelectedTranscript()
+      .then((payload) => {
+        if (payload && this.transcriptEventListeners.has(listener)) {
+          listener(this.buildTranscriptResetEvent(payload));
+        }
+      })
+      .catch((error) => logIgnoredError("app-store.subscribe.initial-transcript-event", error));
+    return () => {
+      this.transcriptEventListeners.delete(listener);
+    };
+  }
+
+  async resetSelectedTranscriptForRequest(input: TranscriptResetRequest): Promise<SelectedTranscriptRecord | null> {
+    const payload = await this.getSelectedTranscript();
+    if (!payload || payload.workspaceId !== input.workspaceId || payload.sessionId !== input.sessionId) {
+      return payload;
+    }
+    this.emitTranscriptEvent(this.buildTranscriptResetEvent(payload));
+    return payload;
   }
 
   subscribeToSessionEvents(listener: SessionEventListener): () => void {
@@ -778,6 +891,21 @@ export class DesktopAppStore implements AppStoreInternals {
     return this.emit();
   }
 
+  async setDiagnosticReportingPreferences(preferences: Partial<DiagnosticReportingPreferences>): Promise<DesktopAppState> {
+    await this.initialize();
+    this.state = {
+      ...this.state,
+      diagnosticReporting: {
+        ...this.state.diagnosticReporting,
+        ...preferences,
+      },
+      lastError: undefined,
+      revision: this.state.revision + 1,
+    };
+    await this.persistUiState();
+    return this.emit();
+  }
+
   async setIntegratedTerminalShell(integratedTerminalShell: string): Promise<DesktopAppState> {
     await this.initialize();
     const normalizedShell = integratedTerminalShell.trim();
@@ -1091,6 +1219,10 @@ export class DesktopAppStore implements AppStoreInternals {
           ...this.state.notificationPreferences,
           ...persisted.notificationPreferences,
         },
+        diagnosticReporting: {
+          ...this.state.diagnosticReporting,
+          ...persisted.diagnosticReporting,
+        },
         integratedTerminalShell: persisted.integratedTerminalShell ?? this.state.integratedTerminalShell,
         lastViewedAtBySession: persisted.lastViewedAtBySession ?? {},
         workspaceOrder: persisted.workspaceOrder ?? [],
@@ -1318,11 +1450,11 @@ export class DesktopAppStore implements AppStoreInternals {
       }
 
       await this.persistUiState();
-      const snapshot = this.emit();
-      if (this.currentSelectedSessionKey() !== previousSelectedKey) {
-        this.publishSelectedTranscript();
-      }
-      return snapshot;
+    const snapshot = this.emit();
+    if (this.currentSelectedSessionKey() !== previousSelectedKey) {
+      this.publishSelectedTranscript();
+    }
+    return snapshot;
     } finally {
       this.refreshStateDepth = Math.max(0, this.refreshStateDepth - 1);
     }
@@ -1388,6 +1520,27 @@ export class DesktopAppStore implements AppStoreInternals {
 
     this.sessionState.loadedTranscriptKeys.add(key);
     this.sessionState.transcriptCache.set(key, transcript);
+  }
+
+  private async displayModeTranscriptFor(sessionRef: SessionRef): Promise<readonly TranscriptMessage[]> {
+    const key = sessionKey(sessionRef);
+    const cachedTranscript = this.sessionState.transcriptCache.get(key);
+    if (cachedTranscript && cachedTranscript.length > 0) {
+      return cachedTranscript;
+    }
+    if (this.sessionState.loadedTranscriptKeys.has(key)) {
+      return cachedTranscript ?? [];
+    }
+
+    const persisted = await this.readPersistedTranscript(key);
+    if (!persisted) {
+      return cachedTranscript ?? [];
+    }
+
+    const transcript = persisted.transcript;
+    this.sessionState.loadedTranscriptKeys.add(key);
+    this.sessionState.transcriptCache.set(key, transcript);
+    return transcript;
   }
 
   private shouldReloadEmptyCachedTranscript(sessionRef: SessionRef): boolean {
@@ -1687,8 +1840,10 @@ export class DesktopAppStore implements AppStoreInternals {
   }
 
   private async enqueueSessionEventWork(work: () => Promise<void>): Promise<void> {
-    const nextWork = this.sessionEventChain.catch(() => undefined).then(work);
-    this.sessionEventChain = nextWork.catch(() => undefined);
+    const nextWork = this.sessionEventChain
+      .catch((error) => logIgnoredError("app-store.session-event-chain.previous", error))
+      .then(work);
+    this.sessionEventChain = nextWork.catch((error) => logIgnoredError("app-store.session-event-chain.next", error));
     await nextWork;
   }
 
@@ -1745,7 +1900,8 @@ export class DesktopAppStore implements AppStoreInternals {
       }
     }
 
-    const transcriptMarkerBefore = transcriptPublishMarker(this.sessionState.transcriptCache.get(key));
+    const transcriptBefore = this.sessionState.transcriptCache.get(key) ?? [];
+    const transcriptMarkerBefore = transcriptPublishMarker(transcriptBefore);
 
     switch (event.type) {
       case "assistantDelta":
@@ -1858,8 +2014,10 @@ export class DesktopAppStore implements AppStoreInternals {
       this.schedulePersistUiState();
     }
     const snapshot = this.emit();
-    if (transcriptMarkerBefore !== transcriptPublishMarker(this.sessionState.transcriptCache.get(key))) {
+    const transcriptAfter = this.sessionState.transcriptCache.get(key) ?? [];
+    if (transcriptMarkerBefore !== transcriptPublishMarker(transcriptAfter)) {
       this.publishSelectedTranscriptFor(event.sessionRef);
+      this.publishTranscriptDeltaFor(event.sessionRef, transcriptBefore, transcriptAfter);
     }
     await this.emitSessionEvent(event, snapshot);
   }
@@ -2118,6 +2276,7 @@ export class DesktopAppStore implements AppStoreInternals {
       composerDraftsBySession: mapToRecord(this.sessionState.composerDraftsBySession),
       extensionCommandCompatibilityByWorkspace: serializeCompatibilityByWorkspace(this.extensionCommandCompatibilityByWorkspace),
       notificationPreferences: this.state.notificationPreferences,
+      diagnosticReporting: this.state.diagnosticReporting,
       integratedTerminalShell: this.state.integratedTerminalShell || undefined,
       lastViewedAtBySession: mapToRecord(this.sessionState.lastViewedAtBySession),
       workspaceOrder: this.state.workspaceOrder.length > 0 ? this.state.workspaceOrder : undefined,
@@ -2249,6 +2408,93 @@ export class DesktopAppStore implements AppStoreInternals {
     };
   }
 
+  private nextTranscriptSequenceFor(sessionRef: SessionRef): number {
+    const key = sessionKey(sessionRef);
+    const next = (this.transcriptSequenceBySession.get(key) ?? 0) + 1;
+    this.transcriptSequenceBySession.set(key, next);
+    return next;
+  }
+
+  private buildTranscriptResetEvent(payload: SelectedTranscriptRecord): TranscriptSyncEvent {
+    return {
+      kind: "reset",
+      workspaceId: payload.workspaceId,
+      sessionId: payload.sessionId,
+      sequence: this.nextTranscriptSequenceFor(payload),
+      transcript: payload.transcript.map(cloneTranscriptMessage),
+    };
+  }
+
+  private emitTranscriptEvent(event: TranscriptSyncEvent): void {
+    for (const listener of this.transcriptEventListeners) {
+      listener(event);
+    }
+  }
+
+  private publishTranscriptDeltaFor(
+    sessionRef: SessionRef,
+    before: readonly TranscriptMessage[],
+    after: readonly TranscriptMessage[],
+  ): void {
+    if (!this.isSelectedSession(sessionRef)) {
+      return;
+    }
+    this.emitTranscriptEvent(this.buildTranscriptDeltaEvent(sessionRef, before, after));
+  }
+
+  private buildTranscriptDeltaEvent(
+    sessionRef: SessionRef,
+    before: readonly TranscriptMessage[],
+    after: readonly TranscriptMessage[],
+  ): TranscriptSyncEvent {
+    const base = {
+      workspaceId: sessionRef.workspaceId,
+      sessionId: sessionRef.sessionId,
+      sequence: this.nextTranscriptSequenceFor(sessionRef),
+    };
+
+    if (after.length > before.length && transcriptPrefixMatches(before, after, before.length)) {
+      return {
+        kind: "append",
+        ...base,
+        items: after.slice(before.length).map(cloneTranscriptMessage),
+      };
+    }
+
+    if (
+      before.length > 0 &&
+      after.length === before.length &&
+      transcriptPrefixMatches(before, after, before.length - 1)
+    ) {
+      return {
+        kind: "update-last",
+        ...base,
+        item: cloneTranscriptMessage(after[after.length - 1] as TranscriptMessage),
+      };
+    }
+
+    if (after.length < before.length && transcriptPrefixMatches(after, before, after.length)) {
+      const lastKept = after.at(-1);
+      return lastKept
+        ? {
+            kind: "truncate",
+            ...base,
+            afterItemId: lastKept.id,
+          }
+        : {
+            kind: "truncate",
+            ...base,
+            length: 0,
+          };
+    }
+
+    return {
+      kind: "reset",
+      ...base,
+      transcript: after.map(cloneTranscriptMessage),
+    };
+  }
+
   emit(): DesktopAppState {
     const snapshot = structuredClone(this.state);
     this.diagnostics.statePublishCount += 1;
@@ -2264,6 +2510,9 @@ export class DesktopAppStore implements AppStoreInternals {
     this.diagnostics.selectedTranscriptPublishCount += 1;
     for (const listener of this.selectedTranscriptListeners) {
       listener(payload);
+    }
+    if (payload) {
+      this.emitTranscriptEvent(this.buildTranscriptResetEvent(payload));
     }
   }
 

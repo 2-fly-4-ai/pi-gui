@@ -2,7 +2,6 @@ import type { SessionConfig } from "@pi-gui/session-driver";
 import type {
   RuntimeCommandRecord,
   RuntimeProviderRecord,
-  RuntimeSettingsSnapshot,
   RuntimeSnapshot,
 } from "@pi-gui/session-driver/runtime-types";
 import type { ExtensionCommandCompatibilityRecord } from "./desktop-state";
@@ -557,16 +556,6 @@ function providerRankForId(
 ): number {
   const provider = providers.find((entry) => entry.id === providerId);
   return provider ? providerRank(provider) : 99;
-}
-
-function summarizeSkillDescription(value: string): string {
-  const trimmed = value.trim().replace(/\s+/g, " ");
-  if (!trimmed) {
-    return "Reusable workflow";
-  }
-
-  const firstSentence = trimmed.match(/^[^.!?]+[.!?]?/)?.[0]?.trim() ?? trimmed;
-  return firstSentence.length > 96 ? `${firstSentence.slice(0, 93).trimEnd()}...` : firstSentence;
 }
 
 function formatRuntimeCommandTitle(command: RuntimeCommandRecord): string {

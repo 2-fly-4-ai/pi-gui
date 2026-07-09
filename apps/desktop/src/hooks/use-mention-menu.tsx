@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type RefObject } from "react";
+import { useCallback, useEffect, useMemo, useState, type KeyboardEvent, type RefObject } from "react";
 import type { PiDesktopApi } from "../ipc";
 import { nextMenuIndex } from "./use-slash-menu";
 

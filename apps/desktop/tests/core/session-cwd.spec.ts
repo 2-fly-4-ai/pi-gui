@@ -22,15 +22,24 @@ test("new threads persist the selected workspace cwd, not Electron's launch cwd"
     const window = await harness.firstWindow();
     const workspace = await waitForWorkspaceByPath(window, workspacePath);
 
-    const nextState = await window.evaluate(async (workspaceId) => {
+    const selectedSessionId = await window.evaluate(async (workspaceId) => {
       const app = (window as PiAppWindow).piApp;
       if (!app) {
         throw new Error("piApp IPC bridge is unavailable");
       }
-      return app.createSession({ workspaceId, title: "Cwd regression thread" });
+      await app.createSession({ workspaceId, title: "Cwd regression thread" });
+      const deadline = Date.now() + 10_000;
+      while (Date.now() < deadline) {
+        const state = await app.getState();
+        const workspace = state.workspaces.find((entry) => entry.id === workspaceId);
+        const session = workspace?.sessions.find((entry) => entry.title === "Cwd regression thread");
+        if (session) {
+          return session.id;
+        }
+        await new Promise((resolve) => window.setTimeout(resolve, 100));
+      }
+      throw new Error("Created session was not published to state");
     }, workspace.id);
-
-    const selectedSessionId = nextState.selectedSessionId;
     expect(selectedSessionId).toBeTruthy();
 
     const catalogsPath = join(userDataDir, "catalogs.json");

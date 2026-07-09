@@ -66,6 +66,12 @@ test("supports keyboard shortcuts, slash menus, and topbar controls through the 
     await selectSession(window, "Controls session");
     await expect(composer).toBeFocused();
 
+    await expect(window.getByTestId("topbar-runtime-status")).toContainText(/idle/i);
+    const composerStatusStrip = window.locator(".composer > .conversation--composer .composer-status-strip").first();
+    await expect(composerStatusStrip.locator(".checkout-selector__bar")).toContainText("Local checkout");
+    await expect(composerStatusStrip).not.toContainText(/idle/i);
+    await expect(window.getByTestId("composer-runtime-status")).toHaveCount(0);
+
     await expect(window.locator(".checkout-selector__bar")).toContainText("Local checkout");
     await window.locator(".checkout-selector__button").click();
     await expect(window.locator(".checkout-selector__popover")).toBeVisible();
@@ -119,12 +125,10 @@ test("supports keyboard shortcuts, slash menus, and topbar controls through the 
     await expect(reasoningDropdown).not.toContainText("Normal");
     await window.keyboard.press("Escape");
 
-    const fastModeTrigger = window.getByTestId("fast-mode-selector-trigger");
-    await expect(fastModeTrigger).toBeVisible();
-    await fastModeTrigger.click();
-    await expect(window.locator(".fast-mode-selector__dropdown")).toContainText("Fast Mode");
-    await expect(window.locator(".fast-mode-selector__dropdown")).toContainText("Priority tier");
-    await window.keyboard.press("Escape");
+    const composerControlBar = window.locator(".composer > .conversation--composer .composer-control-bar").first();
+    await expect(composerControlBar).not.toContainText("Fast:");
+    await expect(composerControlBar).not.toContainText("Build");
+    await expect(window.getByTestId("fast-mode-selector-trigger")).toHaveCount(0);
 
     await composer.fill("Keep the draft /thinking");
     await expect(optionsMenu).toBeVisible();
@@ -171,6 +175,53 @@ test("supports keyboard shortcuts, slash menus, and topbar controls through the 
     });
     expect(appRegions.topbar).toBe("drag");
     expect(appRegions.addFolder).toBe("no-drag");
+
+    const topbarChrome = await window.evaluate(() => {
+      const groups = Array.from(document.querySelectorAll<HTMLElement>(".topbar__actions .topbar__action-group"));
+      const dividers = groups.slice(1).map((group) => {
+        const styles = getComputedStyle(group, "::before");
+        return {
+          background: styles.backgroundColor,
+          height: styles.height,
+          width: styles.width,
+        };
+      });
+      const iconButtons = Array.from(
+        document.querySelectorAll<HTMLButtonElement>(".topbar__actions .topbar__icon, .topbar__actions .git-quick-actions__trigger"),
+      );
+      const iconMetadata = iconButtons.map((button) => {
+        const tooltip = button.closest(".shortcut-tooltip-wrap")?.querySelector<HTMLElement>("[role='tooltip']");
+        return {
+          label: button.getAttribute("aria-label") ?? "",
+          tooltip: tooltip?.textContent?.replace(/\s+/g, " ").trim() ?? "",
+        };
+      });
+
+      return {
+        groupCount: groups.length,
+        dividers,
+        iconMetadata,
+        missingLabels: iconMetadata.filter((entry) => entry.label.length === 0),
+        missingTooltips: iconMetadata.filter((entry) => entry.tooltip.length === 0),
+      };
+    });
+
+    expect(topbarChrome.groupCount).toBeGreaterThanOrEqual(3);
+    expect(topbarChrome.dividers.length).toBe(topbarChrome.groupCount - 1);
+    expect(topbarChrome.dividers.every((divider) => divider.width === "1px" && divider.height === "18px" && divider.background !== "rgba(0, 0, 0, 0)")).toBe(true);
+    expect(topbarChrome.missingLabels).toEqual([]);
+    expect(topbarChrome.missingTooltips).toEqual([]);
+    expect(topbarChrome.iconMetadata.map((entry) => entry.label)).toEqual(
+      expect.arrayContaining(["Toggle terminal", "Toggle changes", "GitHub actions", "Add folder"]),
+    );
+    expect(topbarChrome.iconMetadata.map((entry) => entry.tooltip)).toEqual(
+      expect.arrayContaining([
+        expect.stringMatching(/Toggle terminal\s*(⌘J|Ctrl\+J)/),
+        expect.stringMatching(/Toggle changes\s*(⌘D|Ctrl\+D)/),
+        "GitHub actions",
+        "Add folder",
+      ]),
+    );
 
     const maximizedBefore = await harness.electronApp.evaluate(({ BrowserWindow }) => {
       return BrowserWindow.getAllWindows()[0]?.isMaximized() ?? false;
@@ -262,11 +313,23 @@ test("host slash command failures restore the draft and surface an error", async
     const composer = window.getByTestId("composer");
 
     await composer.fill("/compact");
-    await composer.press("Enter");
+    await window.evaluate(async () => {
+      const app = window.piApp;
+      if (!app) {
+        throw new Error("piApp IPC bridge is unavailable");
+      }
+      await app.submitComposer("/compact");
+    });
 
-    await expect(composer).toHaveValue("/compact");
-    await expect(window.getByTestId("composer-error-banner")).toContainText(/Summarization failed|compact|auth|key|model|terminated/i);
-    await expect.poll(async () => (await getDesktopState(window)).composerDraft).toBe("/compact");
+    await expect
+      .poll(async () => (await getDesktopState(window)).lastError ?? "", { timeout: 30_000 })
+      .toMatch(/Summarization failed|compact|auth|key|model|terminated/i);
+    await expect.poll(async () => (await getDesktopState(window)).composerDraft, { timeout: 15_000 }).toBe("/compact");
+    await expect(composer).toHaveValue("/compact", { timeout: 15_000 });
+    await expect(window.getByTestId("composer-error-banner")).toContainText(
+      /Summarization failed|compact|auth|key|model|terminated/i,
+      { timeout: 15_000 },
+    );
   } finally {
     await harness.close();
   }
@@ -328,8 +391,8 @@ test("composer keeps narrow widths friendly by collapsing secondary controls", a
     const compactMenu = window.getByTestId("composer-control-menu");
     await expect(compactMenu).toBeVisible();
     await expect(compactMenu).toContainText("Reasoning");
-    await expect(compactMenu).toContainText("Fast Mode");
-    await expect(compactMenu).toContainText("Mode");
+    await expect(compactMenu).not.toContainText("Fast Mode");
+    await expect(compactMenu).not.toContainText("Mode");
     await expect(compactMenu).toContainText("Access");
     await expect(compactMenu).toContainText("Attach files");
   } finally {

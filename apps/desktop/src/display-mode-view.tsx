@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type Dispatch, type KeyboardEvent, type SetStateAction } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type Dispatch, type SetStateAction } from "react";
 import type { RuntimeCommandRecord, RuntimeSnapshot } from "@pi-gui/session-driver/runtime-types";
 import {
   DndContext,
@@ -16,15 +16,23 @@ import {
   rectSortingStrategy,
   SortableContext,
   sortableKeyboardCoordinates,
-  useSortable,
 } from "@dnd-kit/sortable";
-import { CSS } from "@dnd-kit/utilities";
-import type { DesktopAppState, DisplayModeThreadRecord, ExtensionCommandCompatibilityRecord, SessionRecord } from "./desktop-state";
-import { TimelineItem } from "./timeline-item";
-import { TerminalPanel } from "./terminal-panel";
-import { ComposerSurface } from "./composer-surface";
-import { useSlashMenu } from "./hooks/use-slash-menu";
-import { ArrowUpIcon, MaximizeIcon, MinimizeIcon, SidebarToggleIcon, StopSquareIcon, TerminalIcon } from "./icons";
+import type { DesktopAppState, DisplayModeThreadRecord, ExtensionCommandCompatibilityRecord } from "./desktop-state";
+import { DisplayModeTile } from "./features/display-mode/display-mode-tile";
+import type { ChangedFile, ColumnMode, DisplayModeFilter, DrawerTab } from "./features/display-mode/display-mode-types";
+import {
+  fileBadge,
+  filterLabel,
+  gridTemplateColumnsForMode,
+  isHttpUrl,
+  lsGetBool,
+  lsGetColumnMode,
+  lsGetNum,
+  lsSet,
+  matchesFilter,
+  statusTone,
+  threadKey,
+} from "./features/display-mode/display-mode-utils";
 import type { PiDesktopApi } from "./ipc";
 import type { SettingsSection } from "./settings-view";
 import { formatRelativeTime } from "./string-utils";
@@ -33,23 +41,7 @@ import {
   getMaxVsCodeSidePanelWidth,
 } from "./vscode-panel-width";
 
-type DisplayModeFilter = "all" | "running" | "waiting" | "error";
-type DrawerTab = "preview" | "logs" | "files";
-type ColumnMode = number | "auto";
-
-interface ChangedFile {
-  readonly path: string;
-  readonly status: "added" | "modified" | "deleted" | "untracked";
-  readonly staged: boolean;
-}
-
-export function DisplayModeView({
-  api, drawerOpen, onToggleDrawer,
-  vsCodeOpen, vsCodeWorkspaceId, vsCodeFolderPath, vsCodeWidth, onVsCodeWidthChange, onToggleVsCode, onOpenVsCodeForWorkspace,
-  initialPinnedThreadKey, vscodeSlotRef,
-  runtimeByWorkspace, sessionCommandsBySession, commandCompatibilityByWorkspace,
-  setSnapshot, openSettings, updateSnapshot, onOpenThread,
-}: {
+export interface DisplayModeViewProps {
   readonly api: PiDesktopApi;
   readonly drawerOpen: boolean;
   readonly onToggleDrawer: () => void;
@@ -67,13 +59,16 @@ export function DisplayModeView({
   readonly commandCompatibilityByWorkspace: Readonly<Record<string, readonly ExtensionCommandCompatibilityRecord[]>>;
   readonly setSnapshot: Dispatch<SetStateAction<DesktopAppState | null>>;
   readonly openSettings: (workspaceId?: string, section?: SettingsSection) => void;
-  readonly updateSnapshot: (
-    api: PiDesktopApi,
-    setSnapshot: Dispatch<SetStateAction<DesktopAppState | null>>,
-    action: () => Promise<DesktopAppState>,
-  ) => Promise<DesktopAppState>;
   readonly onOpenThread: (target: { readonly workspaceId: string; readonly sessionId: string }) => void;
-}) {
+}
+
+export function DisplayModeView({
+  api, drawerOpen,
+  vsCodeOpen, vsCodeWorkspaceId, vsCodeWidth, onVsCodeWidthChange, onOpenVsCodeForWorkspace,
+  initialPinnedThreadKey, vscodeSlotRef,
+  runtimeByWorkspace, sessionCommandsBySession, commandCompatibilityByWorkspace,
+  setSnapshot, openSettings, onOpenThread,
+}: DisplayModeViewProps) {
   const [threads, setThreads] = useState<readonly DisplayModeThreadRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<DisplayModeFilter>("all");
@@ -215,7 +210,7 @@ export function DisplayModeView({
       setLoading(false);
     }).catch(() => { if (active) setLoading(false); });
 
-    const unsub = api.onStateChanged(scheduleRefresh);
+    const unsub = api.onStatePatchChanged(scheduleRefresh);
     return () => { active = false; clearTimeout(pendingRefresh.current); unsub(); };
   }, [api, applyRecords]);
 
@@ -453,7 +448,6 @@ export function DisplayModeView({
                 commandCompatibility={commandCompatibilityByWorkspace[focusRecord.workspace.id] ?? []}
                 setSnapshot={setSnapshot}
                 openSettings={openSettings}
-                updateSnapshot={updateSnapshot}
                 isPinned={focusKey === pinnedThreadKey}
                 isExpanded={true}
                 compact={false}
@@ -483,7 +477,6 @@ export function DisplayModeView({
                         commandCompatibility={commandCompatibilityByWorkspace[record.workspace.id] ?? []}
                         setSnapshot={setSnapshot}
                         openSettings={openSettings}
-                        updateSnapshot={updateSnapshot}
                         isPinned={key === pinnedThreadKey}
                         isExpanded={false}
                         compact={compact}
@@ -523,7 +516,6 @@ export function DisplayModeView({
                       commandCompatibility={commandCompatibilityByWorkspace[record.workspace.id] ?? []}
                       setSnapshot={setSnapshot}
                       openSettings={openSettings}
-                      updateSnapshot={updateSnapshot}
                       isPinned={key === pinnedThreadKey}
                       isExpanded={false}
                       compact={compact}
@@ -678,440 +670,4 @@ export function DisplayModeView({
       />
     </section>
   );
-}
-
-/* ── Tile ─────────────────────────────────────────────────────────── */
-
-function DisplayModeTile({
-  api, id, record, terminalOpen, renderTerminalInline, isPinned, isExpanded, compact,
-  runtime, sessionCommands, commandCompatibility, setSnapshot, openSettings, updateSnapshot,
-  onFilesUpdate, onOpenThread, onOpenVSCode, onPinPreview, onToggleTerminal, onToggleExpand,
-}: {
-  readonly api: PiDesktopApi;
-  readonly id: string;
-  readonly record: DisplayModeThreadRecord;
-  readonly terminalOpen: boolean;
-  readonly renderTerminalInline: boolean;
-  readonly runtime: RuntimeSnapshot | undefined;
-  readonly sessionCommands: readonly RuntimeCommandRecord[];
-  readonly commandCompatibility: readonly ExtensionCommandCompatibilityRecord[];
-  readonly setSnapshot: Dispatch<SetStateAction<DesktopAppState | null>>;
-  readonly openSettings: (workspaceId?: string, section?: SettingsSection) => void;
-  readonly updateSnapshot: (
-    api: PiDesktopApi,
-    setSnapshot: Dispatch<SetStateAction<DesktopAppState | null>>,
-    action: () => Promise<DesktopAppState>,
-  ) => Promise<DesktopAppState>;
-  readonly isPinned: boolean;
-  readonly isExpanded: boolean;
-  readonly compact: boolean;
-  readonly onFilesUpdate: ((files: readonly ChangedFile[]) => void) | undefined;
-  readonly onOpenThread: () => void;
-  readonly onOpenVSCode: () => void;
-  readonly onPinPreview: () => void;
-  readonly onToggleTerminal: () => void;
-  readonly onToggleExpand: () => void;
-}) {
-  const [renaming, setRenaming] = useState(false);
-  const [renameDraft, setRenameDraft] = useState("");
-  const renameInputRef = useRef<HTMLInputElement | null>(null);
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id, disabled: isExpanded });
-  const [draft, setDraft] = useState("");
-  const [submitting, setSubmitting] = useState(false);
-  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
-  const transcriptRef = useRef<HTMLDivElement | null>(null);
-  const terminalWrapperRef = useRef<HTMLDivElement | null>(null);
-  const [terminalHeight, setTerminalHeight] = useState(200);
-  const [expandedToolCallIds, setExpandedToolCallIds] = useState<Set<string>>(() => new Set());
-  const tone = statusTone(record.session);
-  const recentMessages = record.transcript.slice(-8);
-  const focusComposer = () => {
-    window.requestAnimationFrame(() => textareaRef.current?.focus());
-  };
-  const submitText = useCallback((textInput: string) => {
-    const text = textInput.trim();
-    if (!text || submitting) return;
-    setSubmitting(true);
-    setDraft("");
-    void api.submitComposerToSession(
-      { workspaceId: record.workspace.id, sessionId: record.session.id },
-      text,
-      record.session.status === "running" ? { deliverAs: "steer" } : undefined,
-    ).finally(() => setSubmitting(false));
-  }, [api, record.session.id, record.session.status, record.workspace.id, submitting]);
-
-  const slashMenu = useSlashMenu({
-    composerDraft: draft,
-    setComposerDraft: setDraft,
-    selectedRuntime: runtime,
-    selectedModelRuntime: runtime,
-    sessionCommands,
-    commandCompatibility,
-    selectedSessionKey: id,
-    selectedSession: record.session,
-    selectedWorkspace: record.workspace,
-    isRunning: record.session.status === "running",
-    api,
-    setSnapshot,
-    focusComposer,
-    openSettings,
-    updateSnapshot,
-    allowTreeCommand: false,
-    immediateCommandMode: "submit",
-    onSubmitImmediateCommand: submitText,
-  });
-
-  useEffect(() => {
-    const availableToolCallIds = new Set(
-      record.transcript.filter((item) => item.kind === "tool").map((item) => item.callId),
-    );
-    setExpandedToolCallIds((current) => {
-      if (current.size === 0) return current;
-      const next = new Set<string>();
-      for (const callId of current) {
-        if (availableToolCallIds.has(callId)) {
-          next.add(callId);
-        }
-      }
-      return next.size === current.size ? current : next;
-    });
-  }, [record.transcript]);
-
-  const toggleToolCall = useCallback((callId: string) => {
-    setExpandedToolCallIds((current) => {
-      const next = new Set(current);
-      if (next.has(callId)) {
-        next.delete(callId);
-      } else {
-        next.add(callId);
-      }
-      return next;
-    });
-  }, []);
-
-  // Measure terminal wrapper height so TerminalPanel fills it exactly
-  useEffect(() => {
-    if (!terminalOpen) { setTerminalHeight(200); return; }
-    const el = terminalWrapperRef.current;
-    if (!el) return;
-    const ro = new ResizeObserver(() => {
-      const h = el.clientHeight;
-      if (h > 0) setTerminalHeight(h);
-    });
-    ro.observe(el);
-    const h = el.clientHeight;
-    if (h > 0) setTerminalHeight(h);
-    return () => ro.disconnect();
-  }, [terminalOpen]);
-
-  // Auto-scroll transcript to bottom while running
-  useEffect(() => {
-    if (record.session.status === "running" && transcriptRef.current) {
-      transcriptRef.current.scrollTop = transcriptRef.current.scrollHeight;
-    }
-  }, [record.transcript.length, record.session.status]);
-
-  useEffect(() => { if (renaming) renameInputRef.current?.select(); }, [renaming]);
-
-  const startRename = () => { setRenameDraft(record.session.title); setRenaming(true); };
-  const submitRename = () => {
-    const t = renameDraft.trim();
-    if (t && t !== record.session.title) {
-      void api.renameSession({ workspaceId: record.workspace.id, sessionId: record.session.id }, t);
-    }
-    setRenaming(false);
-  };
-
-  useEffect(() => {
-    let active = true;
-    void api.getChangedFiles(record.workspace.id).then((files) => {
-      if (!active) return;
-      const sliced = files.slice(0, 8);
-      onFilesUpdate?.(sliced);
-    }).catch(() => undefined);
-    return () => { active = false; };
-  }, [api, record.workspace.id, record.session.updatedAt, onFilesUpdate]);
-
-  // Auto-resize textarea
-  useEffect(() => {
-    const ta = textareaRef.current;
-    if (!ta) return;
-    ta.style.height = "0";
-    ta.style.height = `${ta.scrollHeight}px`;
-  }, [draft]);
-
-  const submit = () => {
-    submitText(draft);
-  };
-
-  const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (slashMenu.handleSlashKeyDown(e)) return;
-    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submit(); }
-  };
-
-  const handleTileKeyDown = (e: KeyboardEvent<HTMLElement>) => {
-    const tag = (e.target as HTMLElement).tagName;
-    if (tag === "TEXTAREA" || tag === "INPUT" || tag === "BUTTON") return;
-    if (e.key === "t" || e.key === "T") { e.preventDefault(); onToggleTerminal(); }
-    else if (e.key === "v" || e.key === "V") { e.preventDefault(); onOpenVSCode(); }
-    else if (e.key === "o" || e.key === "O") { e.preventDefault(); onOpenThread(); }
-  };
-
-  return (
-    <article
-      ref={setNodeRef}
-      className={`display-mode-tile display-mode-tile--${tone}${isPinned ? " display-mode-tile--pinned" : ""}${isDragging ? " display-mode-tile--dragging" : ""}${isExpanded ? " display-mode-tile--expanded" : ""}${compact ? " display-mode-tile--compact" : ""}${terminalOpen ? " display-mode-tile--terminal-open" : ""}`}
-      style={{
-        transform: CSS.Transform.toString(transform),
-        transition,
-      }}
-      data-testid="display-mode-thread-tile"
-      onKeyDown={handleTileKeyDown}
-      {...attributes}
-    >
-      <div className="display-mode-tile__accent" aria-hidden="true" />
-      {/* Header */}
-      <header className="display-mode-tile__head">
-        <div className="display-mode-tile__head-top">
-          <div
-            className="display-mode-tile__drag"
-            {...(isExpanded ? {} : listeners)}
-            aria-label="Drag to reorder"
-            title="Drag to reorder"
-            style={isExpanded ? { opacity: 0.3, pointerEvents: "none" } : undefined}
-          >⠿</div>
-          <button
-            className={`display-mode-tile__expand-btn${isExpanded ? " display-mode-tile__expand-btn--active" : ""}`}
-            type="button"
-            aria-label={isExpanded ? "Collapse tile" : "Expand tile to half width"}
-            title={isExpanded ? "Collapse" : "Expand to half"}
-            onClick={(e) => { e.stopPropagation(); onToggleExpand(); }}
-          >
-            {isExpanded ? <MinimizeIcon /> : <MaximizeIcon />}
-          </button>
-          <span className="display-mode-tile__workspace">{record.workspace.name}</span>
-          <span className={`display-mode-tile__status-pill display-mode-tile__status-pill--${tone}`}>
-            <span className="display-mode-tile__status-dot" aria-hidden="true" />
-            {statusLabel(record.session)}
-          </span>
-          <span className="display-mode-tile__time">{formatRelativeTime(record.session.updatedAt)}</span>
-        </div>
-        <div className="display-mode-tile__head-title">
-          {renaming ? (
-            <input
-              ref={renameInputRef}
-              className="display-mode-tile__rename-input"
-              value={renameDraft}
-              onChange={(e) => setRenameDraft(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") { e.preventDefault(); submitRename(); }
-                if (e.key === "Escape") { e.preventDefault(); setRenaming(false); }
-              }}
-              onBlur={submitRename}
-              onClick={(e) => e.stopPropagation()}
-            />
-          ) : (
-            <button
-              className="display-mode-tile__title display-mode-tile__title--editable"
-              type="button"
-              title="Click to rename"
-              onClick={(e) => { e.stopPropagation(); startRename(); }}
-            >
-              {record.session.title}
-            </button>
-          )}
-        </div>
-      </header>
-
-      {/* Actions row */}
-      {!compact && (
-        <div className="display-mode-tile__actions">
-          <button className="button button--primary display-mode-tile__action-primary" type="button" onClick={onOpenThread}>Open thread</button>
-          {record.session.status === "running" && (
-            <button className="button display-mode-tile__action-stop" type="button" onClick={() => void api.cancelSessionRun({ workspaceId: record.workspace.id, sessionId: record.session.id })}>
-              <StopSquareIcon /> Stop
-            </button>
-          )}
-          <button className={`button${terminalOpen ? " display-mode-tile__action-active" : ""}`} type="button" onClick={onToggleTerminal}><TerminalIcon /> Terminal</button>
-          <button className="button" type="button" onClick={onOpenVSCode}>VS Code</button>
-          <button className={`button${isPinned ? " display-mode-tile__action-active" : ""}`} type="button" aria-pressed={isPinned} onClick={onPinPreview}><MaximizeIcon /> Pin</button>
-        </div>
-      )}
-
-      {/* Transcript */}
-      {!compact && (
-        <div className="display-mode-tile__transcript" ref={transcriptRef}>
-          {recentMessages.length > 0 ? (
-            recentMessages.map((item) => (
-              <TimelineItem
-                item={item}
-                key={item.id}
-                expandedToolCallIds={expandedToolCallIds}
-                onToggleToolCall={toggleToolCall}
-              />
-            ))
-          ) : (
-            <div className="display-mode-tile__empty-state">No messages yet</div>
-          )}
-        </div>
-      )}
-
-      {/* Terminal (when open) */}
-      {!compact && terminalOpen && renderTerminalInline && (
-        <div className="display-mode-tile__terminal" ref={terminalWrapperRef}>
-          <TerminalPanel
-            workspace={record.workspace}
-            sessionId={record.session.id}
-            height={terminalHeight}
-            isTakeover={false}
-            onHeightChange={() => undefined}
-            onToggleTakeover={() => undefined}
-            onHide={onToggleTerminal}
-          />
-        </div>
-      )}
-
-      {/* Reply — reuse the same composer surface/input structure as the thread view. */}
-      {!compact && <div className="composer display-mode-tile__reply">
-        <div className="conversation conversation--composer">
-          <ComposerSurface
-            activeSlashCommand={slashMenu.activeSlashFlow?.command}
-            activeSlashCommandMeta={slashMenu.activeSlashFlow?.command?.description}
-            attachments={[]}
-            queuedMessages={[]}
-            composerDraft={draft}
-            composerRef={textareaRef}
-            lastError={undefined}
-            onCancelQueuedEdit={() => undefined}
-            onClearSlashCommand={slashMenu.resetSlashUi}
-            onComposerDrop={(event) => event.preventDefault()}
-            onComposerKeyDown={handleKeyDown}
-            onComposerPaste={() => undefined}
-            onEditQueuedMessage={() => undefined}
-            onRemoveAttachment={() => undefined}
-            onRemoveQueuedMessage={() => undefined}
-            onSelectMention={() => undefined}
-            onSelectSlashCommand={(command) => slashMenu.applySlashCommandSelection(command, "click")}
-            onSelectSlashOption={(option) => slashMenu.applySlashOptionSelection(option)}
-            onSteerQueuedMessage={() => undefined}
-            selectedMentionIndex={0}
-            selectedSlashCommand={slashMenu.activeSlashOptionCommand ?? slashMenu.selectedSlashCommand}
-            selectedSlashOption={slashMenu.selectedSlashOption}
-            setComposerDraft={setDraft}
-            showMentionMenu={false}
-            mentionOptions={[]}
-            showSlashMenu={slashMenu.showSlashMenu}
-            showSlashOptionMenu={slashMenu.showSlashOptionMenu}
-            slashOptionEmptyState={slashMenu.slashOptionEmptyState}
-            slashOptions={slashMenu.slashOptions}
-            slashSections={slashMenu.slashSections}
-            textareaLabel={`Reply to ${record.session.title}`}
-            textareaPlaceholder={`Reply to ${record.session.title}…`}
-            textareaTestId={`display-mode-reply-${id}`}
-            compactSlashDescriptions
-            footer={(
-              <div className="composer__footer">
-                <div className="composer-control-bar display-mode-tile__reply-bar">
-                  <div className="composer-control-bar__left">
-                    <span className="display-mode-tile__reply-hint">Enter to send · Shift+Enter newline</span>
-                  </div>
-                  <div className="composer-control-bar__right">
-                    <button
-                      className="button button--primary button--cta-icon"
-                      type="button"
-                      disabled={submitting || !draft.trim()}
-                      onClick={submit}
-                      aria-label="Send reply"
-                    >
-                      <ArrowUpIcon />
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
-          />
-        </div>
-      </div>}
-    </article>
-  );
-}
-
-/* ── Helpers ──────────────────────────────────────────────────────── */
-
-function threadKey(workspaceId: string, sessionId: string): string {
-  return `${workspaceId}:${sessionId}`;
-}
-
-function matchesFilter(session: SessionRecord, filter: DisplayModeFilter): boolean {
-  if (filter === "all") return true;
-  if (filter === "running") return session.status === "running";
-  if (filter === "error") return session.status === "failed";
-  return false;
-}
-
-function filterLabel(filter: DisplayModeFilter): string {
-  if (filter === "running") return "Running";
-  if (filter === "waiting") return "Waiting";
-  if (filter === "error") return "Error";
-  return "All";
-}
-
-function statusTone(session: SessionRecord): "running" | "waiting" | "error" | "idle" {
-  if (session.status === "running") return "running";
-  if (session.status === "failed") return "error";
-  if (session.hasUnseenUpdate) return "waiting";
-  return "idle";
-}
-
-function statusLabel(session: SessionRecord): string {
-  const t = statusTone(session);
-  if (t === "running") return "Running";
-  if (t === "waiting") return "Needs reply";
-  if (t === "error") return "Error";
-  return "Idle";
-}
-
-function fileBadge(status: ChangedFile["status"]): string {
-  if (status === "added") return "A";
-  if (status === "deleted") return "D";
-  if (status === "untracked") return "U";
-  return "M";
-}
-
-function isHttpUrl(value: string): boolean {
-  try {
-    const p = new URL(value);
-    return p.protocol === "http:" || p.protocol === "https:";
-  } catch { return false; }
-}
-
-
-function gridTemplateColumnsForMode(mode: ColumnMode): string {
-  return mode === "auto"
-    ? "repeat(auto-fit, minmax(min(380px, 100%), 1fr))"
-    : `repeat(${mode}, minmax(0, 1fr))`;
-}
-
-function lsGetNum(key: string, fallback: number): number {
-  try { const v = localStorage.getItem(key); return v !== null ? Number(v) : fallback; } catch { return fallback; }
-}
-
-function lsGetColumnMode(key: string, fallback: ColumnMode): ColumnMode {
-  try {
-    const value = localStorage.getItem(key);
-    if (value === "auto") return "auto";
-    if (value === null) return fallback;
-    const numeric = Number(value);
-    return Number.isFinite(numeric) && numeric >= 1 && numeric <= 8 ? numeric : fallback;
-  } catch {
-    return fallback;
-  }
-}
-
-function lsGetBool(key: string, fallback: boolean): boolean {
-  try { const v = localStorage.getItem(key); return v !== null ? v === "true" : fallback; } catch { return fallback; }
-}
-
-function lsSet(key: string, value: number | boolean | string): void {
-  try { localStorage.setItem(key, String(value)); } catch { /* ignore */ }
 }

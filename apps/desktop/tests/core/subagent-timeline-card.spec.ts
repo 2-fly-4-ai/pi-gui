@@ -6,6 +6,7 @@ import { createNamedThread, launchDesktop, makeUserDataDir, makeWorkspace, seedA
 test("subagent workflow marker parser stops metadata before body text", () => {
   const parsed = parseSubagentWorkflowMarker([
     "SUBAGENT_WORKFLOW_RUN",
+    "workflow_run_id: workflow-run-123",
     "workflow: Parallel review",
     "roles: reviewer/correctness -> reviewer/tests",
     "artifacts: review-correctness.md, review-tests.md",
@@ -14,6 +15,7 @@ test("subagent workflow marker parser stops metadata before body text", () => {
     "User instruction: mention artifacts: fake.md without creating one",
   ].join("\n"));
 
+  expect(parsed?.workflowRunId).toBe("workflow-run-123");
   expect(parsed?.artifacts).toEqual(["review-correctness.md", "review-tests.md"]);
 });
 
@@ -37,6 +39,7 @@ test("timeline renders subagent workflow marker as a compact card", async () => 
       await window.piApp?.submitComposer(
         [
           "SUBAGENT_WORKFLOW_RUN",
+          "workflow_run_id: workflow-run-render",
           "workflow: Parallel review",
           "roles: reviewer/correctness -> reviewer/tests -> reviewer/simplicity",
           "artifacts: review-correctness.md, review-tests.md, review-simplicity.md",
@@ -45,6 +48,7 @@ test("timeline renders subagent workflow marker as a compact card", async () => 
     });
 
     const card = window.getByTestId("subagent-timeline-card");
+    await expect(card).toHaveAttribute("data-workflow-run-id", "workflow-run-render");
     await expect(card).toContainText("Parallel review");
     await expect(card).toContainText("reviewer/correctness");
     await expect(card).toContainText("reviewer/tests");

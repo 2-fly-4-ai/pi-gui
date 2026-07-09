@@ -8,6 +8,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import type { AuthStorage, ModelRegistry } from "@earendil-works/pi-coding-agent";
 import type { SessionModelSelection, WorkspaceRef } from "@pi-gui/session-driver";
+import { logIgnoredError } from "./ignored-error.js";
 import { messageText as sessionMessageText } from "./session-supervisor-utils.js";
 
 export interface GenerateThreadTitleOptions {
@@ -72,7 +73,7 @@ export async function generateThreadTitle(
 
   const { session } = await createAgentSession(createOptions);
   const handleAbort = () => {
-    void session.abort().catch(() => undefined);
+    void session.abort().catch((error) => logIgnoredError("thread-title-generator.abort", error));
   };
   options.signal?.addEventListener("abort", handleAbort, { once: true });
   try {

@@ -1,4 +1,4 @@
-import { memo, useEffect, useState, type CSSProperties, type ReactNode } from "react";
+import { memo, useEffect, useState, type CSSProperties } from "react";
 import type { SessionTranscriptMessage } from "@pi-gui/pi-sdk-driver";
 import type { TimelineActivity, TimelineToolCall, TimelineSummary, TranscriptMessage } from "./timeline-types";
 import { MessageMarkdown } from "./message-markdown";
@@ -11,7 +11,17 @@ import { resolveSubagentRoleColor, useSubagentRoleColorMap } from "./subagent-ro
 import { parseSubagentWorkflowMarker } from "./subagent-timeline-card";
 import { useSelectedShuriken } from "./shuriken-roster";
 import { canStopRuntimeJob, isRuntimeJobActive } from "./runtime-jobs";
+import { logIgnoredError } from "./renderer-diagnostics";
 import { extensionToLanguage } from "./syntax-highlight";
+import {
+  countDiffStats,
+  formatElapsed,
+  formatToolContent,
+  renderRuntimeJobElapsed,
+  shortenCommand,
+  shortenPath,
+  statusLabel,
+} from "./timeline-item-formatters";
 
 export const TimelineItem = memo(function TimelineItem({
   item,
@@ -98,7 +108,7 @@ function TimelineMessage({ item, onOpenUrl }: { readonly item: SessionTranscript
   const subagentCard = item.role === "user" ? parseSubagentWorkflowMarker(item.text) : undefined;
   if (subagentCard) {
     return (
-      <article className="subagent-timeline-card" data-testid="subagent-timeline-card">
+      <article className="subagent-timeline-card" data-testid="subagent-timeline-card" data-workflow-run-id={subagentCard.workflowRunId}>
         <div className="subagent-timeline-card__eyebrow">Subagent workflow submitted</div>
         <h3>{subagentCard.workflow}</h3>
         {subagentCard.roles.length ? (
@@ -282,20 +292,6 @@ function useElapsedLabel(startedAt: string, active: boolean): string {
   return formatElapsed(startedAt, now);
 }
 
-function formatElapsed(startedAt: string, now = Date.now()): string {
-  const started = Date.parse(startedAt);
-  if (!Number.isFinite(started)) {
-    return "0s";
-  }
-  const seconds = Math.max(0, Math.floor((now - started) / 1000));
-  if (seconds < 60) {
-    return `${seconds}s`;
-  }
-  const minutes = Math.floor(seconds / 60);
-  const remainder = seconds % 60;
-  return `${minutes}m ${remainder}s`;
-}
-
 function RunningElapsedText({ startedAt }: { readonly startedAt: string }) {
   const elapsed = useElapsedLabel(startedAt, true);
   return <>{elapsed}</>;
@@ -346,7 +342,8 @@ function TimelineToolCallItem({
   const agentShinobi = agentMetadata ? resolveSubagentShinobiFromMap(subagentShinobiMap, agentSubagentType ?? agentMetadata.role, agentMetadata.role) : undefined;
   const agentRoleColor = agentMetadata ? resolveSubagentRoleColor(subagentRoleColorMap, agentSubagentType ?? agentMetadata.role, agentMetadata.role) : undefined;
   const hasVisibleOutput = Boolean(outputText?.trim());
-  const hasDetails = item.input !== undefined || item.output !== undefined;
+  const hasFullOutputPath = Boolean(item.fullOutputPath?.trim());
+  const hasDetails = item.input !== undefined || item.output !== undefined || hasFullOutputPath;
   const running = item.status === "running";
   const diffText = isWriteTool(item.toolName) ? extractDiffFromOutput(item.output) : undefined;
   const diffStats = diffText ? countDiffStats(diffText) : undefined;
@@ -356,7 +353,12 @@ function TimelineToolCallItem({
 
   const handleCopy = () => {
     const text = diffText ?? outputText ?? command ?? formatToolContent(item.input, item.output);
-    void navigator.clipboard?.writeText?.(text).catch(() => {});
+    void navigator.clipboard?.writeText?.(text).catch((error) => logIgnoredError("timeline-tool.copy", error));
+  };
+
+  const handleCopyFullOutputPath = () => {
+    if (!item.fullOutputPath) return;
+    void navigator.clipboard?.writeText?.(item.fullOutputPath).catch((error) => logIgnoredError("timeline-tool.copy-full-output-path", error));
   };
 
   return (
@@ -479,6 +481,17 @@ function TimelineToolCallItem({
               ) : (
                 <pre className="timeline-tool__pre">{formatToolContent(undefined, item.output)}</pre>
               )}
+              {item.fullOutputPath ? (
+                <details className="timeline-tool__details timeline-tool__details--full-output">
+                  <summary>Full output</summary>
+                  <div className="timeline-tool__full-output-row">
+                    <code>{item.fullOutputPath}</code>
+                    <button className="icon-button timeline-tool__copy" type="button" onClick={handleCopyFullOutputPath} aria-label="Copy full output path">
+                      <CopyIcon />
+                    </button>
+                  </div>
+                </details>
+              ) : null}
               {item.input !== undefined && !command ? (
                 <details className="timeline-tool__details">
                   <summary>Details</summary>
@@ -629,7 +642,11 @@ function TimelineRuntimeJobItem({ item }: { readonly item: Extract<TranscriptMes
               <button
                 type="button"
                 className="secondary-button"
-                onClick={() => void navigator.clipboard?.writeText?.(copyText).catch(() => {})}
+                onClick={() =>
+                  void navigator.clipboard?.writeText?.(copyText).catch((error) =>
+                    logIgnoredError("timeline-runtime-job.copy-details", error),
+                  )
+                }
               >
                 Copy details
               </button>
@@ -729,57 +746,6 @@ function extractFilename(input: unknown): string {
     }
   }
   return "";
-}
-
-function shortenPath(filePath: string): string {
-  // Show last 2-3 path segments for readability
-  const parts = filePath.split("/");
-  if (parts.length <= 3) {
-    return filePath;
-  }
-  return parts.slice(-3).join("/");
-}
-
-function shortenCommand(command: string): string {
-  const singleLine = command.replace(/\s+/g, " ").trim();
-  return singleLine.length > 96 ? `${singleLine.slice(0, 93)}…` : singleLine;
-}
-
-function countDiffStats(diff: string): { added: number; removed: number } {
-  let added = 0;
-  let removed = 0;
-  for (const line of diff.split("\n")) {
-    if (line.startsWith("+") && !line.startsWith("+++")) {
-      added += 1;
-    } else if (line.startsWith("-") && !line.startsWith("---")) {
-      removed += 1;
-    }
-  }
-  return { added, removed };
-}
-
-function formatToolContent(input: unknown, output: unknown): string {
-  const parts: string[] = [];
-  if (input !== undefined) {
-    parts.push(typeof input === "string" ? input : JSON.stringify(input, null, 2));
-  }
-  if (output !== undefined) {
-    parts.push(typeof output === "string" ? output : JSON.stringify(output, null, 2));
-  }
-  return parts.join("\n\n");
-}
-
-function statusLabel(status: "running" | "success" | "error") {
-  if (status === "running") return "running";
-  if (status === "success") return "done";
-  return "failed";
-}
-
-function renderRuntimeJobElapsed(startedAt: string, active: boolean, endedAt: string): ReactNode {
-  if (active) {
-    return formatElapsed(startedAt);
-  }
-  return formatElapsed(startedAt, Date.parse(endedAt));
 }
 
 function TimelineSummaryItem({ item, onOpenUrl: _onOpenUrl }: { readonly item: TimelineSummary; readonly onOpenUrl?: (url: string) => void }) {

@@ -38,7 +38,7 @@ export function GitQuickActions({ disabled = false, disabledReason, onCommit, on
   }, [open]);
 
   return (
-    <div className="git-quick-actions" data-testid="git-quick-actions" ref={rootRef}>
+    <div className="git-quick-actions shortcut-tooltip-wrap" data-testid="git-quick-actions" ref={rootRef}>
       <button
         aria-expanded={open}
         aria-label="GitHub actions"
@@ -48,6 +48,9 @@ export function GitQuickActions({ disabled = false, disabledReason, onCommit, on
       >
         <GitHubIcon />
       </button>
+      <span className="shortcut-tooltip topbar__tooltip" role="tooltip">
+        <span>GitHub actions</span>
+      </span>
       {open ? (
         <div className="git-quick-actions__menu">
           {disabled && disabledReason ? <div className="git-quick-actions__note">{disabledReason}</div> : null}

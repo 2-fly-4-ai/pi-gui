@@ -40,6 +40,8 @@ export type {
   SessionTreeNodeSnapshot,
   SessionTreeSnapshot,
   SessionUpdatedEvent,
+  SubagentRunLifecycleStatus,
+  SubagentRunUpdatedEvent,
   Timestamp,
   ToolFinishedEvent,
   ToolStartedEvent,

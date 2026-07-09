@@ -1,0 +1,37 @@
+# Secret Scanning
+
+This repo uses Gitleaks in CI and can use the same scanner locally before commits.
+
+## CI
+
+`.github/workflows/ci.yml` runs `gitleaks/gitleaks-action@v3` before typecheck, desktop core tests, or Linux packaging. The checkout uses full history so local-only cleanup work can verify that no secret commit is still reachable from pushed refs.
+
+## GitHub Push Protection
+
+Enable GitHub secret scanning and push protection in the repository settings when you have admin access. CI catches leaked secrets after a push or pull request; push protection blocks many leaks before they land on the remote.
+
+## Local Hook
+
+Install the repo hook path once per clone:
+
+```bash
+pnpm hooks:install
+```
+
+The hook runs:
+
+```bash
+gitleaks protect --staged --redact
+```
+
+Install Gitleaks before enabling the hook. The hook fails closed when `gitleaks` is unavailable.
+
+## Manual Full-History Check
+
+Use this before closing secret-remediation work:
+
+```bash
+gitleaks detect --source . --log-opts="--all" --redact
+```
+
+Do not paste unredacted findings into docs, issues, logs, or chat.

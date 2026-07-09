@@ -68,7 +68,19 @@ interface TimelineStabilitySample {
 
 async function sampleTimelineStability(window: Page, sentinelRow: Locator): Promise<TimelineStabilitySample> {
   const [rowBox, paneBox, renderMetrics, scrollMetrics] = await Promise.all([
-    sentinelRow.boundingBox(),
+    sentinelRow.evaluateAll((rows) => {
+      const row = rows[0] as HTMLElement | undefined;
+      if (!row) {
+        return null;
+      }
+      const box = row.getBoundingClientRect();
+      return {
+        x: box.x,
+        y: box.y,
+        width: box.width,
+        height: box.height,
+      };
+    }),
     window.getByTestId("timeline-pane").boundingBox(),
     window.evaluate(() => {
       const transcript = document.querySelector<HTMLElement>("[data-testid='transcript']");
@@ -139,8 +151,10 @@ async function waitForStableVirtualizedBottom(
 ): Promise<Pick<TimelineStabilitySample, "visibleItemCount" | "renderedTextLength">> {
   let consecutiveStableSamples = 0;
   let baselineSample: TimelineStabilitySample | null = null;
+  await expect.poll(async () => window.locator(".timeline-item").count(), { timeout: 30_000 }).toBeGreaterThan(0);
+  await jumpTimelineToBottom(window);
 
-  for (let index = 0; index < 150; index += 1) {
+  for (let index = 0; index < 300; index += 1) {
     const sample = await sampleTimelineStability(window, sentinelRow);
     if (sample.virtualized && sample.remainingFromBottom <= 16 && sample.sentinelVisible) {
       consecutiveStableSamples += 1;
@@ -154,6 +168,9 @@ async function waitForStableVirtualizedBottom(
     } else {
       consecutiveStableSamples = 0;
       baselineSample = null;
+      if (index % 10 === 9) {
+        await jumpTimelineToBottom(window);
+      }
     }
     await window.waitForTimeout(100);
   }
@@ -218,10 +235,19 @@ async function createTimelineSession(window: Parameters<typeof getDesktopState>[
     const beforeState = await app.getState();
     const beforeWorkspace = beforeState.workspaces.find((workspace) => workspace.id === targetWorkspaceId);
     const beforeIds = new Set(beforeWorkspace?.sessions.map((session) => session.id) ?? []);
-    const nextState = await app.createSession({ workspaceId: targetWorkspaceId, title: targetTitle });
-    const nextWorkspace = nextState.workspaces.find((workspace) => workspace.id === targetWorkspaceId);
-    const session = nextWorkspace?.sessions.find((entry) => !beforeIds.has(entry.id) && entry.title === targetTitle)
-      ?? nextWorkspace?.sessions.find((entry) => entry.title === targetTitle);
+    await app.createSession({ workspaceId: targetWorkspaceId, title: targetTitle });
+    let session: { readonly id: string } | undefined;
+    const deadline = Date.now() + 10_000;
+    while (Date.now() < deadline) {
+      const nextState = await app.getState();
+      const nextWorkspace = nextState.workspaces.find((workspace) => workspace.id === targetWorkspaceId);
+      session = nextWorkspace?.sessions.find((entry) => !beforeIds.has(entry.id) && entry.title === targetTitle)
+        ?? nextWorkspace?.sessions.find((entry) => entry.title === targetTitle);
+      if (session) {
+        break;
+      }
+      await new Promise((resolve) => window.setTimeout(resolve, 100));
+    }
     if (!session) {
       throw new Error(`Session not found after createSession: ${targetTitle}`);
     }
@@ -567,10 +593,10 @@ test("keeps the mid-thread viewport stable when the composer grows away from the
     const sentinelText = `${sentinelMarker} ${"should stay put during width reflow ".repeat(10)}`;
     const finalText = `MID_FINAL_ROW ${"at thread bottom with wrapping text ".repeat(10)}`;
     await seedTranscriptMessages(harness, window, {
-      count: 16,
+      count: 24,
       textFactory: (index) => {
-        if (index === 5) return sentinelText;
-        if (index === 15) return finalText;
+        if (index === 9) return sentinelText;
+        if (index === 23) return finalText;
         return `Mid-thread seed row ${index} `.repeat(8);
       },
     });
@@ -579,8 +605,8 @@ test("keeps the mid-thread viewport stable when the composer grows away from the
     await jumpTimelineToBottom(window);
     await expect.poll(async () => (await getTimelineScrollMetrics(window)).remainingFromBottom).toBeLessThanOrEqual(16);
 
-    await scrollTimelineAwayFromBottom(window, 220);
-    await expect.poll(async () => (await getTimelineScrollMetrics(window)).remainingFromBottom).toBeGreaterThan(100);
+    await scrollTimelineAwayFromBottom(window, 360);
+    await expect.poll(async () => (await getTimelineScrollMetrics(window)).remainingFromBottom).toBeGreaterThan(240);
 
     const composer = window.getByTestId("composer");
     const composerShell = window.locator(".composer");
@@ -762,6 +788,7 @@ test("keeps transcript pinning semantics while assistant deltas stream into the 
 
     await scrollTimelineAwayFromBottom(window, 220);
     await expect.poll(async () => (await getTimelineScrollMetrics(window)).remainingFromBottom).toBeGreaterThan(100);
+    await window.waitForTimeout(300);
     const beforeScrollTop = (await getTimelineScrollMetrics(window)).scrollTop;
 
     const awayStream = await streamAssistantDeltas(harness, window, [

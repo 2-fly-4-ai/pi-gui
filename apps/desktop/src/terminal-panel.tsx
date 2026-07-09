@@ -52,6 +52,8 @@ export function TerminalPanel({
     () => panel?.sessions.find((session) => session.id === panel.activeSessionId),
     [panel],
   );
+  const activeSessionId = activeSession?.id;
+  const activeSessionReplay = activeSession?.replay;
 
   const requestPanel = useCallback(async () => {
     if (!api) {
@@ -194,11 +196,11 @@ export function TerminalPanel({
 
   useEffect(() => {
     const container = containerRef.current;
-    if (!api || !container || !activeSession) {
+    if (!api || !container || !activeSessionId) {
       return undefined;
     }
 
-    activeTerminalIdRef.current = activeSession.id;
+    activeTerminalIdRef.current = activeSessionId;
     const terminal = new Terminal({
       allowProposedApi: true,
       convertEol: true,
@@ -243,18 +245,18 @@ export function TerminalPanel({
         }
         const sequence = macTerminalSequenceForEvent(event);
         if (sequence) {
-          void api.writeTerminal(activeSession.id, sequence);
+          void api.writeTerminal(activeSessionId, sequence);
           return false;
         }
       }
       return true;
     });
     terminal.onData((data) => {
-      void api.writeTerminal(activeSession.id, data);
+      void api.writeTerminal(activeSessionId, data);
     });
     terminal.onTitleChange((title) => {
-      void api.setTerminalTitle(activeSession.id, title);
-      setPanel((currentPanel) => updateSession(currentPanel, activeSession.id, (session) => ({
+      void api.setTerminalTitle(activeSessionId, title);
+      setPanel((currentPanel) => updateSession(currentPanel, activeSessionId, (session) => ({
         ...session,
         title: title.trim() || session.title,
       })));
@@ -266,8 +268,8 @@ export function TerminalPanel({
       window.requestAnimationFrame(refreshSelectionAction);
     };
     document.addEventListener("selectionchange", handleDocumentSelectionChange);
-    if (activeSession.replay) {
-      terminal.write(activeSession.replay);
+    if (activeSessionReplay) {
+      terminal.write(activeSessionReplay);
     }
     terminal.focus();
     terminalRef.current = terminal;
@@ -287,7 +289,7 @@ export function TerminalPanel({
       activeTerminalIdRef.current = "";
       terminal.dispose();
     };
-  }, [activeSession?.id, api, createTerminal, fitAndResize, onOpenUrl, refreshSelectionAction]);
+  }, [activeSessionId, activeSessionReplay, api, createTerminal, fitAndResize, onOpenUrl, refreshSelectionAction]);
 
   const startResize = (event: ReactMouseEvent<HTMLDivElement>) => {
     event.preventDefault();

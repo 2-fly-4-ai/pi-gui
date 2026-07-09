@@ -10,7 +10,7 @@ import type {
 } from "./composer-commands";
 import { ComposerSurface } from "./composer-surface";
 import { ModelOnboardingNoticeBanner } from "./model-onboarding-notice";
-import type { ModelOnboardingState, ModelOnboardingSettingsSection } from "./model-onboarding";
+import { selectorEmptyModelDescription, type ModelOnboardingState, type ModelOnboardingSettingsSection } from "./model-onboarding";
 import { ModelSelector } from "./model-selector";
 import { ComposerControlBar } from "./composer-control-bar";
 import { ReasoningSelector } from "./reasoning-selector";
@@ -96,7 +96,6 @@ export const ComposerPanel = memo(function ComposerPanel({
   thinkingActive,
   slashSections,
   slashOptions,
-  sessionCommands,
   fastMode,
   fastModeAvailable,
   selectedSlashCommand,
@@ -135,15 +134,18 @@ export const ComposerPanel = memo(function ComposerPanel({
   const hasComposerInput = composerDraft.trim().length > 0 || attachments.length > 0;
   const primaryActionIsStop = sessionStatus === "running" && !hasComposerInput;
   const primaryActionLabel = sessionStatus === "running" && hasComposerInput ? "Steer current run" : primaryActionIsStop ? "Stop run" : "Send message";
+  const showRuntimeStatus = !isIdleRuntimeStatusText(runtimeStatusText);
 
   return (
     <footer className="composer">
       <div className="conversation conversation--composer">
         <div className="composer-status-strip" aria-label="Composer status">
           {checkoutSelector}
-          <span className="composer-runtime-status" data-testid="composer-runtime-status">
-            {runtimeStatusText}
-          </span>
+          {showRuntimeStatus ? (
+            <span className="composer-runtime-status" data-testid="composer-runtime-status">
+              {runtimeStatusText}
+            </span>
+          ) : null}
         </div>
         <ComposerSurface
           lastError={lastError}
@@ -195,7 +197,7 @@ export const ComposerPanel = memo(function ComposerPanel({
                     variant="composer"
                     unselectedModelLabel={modelOnboarding.unselectedModelLabel}
                     emptyModelTitle={modelOnboarding.emptyModelTitle}
-                    emptyModelDescription={modelOnboarding.emptyModelDescription}
+                    emptyModelDescription={selectorEmptyModelDescription(modelOnboarding)}
                     onSetModel={onSetModel}
                     onSetThinking={onSetThinking}
                   />
@@ -206,15 +208,14 @@ export const ComposerPanel = memo(function ComposerPanel({
                     onSetThinking={onSetThinking}
                   />
                 )}
-                fastModeControl={(
+                fastModeControl={fastMode === "on" ? (
                   <FastModeSelector
                     available={fastModeAvailable}
                     value={fastMode}
                     onSetFastMode={onSetFastMode}
                   />
-                )}
+                ) : undefined}
                 skillProfileControl={skillProfileControl}
-                modeControl={<button className="composer-control" type="button">Build</button>}
                 supervisionControl={(
                   <ToolAccessSelector
                     value={toolAccess}
@@ -245,3 +246,7 @@ export const ComposerPanel = memo(function ComposerPanel({
     </footer>
   );
 });
+
+function isIdleRuntimeStatusText(text: string): boolean {
+  return text === "Idle" || text === "Agent idle · no tools running";
+}

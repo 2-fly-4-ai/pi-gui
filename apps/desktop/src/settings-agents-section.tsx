@@ -9,6 +9,7 @@ import type {
   SaveAgentDefinitionInput,
 } from "./agent-definitions";
 import {
+  BUILTIN_AGENT_CONFIGS,
   canonicalRoleForAgentName,
   createDefaultCustomAgentConfig,
   duplicateAgentConfig,
@@ -17,8 +18,10 @@ import {
 import { AgentDefinitionEditor } from "./agent-definition-editor";
 import {
   BUILTIN_SUBAGENT_WORKFLOWS,
+  baseWorkflowRole,
   type RunSubagentWorkflowInput,
   type SubagentRunRecord,
+  validateSubagentWorkflowRoles,
 } from "./subagent-workflows";
 import { resolveSubagentShinobiFromMap, useSubagentShinobiMap } from "./subagent-shinobi-roster";
 import { resolveSubagentRoleColor, useSubagentRoleColorMap } from "./subagent-role-colors";
@@ -38,7 +41,9 @@ interface SettingsAgentsSectionProps {
   readonly onReset: (input: ResetAgentDefinitionInput) => Promise<void>;
   readonly onDelete: (input: DeleteAgentDefinitionInput) => Promise<void>;
   readonly onRunWorkflow: (input: RunSubagentWorkflowInput) => Promise<void>;
+  readonly onCancelRun: (runId: string) => Promise<void>;
   readonly onOpenRunTarget: (target: SubagentRunRecord["target"]) => void;
+  readonly onOpenRunArtifact: (input: { readonly target: SubagentRunRecord["target"]; readonly path: string }) => void;
 }
 
 type EditorState =
@@ -60,7 +65,9 @@ export function SettingsAgentsSection({
   onReset,
   onDelete,
   onRunWorkflow,
+  onCancelRun,
   onOpenRunTarget,
+  onOpenRunArtifact,
 }: SettingsAgentsSectionProps) {
   const [editor, setEditor] = useState<EditorState>();
   const [deleteTarget, setDeleteTarget] = useState<AgentDefinitionRecord | undefined>();
@@ -168,28 +175,53 @@ export function SettingsAgentsSection({
 
       {tab === "workflows" ? (
         <div className="subagent-workflow-grid">
-          {BUILTIN_SUBAGENT_WORKFLOWS.map((workflow) => (
-            <article className="subagent-workflow-card" data-testid={`subagent-workflow-${workflow.id}`} key={workflow.id}>
-              <h3>{workflow.title}</h3>
-              <p>{workflow.description}</p>
-              <div className="agent-definition-row__meta">
-                <span>{workflow.roles.join(" → ")}</span>
-                <span>Artifacts: {workflow.artifacts.join(", ")}</span>
-              </div>
-              <button
-                className="button button--primary"
-                disabled={pending || subagentRunsPending || !workspaceId || !selectedSessionId}
-                type="button"
-                onClick={() =>
-                  workspaceId && selectedSessionId
-                    ? onRunWorkflow({ workflowId: workflow.id, target: { workspaceId, sessionId: selectedSessionId } })
-                    : undefined
-                }
-              >
-                Run workflow
-              </button>
-            </article>
-          ))}
+          {BUILTIN_SUBAGENT_WORKFLOWS.map((workflow) => {
+            const validation = validateSubagentWorkflowRoles(workflow, agents);
+            const hasMissingRoles = validation.missingRoles.length > 0;
+            const repairInputs = repairMissingWorkflowRoleInputs(validation.missingRoles, agents);
+            return (
+              <article className="subagent-workflow-card" data-testid={`subagent-workflow-${workflow.id}`} key={workflow.id}>
+                <h3>{workflow.title}</h3>
+                <p>{workflow.description}</p>
+                <div className="agent-definition-row__meta">
+                  <span>{workflow.roles.join(" → ")}</span>
+                  <span>Artifacts: {workflow.artifacts.join(", ")}</span>
+                </div>
+                {hasMissingRoles ? (
+                  <div className="settings-warning" role="alert">
+                    Missing enabled role{validation.missingRoles.length === 1 ? "" : "s"}: {validation.missingRoles.join(", ")}
+                  </div>
+                ) : null}
+                {repairInputs.length > 0 ? (
+                  <button
+                    className="button button--secondary"
+                    disabled={pending}
+                    type="button"
+                    onClick={async () => {
+                      for (const input of repairInputs) {
+                        await onReset(input);
+                      }
+                    }}
+                  >
+                    {repairWorkflowButtonLabel(repairInputs)}
+                  </button>
+                ) : null}
+                <button
+                  className="button button--primary"
+                  disabled={pending || subagentRunsPending || !workspaceId || !selectedSessionId || hasMissingRoles}
+                  title={hasMissingRoles ? "Enable or create the missing roles before running this workflow." : undefined}
+                  type="button"
+                  onClick={() =>
+                    workspaceId && selectedSessionId && !hasMissingRoles
+                      ? onRunWorkflow({ workflowId: workflow.id, target: { workspaceId, sessionId: selectedSessionId } })
+                      : undefined
+                  }
+                >
+                  Run workflow
+                </button>
+              </article>
+            );
+          })}
         </div>
       ) : null}
 
@@ -202,14 +234,55 @@ export function SettingsAgentsSection({
               <div className="agent-definition-row" data-testid="subagent-run-row" key={run.id}>
                 <div className="agent-definition-row__main">
                   <div className="agent-definition-row__title">{run.title}</div>
-                  <div className="agent-definition-row__description">{run.status}{run.error ? ` · ${run.error}` : ""}</div>
+                  <div className="agent-definition-row__description">
+                    {run.status}{run.summary ? ` · ${run.summary}` : run.error ? ` · ${run.error}` : ""}
+                  </div>
                   <div className="agent-definition-row__meta">
                     <span>{run.roles.join(" → ")}</span>
                     <span>Artifacts: {run.artifacts.join(", ")}</span>
+                    {run.toolUseCount !== undefined ? <span>Tool uses: {run.toolUseCount}</span> : null}
+                    {run.elapsedMs !== undefined ? <span>Elapsed: {formatRunElapsed(run.elapsedMs)}</span> : null}
+                    {run.transcriptPath ? <span title={run.transcriptPath}>Transcript: {run.transcriptPath}</span> : null}
                     <span>{new Date(run.submittedAt).toLocaleString()}</span>
                   </div>
+                  {run.artifactPaths?.length ? (
+                    <div className="agent-definition-row__meta" aria-label="Produced artifacts">
+                      <span>Produced artifacts:</span>
+                      {run.artifactPaths.map((path) => (
+                        <button
+                          className="button button--secondary button--small"
+                          key={path}
+                          title={path}
+                          type="button"
+                          onClick={() => onOpenRunArtifact({ target: run.target, path })}
+                        >
+                          {path}
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
                 </div>
                 <div className="agent-definition-row__actions">
+                  {isActiveSubagentRun(run) ? (
+                    <button
+                      className="button button--secondary"
+                      disabled={subagentRunsPending}
+                      type="button"
+                      onClick={() => onCancelRun(run.id)}
+                    >
+                      Cancel workflow
+                    </button>
+                  ) : null}
+                  {isTerminalSubagentRun(run) ? (
+                    <button
+                      className="button button--secondary"
+                      disabled={subagentRunsPending}
+                      type="button"
+                      onClick={() => onRunWorkflow({ workflowId: run.workflowId, target: run.target })}
+                    >
+                      Retry workflow
+                    </button>
+                  ) : null}
                   <button className="button button--secondary" type="button" onClick={() => onOpenRunTarget(run.target)}>Open transcript</button>
                 </div>
               </div>
@@ -254,4 +327,39 @@ function modelAvailable(runtime: RuntimeSnapshot | undefined, agent: AgentDefini
   if (agent.config.modelMode !== "fixed" || !agent.config.model) return true;
   if (!runtime) return true;
   return runtime.models.some((model) => model.available && model.providerId === agent.config.model?.providerId && model.modelId === agent.config.model?.modelId);
+}
+
+const BUILTIN_AGENT_NAMES = new Set(BUILTIN_AGENT_CONFIGS.map((config) => config.name));
+
+function repairMissingWorkflowRoleInputs(
+  missingRoles: readonly string[],
+  agents: readonly AgentDefinitionRecord[],
+): readonly ResetAgentDefinitionInput[] {
+  const inputs = new Map<string, ResetAgentDefinitionInput>();
+  for (const role of missingRoles) {
+    const name = baseWorkflowRole(role);
+    if (!BUILTIN_AGENT_NAMES.has(name)) continue;
+    const visibleAgent = agents.find((agent) => agent.name === name);
+    const scope = visibleAgent?.scope ?? "global";
+    inputs.set(`${scope}:${name}`, { scope, name });
+  }
+  return [...inputs.values()];
+}
+
+function repairWorkflowButtonLabel(inputs: readonly ResetAgentDefinitionInput[]): string {
+  const first = inputs[0];
+  return inputs.length === 1 && first ? `Restore ${first.name}` : "Restore missing roles";
+}
+
+function isTerminalSubagentRun(run: SubagentRunRecord): boolean {
+  return run.status === "completed" || run.status === "failed" || run.status === "cancelled";
+}
+
+function isActiveSubagentRun(run: SubagentRunRecord): boolean {
+  return run.status === "submitted" || run.status === "running";
+}
+
+function formatRunElapsed(elapsedMs: number): string {
+  if (elapsedMs < 1000) return `${elapsedMs}ms`;
+  return `${Math.round(elapsedMs / 1000)}s`;
 }

@@ -6,7 +6,7 @@ import { promisify } from "node:util";
 import { expect, type Page } from "@playwright/test";
 import { _electron as electron, type ElectronApplication } from "playwright";
 import type { SessionDriverEvent, SessionRef } from "@pi-gui/session-driver";
-import type { PiDesktopApi } from "../../src/ipc";
+import type { PiDesktopApi, TranscriptSyncEvent } from "../../src/ipc";
 import type {
   DesktopAppState,
   NewThreadEnvironment,
@@ -51,6 +51,18 @@ export interface AppDiagnosticsSnapshot {
   readonly selectedTranscriptPublishCount: number;
   readonly statePublishCount: number;
   readonly assistantDeltaFlushCount: number;
+  readonly stateChangedIpcCount: number;
+  readonly stateChangedIpcBytes: number;
+  readonly stateChangedLastIpcBytes: number;
+  readonly selectedTranscriptChangedIpcCount: number;
+  readonly selectedTranscriptChangedIpcBytes: number;
+  readonly selectedTranscriptChangedLastIpcBytes: number;
+  readonly transcriptEventIpcCount: number;
+  readonly transcriptEventIpcBytes: number;
+  readonly transcriptEventLastIpcBytes: number;
+  readonly statePatchChangedIpcCount: number;
+  readonly statePatchChangedIpcBytes: number;
+  readonly statePatchChangedLastIpcBytes: number;
 }
 
 export interface LaunchDesktopOptions {
@@ -188,6 +200,12 @@ function createDesktopHarness(electronApp: ElectronApplication): DesktopHarness 
         .toBe(true);
     },
     close: async () => {
+      await electronApp.evaluate(async () => {
+        const hooks = (globalThis as {
+          __PI_APP_TEST_HOOKS?: { flushPersistence?: () => Promise<void> };
+        }).__PI_APP_TEST_HOOKS;
+        await hooks?.flushPersistence?.();
+      });
       await electronApp.close();
     },
   };
@@ -209,6 +227,8 @@ function buildDesktopLaunchEnv(
     PI_APP_OPEN_DEVTOOLS: "0",
     ...(options.envOverrides ?? {}),
   };
+
+  delete env.ELECTRON_RUN_AS_NODE;
 
   if (options.scrubProviderEnv || options.realAuthSourceDir) {
     for (const key of PROVIDER_ENV_VARS) {
@@ -905,7 +925,7 @@ export async function stubNextOpenDialogResult(
   await harness.electronApp.evaluate(({ dialog }, nextResult) => {
     const original = dialog.showOpenDialog;
     (globalThis as { __PI_TEST_OPEN_DIALOG_COUNT?: number }).__PI_TEST_OPEN_DIALOG_COUNT = 0;
-    dialog.showOpenDialog = async (...args: Parameters<typeof dialog.showOpenDialog>) => {
+    dialog.showOpenDialog = async (..._args: Parameters<typeof dialog.showOpenDialog>) => {
       dialog.showOpenDialog = original;
       const globals = globalThis as { __PI_TEST_OPEN_DIALOG_COUNT?: number };
       globals.__PI_TEST_OPEN_DIALOG_COUNT = (globals.__PI_TEST_OPEN_DIALOG_COUNT ?? 0) + 1;
@@ -1032,13 +1052,65 @@ export async function getTimelineScrollMetrics(window: Page): Promise<TimelineSc
 }
 
 export async function jumpTimelineToBottom(window: Page): Promise<void> {
-  await window.evaluate(() => {
-    const pane = document.querySelector<HTMLDivElement>("[data-testid='timeline-pane']");
+  await window.evaluate(async () => {
+    type TestTimelinePane = HTMLDivElement & {
+      __legendListRef?: {
+        scrollToEnd?: (options?: { animated?: boolean }) => Promise<void> | void;
+        scrollToIndex?: (params: { animated?: boolean; index: number; viewPosition?: number }) => Promise<void> | void;
+        getState?: () => {
+          readonly reprocessCurrentScroll?: () => void;
+          readonly triggerCalculateItemsInView?: (params?: Record<string, unknown>) => void;
+        };
+      } | null;
+    };
+
+    const pane = document.querySelector<TestTimelinePane>("[data-testid='timeline-pane']");
     if (!pane) {
       throw new Error("Timeline pane was unavailable");
     }
-    pane.scrollTop = pane.scrollHeight;
-    pane.dispatchEvent(new Event("scroll", { bubbles: true }));
+
+    const app = (window as PiAppWindow).piApp;
+    const transcript = (await app?.getSelectedTranscript())?.transcript ?? [];
+    const targetIndex = transcript.length - 1;
+    const targetId = transcript.at(-1)?.id;
+    const waitFrame = () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    const clickJumpToLatest = () => {
+      document.querySelector<HTMLButtonElement>("[data-testid='timeline-jump']")?.click();
+    };
+    const isTargetVisible = () => {
+      if (!targetId) {
+        return true;
+      }
+      const row = pane.querySelector<HTMLElement>(`[data-timeline-row-id="${CSS.escape(targetId)}"]`);
+      if (!row) {
+        return false;
+      }
+      const paneRect = pane.getBoundingClientRect();
+      const rowRect = row.getBoundingClientRect();
+      return rowRect.bottom > paneRect.top + 1 && rowRect.top < paneRect.bottom - 1;
+    };
+
+    for (let attempt = 0; attempt < 12; attempt += 1) {
+      clickJumpToLatest();
+      await waitFrame();
+      if (targetIndex >= 0) {
+        await pane.__legendListRef?.scrollToIndex?.({
+          animated: false,
+          index: targetIndex,
+          viewPosition: 1,
+        });
+      }
+      await pane.__legendListRef?.scrollToEnd?.({ animated: false });
+      pane.scrollTop = pane.scrollHeight;
+      const state = pane.__legendListRef?.getState?.();
+      state?.reprocessCurrentScroll?.();
+      state?.triggerCalculateItemsInView?.();
+      pane.dispatchEvent(new Event("scroll", { bubbles: true }));
+      await waitFrame();
+      if (pane.scrollHeight - pane.scrollTop - pane.clientHeight <= 32 && isTargetVisible()) {
+        return;
+      }
+    }
   });
 }
 
@@ -1049,14 +1121,23 @@ export async function scrollTimelineAwayFromBottom(window: Page, pixels = 160): 
     throw new Error("Timeline pane was unavailable");
   }
   await window.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-  await window.mouse.wheel(0, -Math.max(1, Math.floor(pixels / 2)));
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const metrics = await getTimelineScrollMetrics(window);
+    if (metrics.remainingFromBottom >= pixels - 8) {
+      return;
+    }
+    const remainingDistance = Math.max(1, pixels - metrics.remainingFromBottom);
+    await window.mouse.wheel(0, -Math.max(40, Math.ceil(remainingDistance / 2)));
+    await window.waitForTimeout(50);
+  }
   await window.evaluate((distance) => {
     const paneElement = document.querySelector<HTMLDivElement>("[data-testid='timeline-pane']");
     if (!paneElement) {
       throw new Error("Timeline pane was unavailable");
     }
-    paneElement.scrollTop = Math.max(0, paneElement.scrollHeight - paneElement.clientHeight - distance);
     paneElement.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, pointerId: 1 }));
+    paneElement.dispatchEvent(new WheelEvent("wheel", { bubbles: true, deltaY: -distance }));
+    paneElement.scrollTop = Math.max(0, paneElement.scrollHeight - paneElement.clientHeight - distance);
     paneElement.dispatchEvent(new Event("scroll", { bubbles: true }));
   }, pixels);
 }
@@ -1099,6 +1180,33 @@ export async function emitTestSessionEventNoWait(
       console.error("Test session-event hook failed", error);
     });
   }, event);
+}
+
+export async function emitTestTranscriptEvent(
+  harness: DesktopHarness,
+  event: TranscriptSyncEvent,
+): Promise<void> {
+  await harness.electronApp.evaluate(async (_, payload) => {
+    const hooks = (globalThis as {
+      __PI_APP_TEST_HOOKS?: { emitTranscriptEvent?: (event: TranscriptSyncEvent) => Promise<void> };
+    }).__PI_APP_TEST_HOOKS;
+    if (!hooks?.emitTranscriptEvent) {
+      throw new Error("Test transcript-event hook is unavailable");
+    }
+    await hooks.emitTranscriptEvent(payload);
+  }, event);
+}
+
+export async function flushTestPersistence(harness: DesktopHarness): Promise<void> {
+  await harness.electronApp.evaluate(async () => {
+    const hooks = (globalThis as {
+      __PI_APP_TEST_HOOKS?: { flushPersistence?: () => Promise<void> };
+    }).__PI_APP_TEST_HOOKS;
+    if (!hooks?.flushPersistence) {
+      throw new Error("Test persistence flush hook is unavailable");
+    }
+    await hooks.flushPersistence();
+  });
 }
 
 export async function getAppDiagnostics(harness: DesktopHarness): Promise<AppDiagnosticsSnapshot> {
@@ -1240,6 +1348,9 @@ export async function seedTranscriptMessages(
       preview: text,
     });
   }
+
+  await flushTestPersistence(harness);
+  await jumpTimelineToBottom(window);
 
   return { sessionRef, messages };
 }

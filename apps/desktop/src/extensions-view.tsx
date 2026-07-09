@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import type { RuntimeExtensionRecord, RuntimeSnapshot } from "@pi-gui/session-driver/runtime-types";
 import type { ExtensionCommandCompatibilityRecord, WorkspaceRecord } from "./desktop-state";
-import { CloseIcon, RefreshIcon } from "./icons";
+import { CloseIcon, ExtensionIcon, RefreshIcon } from "./icons";
 
 interface ExtensionGroup {
   readonly id: string;
@@ -35,8 +35,8 @@ export function ExtensionsView({
 }: ExtensionsViewProps) {
   const [query, setQuery] = useState("");
   const [selectedGroupId, setSelectedGroupId] = useState<string | undefined>();
-  const extensions = runtime?.extensions ?? [];
-  const extensionGroups = useMemo(() => groupExtensions(extensions), [extensions]);
+  const extensions = runtime?.extensions;
+  const extensionGroups = useMemo(() => groupExtensions(extensions ?? []), [extensions]);
   const filteredGroups = useMemo(() => {
     const normalized = query.trim().toLowerCase();
     if (!normalized) {
@@ -61,6 +61,7 @@ export function ExtensionsView({
   }, [extensionGroups, query]);
   const selectedGroup = filteredGroups.find((group) => group.id === selectedGroupId);
   const isPanelOpen = !!selectedGroup;
+  const hasFilteredGroups = filteredGroups.length > 0;
   const selectedCompatibilityRecords = useMemo(
     () =>
       selectedGroup
@@ -103,18 +104,31 @@ export function ExtensionsView({
         </header>
 
         <div className="skills-toolbar">
-          <input
-            aria-label="Search extensions"
-            className="skills-search"
-            placeholder="Search extensions"
-            value={query}
-            onChange={(event) => {
-              setQuery(event.target.value);
-            }}
-          />
+          <label className="skills-search-control">
+            <ExtensionIcon />
+            <input
+              aria-label="Search extensions"
+              className="skills-search"
+              placeholder="Search extensions"
+              value={query}
+              onChange={(event) => {
+                setQuery(event.target.value);
+              }}
+            />
+            {query.trim() ? (
+              <button
+                aria-label="Clear extension search"
+                className="skills-search-control__clear"
+                type="button"
+                onClick={() => setQuery("")}
+              >
+                <CloseIcon />
+              </button>
+            ) : null}
+          </label>
         </div>
 
-        <div className={`skills-layout ${isPanelOpen ? "skills-layout--panel-open" : ""}`}>
+        <div className={`skills-layout ${isPanelOpen ? "skills-layout--panel-open" : ""} ${hasFilteredGroups ? "" : "skills-layout--empty"}`}>
           <div className="skills-grid" data-testid="extensions-list">
             {filteredGroups.length === 0 ? (
               <ExtensionsEmptyState message="Refresh runtime discovery to load workspace and user-level extensions." />
@@ -155,58 +169,60 @@ export function ExtensionsView({
             )}
           </div>
 
-          <div className="skill-detail-wrap">
-            <div className="skill-detail">
-              {selectedGroup ? (
-                <>
-                  <div className="skill-detail__header">
-                    <div>
-                      <h2>{selectedGroup.displayName}</h2>
-                      <div className="skill-detail__slash">{selectedGroup.sourceInfo.source}</div>
+          {hasFilteredGroups ? (
+            <div className="skill-detail-wrap">
+              <div className="skill-detail">
+                {selectedGroup ? (
+                  <>
+                    <div className="skill-detail__header">
+                      <div>
+                        <h2>{selectedGroup.displayName}</h2>
+                        <div className="skill-detail__slash">{selectedGroup.sourceInfo.source}</div>
+                      </div>
+                      <div className="skill-detail__header-end">
+                        <span className={`skill-detail__status ${selectedGroup.enabledCount > 0 ? "skill-detail__status--enabled" : ""}`}>
+                          {formatGroupEnabledLabel(selectedGroup)}
+                        </span>
+                        <button
+                          aria-label="Close detail panel"
+                          className="skill-detail__close"
+                          type="button"
+                          onClick={() => setSelectedGroupId(undefined)}
+                        >
+                          <CloseIcon />
+                        </button>
+                      </div>
                     </div>
-                    <div className="skill-detail__header-end">
-                      <span className={`skill-detail__status ${selectedGroup.enabledCount > 0 ? "skill-detail__status--enabled" : ""}`}>
-                        {formatGroupEnabledLabel(selectedGroup)}
-                      </span>
-                      <button
-                        aria-label="Close detail panel"
-                        className="skill-detail__close"
-                        type="button"
-                        onClick={() => setSelectedGroupId(undefined)}
-                      >
-                        <CloseIcon />
+                    <div className="skill-detail__meta-list">
+                      <DetailItem label="Scope" value={selectedGroup.sourceInfo.scope} />
+                      <DetailItem label="Origin" value={selectedGroup.sourceInfo.origin} />
+                      {selectedGroup.sourceInfo.baseDir ? (
+                        <DetailItem label="Base dir" value={selectedGroup.sourceInfo.baseDir} mono />
+                      ) : null}
+                    </div>
+                    <div className="skill-detail__actions">
+                      <button className="button button--secondary" type="button" onClick={() => onOpenExtensionFolder(selectedGroup.sourceInfo.baseDir ?? selectedGroup.extensions[0]?.path ?? "")}>
+                        Open folder
                       </button>
                     </div>
-                  </div>
-                  <div className="skill-detail__meta-list">
-                    <DetailItem label="Scope" value={selectedGroup.sourceInfo.scope} />
-                    <DetailItem label="Origin" value={selectedGroup.sourceInfo.origin} />
-                    {selectedGroup.sourceInfo.baseDir ? (
-                      <DetailItem label="Base dir" value={selectedGroup.sourceInfo.baseDir} mono />
-                    ) : null}
-                  </div>
-                  <div className="skill-detail__actions">
-                    <button className="button button--secondary" type="button" onClick={() => onOpenExtensionFolder(selectedGroup.sourceInfo.baseDir ?? selectedGroup.extensions[0]?.path ?? "")}>
-                      Open folder
-                    </button>
-                  </div>
 
-                  <ExtensionEntrypoints extensions={selectedGroup.extensions} onToggleExtension={onToggleExtension} />
-                  <ExtensionContributionSection title="Commands" items={selectedGroup.commands} emptyLabel="No commands contributed." />
-                  <ExtensionCompatibilitySection
-                    commands={selectedGroup.commands}
-                    compatibilityRecords={selectedCompatibilityRecords}
-                  />
-                  <ExtensionContributionSection title="Tools" items={selectedGroup.tools} emptyLabel="No tools contributed." />
-                  <ExtensionContributionSection title="Flags" items={selectedGroup.flags} emptyLabel="No flags contributed." />
-                  <ExtensionContributionSection title="Shortcuts" items={selectedGroup.shortcuts} emptyLabel="No shortcuts contributed." />
-                  <ExtensionDiagnostics diagnostics={selectedGroup.diagnostics} />
-                </>
-              ) : (
-                <ExtensionDetailPlaceholder />
-              )}
+                    <ExtensionEntrypoints extensions={selectedGroup.extensions} onToggleExtension={onToggleExtension} />
+                    <ExtensionContributionSection title="Commands" items={selectedGroup.commands} emptyLabel="No commands contributed." />
+                    <ExtensionCompatibilitySection
+                      commands={selectedGroup.commands}
+                      compatibilityRecords={selectedCompatibilityRecords}
+                    />
+                    <ExtensionContributionSection title="Tools" items={selectedGroup.tools} emptyLabel="No tools contributed." />
+                    <ExtensionContributionSection title="Flags" items={selectedGroup.flags} emptyLabel="No flags contributed." />
+                    <ExtensionContributionSection title="Shortcuts" items={selectedGroup.shortcuts} emptyLabel="No shortcuts contributed." />
+                    <ExtensionDiagnostics diagnostics={selectedGroup.diagnostics} />
+                  </>
+                ) : (
+                  <ExtensionDetailPlaceholder />
+                )}
+              </div>
             </div>
-          </div>
+          ) : null}
         </div>
       </div>
     </section>

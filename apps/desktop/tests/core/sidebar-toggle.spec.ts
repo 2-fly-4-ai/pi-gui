@@ -79,6 +79,15 @@ test("toggles and persists the primary sidebar from the button and keyboard shor
     await restoreSidebarIfNeeded(window);
     await window.getByRole("button", { name: "Extensions", exact: true }).click();
     await expect(window.getByTestId("extensions-surface")).toBeVisible();
+    const extensionSearch = window.getByRole("textbox", { name: "Search extensions" });
+    await expect(extensionSearch).toBeVisible();
+    await expect.poll(() => extensionSearch.locator("xpath=ancestor::*[contains(@class, 'skills-search-control')][1]").evaluate((element) => {
+      const styles = getComputedStyle(element);
+      return styles.borderStyle === "solid" && styles.backgroundColor !== "rgba(0, 0, 0, 0)";
+    })).toBe(true);
+    await expect(window.getByTestId("extensions-list")).toContainText("No extensions found");
+    await expect(window.getByText("Select an extension", { exact: true })).toHaveCount(0);
+    await expect(window.locator(".skill-detail")).toHaveCount(0);
     await expect(window.getByTestId("sidebar-toggle")).toHaveCount(0);
     await window.keyboard.press(desktopShortcut("B"));
     await expect.poll(async () => (await getDesktopState(window)).sidebarCollapsed).toBe(false);

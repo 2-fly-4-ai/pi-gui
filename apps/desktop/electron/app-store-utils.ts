@@ -522,7 +522,7 @@ export function makeToolItem(
   toolName: string,
   status: "running" | "success" | "error",
   label: string,
-  options: Pick<Extract<TranscriptMessage, { kind: "tool" }>, "detail" | "metadata" | "input" | "output" | "updatedAt" | "outputText"> = {},
+  options: Pick<Extract<TranscriptMessage, { kind: "tool" }>, "detail" | "metadata" | "input" | "output" | "updatedAt" | "outputText" | "fullOutputPath"> = {},
 ): TranscriptMessage {
   return {
     kind: "tool",
@@ -543,7 +543,10 @@ export function previewFromTranscript(transcript: readonly TranscriptMessage[]):
       continue;
     }
     if (item.kind === "message" && item.role === "assistant") {
-      return item.text;
+      const preview = formatPreviewText(item.text);
+      if (preview) {
+        return preview;
+      }
     }
   }
 
@@ -553,13 +556,52 @@ export function previewFromTranscript(transcript: readonly TranscriptMessage[]):
       continue;
     }
     if (item.kind === "message") {
-      return item.text;
+      const preview = formatPreviewText(item.text);
+      if (preview) {
+        return preview;
+      }
+      continue;
     }
     if (item.kind === "tool" || item.kind === "activity") {
-      return item.label;
+      const preview = formatPreviewText(item.label);
+      if (preview) {
+        return preview;
+      }
     }
   }
   return undefined;
+}
+
+export function formatPreviewText(text: string): string {
+  return text
+    .replace(/\r/g, "")
+    .split("\n")
+    .map((line) => cleanPreviewLine(line))
+    .filter((line) => line.length > 0)
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function cleanPreviewLine(line: string): string {
+  let next = line.trim();
+  if (!next || /^`{3,}|^~{3,}/.test(next)) {
+    return "";
+  }
+
+  next = next
+    .replace(/^#{1,6}\s+/, "")
+    .replace(/^>\s?/, "")
+    .replace(/^\s*(?:[-*+]|\d+[.)])\s+/, "")
+    .replace(/^\[[ xX]\]\s+/, "")
+    .replace(/!\[([^\]]*)\]\([^)]+\)/g, "$1")
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/<[^>]+>/g, "")
+    .replace(/[*_~]{1,3}([^*_~]+)[*_~]{1,3}/g, "$1")
+    .replace(/\\([\\`*_{}\[\]()#+\-.!>])/g, "$1");
+
+  return next.trim();
 }
 
 export function formatElapsedDuration(startedAt: string, endedAt: string): string {

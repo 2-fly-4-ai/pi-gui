@@ -11,7 +11,7 @@ import type {
   ObservabilityQuery,
   ObservabilitySeverity,
 } from "../src/observability-types";
-import { getDesktopLogPath } from "./diagnostics";
+import { getDesktopLogPath, listNativeCrashReportArtifacts, type NativeCrashReportArtifact } from "./diagnostics";
 
 const MAX_SOURCE_BYTES = 512 * 1024;
 const DEFAULT_LIMIT = 250;
@@ -23,7 +23,7 @@ type ObservabilitySource = {
   readonly path: string;
   readonly optional?: boolean;
   readonly global?: boolean;
-  readonly kind?: "desktop-log" | "subagents-audit" | "ledger" | "session-jsonl";
+  readonly kind?: "desktop-log" | "native-crash-report" | "subagents-audit" | "ledger" | "session-jsonl";
   readonly workspaceId?: string;
   readonly workspacePath?: string;
   readonly sessionId?: string;
@@ -33,20 +33,33 @@ type RawLogLine = {
   readonly line: number;
   readonly text: string;
   readonly global?: boolean;
-  readonly kind?: "desktop-log" | "subagents-audit" | "ledger" | "session-jsonl";
+  readonly kind?: "desktop-log" | "native-crash-report" | "subagents-audit" | "ledger" | "session-jsonl";
   readonly workspaceId?: string;
   readonly workspacePath?: string;
   readonly sessionId?: string;
 };
 
-export async function listObservabilityEvents(input: ObservabilityQuery = {}): Promise<ObservabilityEventPage> {
+export interface ListObservabilityEventsOptions {
+  readonly includeNativeCrashReports?: boolean;
+}
+
+export async function listObservabilityEvents(
+  input: ObservabilityQuery = {},
+  options: ListObservabilityEventsOptions = {},
+): Promise<ObservabilityEventPage> {
   const warnings: string[] = [];
   const sources = [
     ...observabilitySources(),
     ...(await sessionObservabilitySources(input, warnings)),
   ];
-  const pages = await Promise.all(sources.map((source) => readRecentLines(source, warnings)));
-  const events = collapseBlockedToolEchoes(pages.flatMap((lines) => lines.flatMap(normalizeLine)));
+  const [pages, crashArtifacts] = await Promise.all([
+    Promise.all(sources.map((source) => readRecentLines(source, warnings))),
+    options.includeNativeCrashReports ? listNativeCrashReportArtifacts() : Promise.resolve([]),
+  ]);
+  const events = collapseBlockedToolEchoes([
+    ...pages.flatMap((lines) => lines.flatMap(normalizeLine)),
+    ...crashArtifacts.map(normalizeCrashReportArtifact),
+  ]);
   const scoped = input.includeGlobal ? events : filterToCurrentScope(events, input);
   const filtered = filterEvents(scoped, input)
     .sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp));
@@ -210,6 +223,28 @@ function normalizeLine(line: RawLogLine): ObservabilityEvent[] {
     return parsed ? [normalizeLedger(line, parsed)] : [parseWarning(line, "ledger")];
   }
   return [normalizeDesktopLog(line, parsed)];
+}
+
+function normalizeCrashReportArtifact(artifact: NativeCrashReportArtifact): ObservabilityEvent {
+  return {
+    id: stableId(
+      { path: artifact.path, line: 0, text: `${artifact.name}:${artifact.sizeBytes}:${artifact.modifiedAt}`, kind: "native-crash-report" },
+      "native-crash-report-artifact",
+      artifact.modifiedAt,
+    ),
+    timestamp: artifact.modifiedAt,
+    severity: "error",
+    category: "desktop",
+    event: "native-crash-report-artifact",
+    title: "Native crash report artifact",
+    message: `${artifact.name} · ${formatBytes(artifact.sizeBytes)}`,
+    source: { kind: "native-crash-report", path: artifact.path },
+    raw: {
+      name: artifact.name,
+      sizeBytes: artifact.sizeBytes,
+      modifiedAt: artifact.modifiedAt,
+    },
+  };
 }
 
 function parseJson(text: string): Record<string, unknown> | undefined {
@@ -402,6 +437,7 @@ function severityForDesktopEvent(
   const level = numericLogLevel(parsed?.level ?? payload?.level ?? rendererPayload?.level);
   if (level !== undefined && level >= 3) return "error";
   if (/maximum update depth exceeded|cannot update a component|minified react error/i.test(text)) return "error";
+  if (event === "ignored-error") return "info";
   if (/uncaught|unhandled|gone|fail|error/i.test(event) || /error|failed|terminated/i.test(text)) return "error";
   if (/unresponsive|warning|long-task|layout-shift/i.test(event) || /long-task|layout-shift/i.test(text) || level === 2) return "warning";
   return "info";
@@ -435,6 +471,12 @@ function normalizeCategory(value: unknown): ObservabilityCategory | undefined {
   return categories.includes(value as ObservabilityCategory) ? value as ObservabilityCategory : undefined;
 }
 
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
 function filterToCurrentScope(events: readonly ObservabilityEvent[], input: ObservabilityQuery): ObservabilityEvent[] {
   const workspacePath = input.workspacePath?.trim();
   const workspaceId = input.workspaceId?.trim();
@@ -442,7 +484,7 @@ function filterToCurrentScope(events: readonly ObservabilityEvent[], input: Obse
   if (!workspacePath && !workspaceId && !sessionId) return [...events];
 
   return events.filter((event) => {
-    if (event.source.kind === "desktop-log") return true;
+    if (event.source.kind === "desktop-log" || event.source.kind === "native-crash-report") return true;
     if (workspaceId && event.correlation?.workspaceId === workspaceId) return true;
     if (sessionId && event.correlation?.sessionId === sessionId) return true;
     if (!workspacePath) return !isGlobalAuditEvent(event);

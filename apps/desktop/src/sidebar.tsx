@@ -32,11 +32,6 @@ interface SidebarProps {
   readonly wsMenu: WorkspaceMenuState;
   readonly api: PiDesktopApi;
   readonly setSnapshot: Dispatch<SetStateAction<DesktopAppState | null>>;
-  readonly updateSnapshot: (
-    api: PiDesktopApi,
-    setSnapshot: Dispatch<SetStateAction<DesktopAppState | null>>,
-    action: () => Promise<DesktopAppState>,
-  ) => Promise<DesktopAppState>;
   readonly onNewThread: () => void;
   readonly onSetActiveView: (view: AppView) => void;
   readonly onOpenSkills: (workspaceId?: string) => void;
@@ -59,7 +54,6 @@ export function Sidebar(props: SidebarProps) {
     wsMenu,
     api,
     setSnapshot,
-    updateSnapshot,
     onNewThread,
     onSetActiveView,
     onOpenSkills,
@@ -185,7 +179,7 @@ export function Sidebar(props: SidebarProps) {
               className="icon-button"
               type="button"
               onClick={() => {
-                void updateSnapshot(api, setSnapshot, () => api.pickWorkspace());
+                void api.pickWorkspace().then(() => api.getState()).then(setSnapshot);
               }}
             >
               <FolderIcon />
@@ -201,7 +195,7 @@ export function Sidebar(props: SidebarProps) {
               className="button button--primary"
               type="button"
               onClick={() => {
-                void updateSnapshot(api, setSnapshot, () => api.pickWorkspace());
+                void api.pickWorkspace().then(() => api.getState()).then(setSnapshot);
               }}
             >
               Open first folder

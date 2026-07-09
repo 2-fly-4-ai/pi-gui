@@ -9,7 +9,6 @@ import subAgent06Url from "./assets/sub-agents-pngs/sub-agent-06.png";
 import subAgent07Url from "./assets/sub-agents-pngs/sub-agent-07.png";
 import subAgent08Url from "./assets/sub-agents-pngs/sub-agent-08.png";
 import subAgent09Url from "./assets/sub-agents-pngs/sub-agent-09.png";
-import subAgent10Url from "./assets/sub-agents-pngs/sub-agent-10.png";
 import subAgent11Url from "./assets/sub-agents-pngs/sub-agent-11.png";
 import subAgent12Url from "./assets/sub-agents-pngs/sub-agent-12.png";
 import subAgent13Url from "./assets/sub-agents-pngs/sub-agent-13.png";

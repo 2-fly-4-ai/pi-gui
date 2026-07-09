@@ -33,6 +33,8 @@ const CATEGORY_FILTERS: readonly { readonly id: SkillCategory; readonly label: s
   { id: "workflow", label: "Workflow" },
 ];
 
+const EMPTY_SKILLS: readonly RuntimeSkillRecord[] = [];
+
 interface SkillsViewProps {
   readonly workspace?: WorkspaceRecord;
   readonly runtime?: RuntimeSnapshot;
@@ -66,12 +68,13 @@ export function SkillsView({
   const [profileDialog, setProfileDialog] = useState<"new" | "rename" | undefined>();
   const [profileName, setProfileName] = useState("");
   const [profileDescription, setProfileDescription] = useState("");
-  const skills = runtime?.skills ?? [];
+  const skills = runtime?.skills;
+  const visibleSkills = skills ?? EMPTY_SKILLS;
   const profiles = runtime?.skillProfiles ?? [{ id: "default", name: "Default", description: "Use default skill modes from Pi and the local catalog.", skills: {} }];
   const activeProfileId = runtime?.activeSkillProfileId ?? "default";
   const activeProfile = profiles.find((profile) => profile.id === activeProfileId) ?? profiles[0];
   const workspaceName = workspace?.name ?? "selected workspace";
-  const skillModels = useMemo(() => skills.map((skill) => toSkillViewModel(skill, workspaceName)), [skills, workspaceName]);
+  const skillModels = useMemo(() => (skills ?? []).map((skill) => toSkillViewModel(skill, workspaceName)), [skills, workspaceName]);
   const filteredSkills = useMemo(() => {
     const normalized = query.trim().toLowerCase();
 
@@ -97,6 +100,7 @@ export function SkillsView({
   const selectedSkillModel = filteredSkills.find((model) => model.skill.filePath === selectedSkillPath);
   const selectedSkill = selectedSkillModel?.skill;
   const isPanelOpen = !!selectedSkill;
+  const hasFilteredSkills = filteredSkills.length > 0;
 
   if (!workspace) {
     return (
@@ -125,8 +129,8 @@ export function SkillsView({
             {discoveryWorkspaceControl ? (
               <div className="skills-header-discovery">
                 {discoveryWorkspaceControl}
-                <span className={`skills-header-discovery__count ${skills.some((skill) => skill.source === "project") ? "skills-header-discovery__count--active" : ""}`}>
-                  {skills.filter((skill) => skill.source === "project").length} local
+                <span className={`skills-header-discovery__count ${visibleSkills.some((skill) => skill.source === "project") ? "skills-header-discovery__count--active" : ""}`}>
+                  {visibleSkills.filter((skill) => skill.source === "project").length} local
                 </span>
               </div>
             ) : null}
@@ -237,7 +241,7 @@ export function SkillsView({
           </div>
         </div>
 
-        <div className={`skills-layout ${isPanelOpen ? "skills-layout--panel-open" : ""}`}>
+        <div className={`skills-layout ${isPanelOpen ? "skills-layout--panel-open" : ""} ${hasFilteredSkills ? "" : "skills-layout--empty"}`}>
           <div className="skills-grid" data-testid="skills-list">
             {filteredSkills.length === 0 ? (
               <SkillsEmptyState message="No skills discovered in this workspace context. Global profiles still apply wherever those skills are available." />
@@ -296,76 +300,78 @@ export function SkillsView({
             )}
           </div>
 
-          <div className="skill-detail-wrap">
-            <div className="skill-detail">
-              {selectedSkill ? (
-                <>
-                  <div className="skill-detail__header">
-                    <div>
-                      <h2>{titleCase(selectedSkill.name)}</h2>
-                      <div className="skill-detail__slash">{selectedSkill.slashCommand}</div>
+          {hasFilteredSkills ? (
+            <div className="skill-detail-wrap">
+              <div className="skill-detail">
+                {selectedSkill ? (
+                  <>
+                    <div className="skill-detail__header">
+                      <div>
+                        <h2>{titleCase(selectedSkill.name)}</h2>
+                        <div className="skill-detail__slash">{selectedSkill.slashCommand}</div>
+                      </div>
+                      <div className="skill-detail__header-end">
+                        <span className={`skill-detail__status ${selectedSkill.mode !== "off" ? "skill-detail__status--enabled" : ""}`}>
+                          {skillModeLabel(selectedSkill.mode)}
+                        </span>
+                        <button
+                          aria-label="Close detail panel"
+                          className="skill-detail__close"
+                          type="button"
+                          onClick={() => setSelectedSkillPath(undefined)}
+                        >
+                          <CloseIcon />
+                        </button>
+                      </div>
                     </div>
-                    <div className="skill-detail__header-end">
-                      <span className={`skill-detail__status ${selectedSkill.mode !== "off" ? "skill-detail__status--enabled" : ""}`}>
-                        {skillModeLabel(selectedSkill.mode)}
-                      </span>
-                      <button
-                        aria-label="Close detail panel"
-                        className="skill-detail__close"
-                        type="button"
-                        onClick={() => setSelectedSkillPath(undefined)}
-                      >
-                        <CloseIcon />
+                    <p className="skill-detail__description">{selectedSkill.description}</p>
+                    <SkillModeControl
+                      mode={selectedSkill.mode}
+                      onChange={(mode) => onSetSkillMode(selectedSkill.filePath, mode)}
+                    />
+                    <SkillUsageStats usage={usageByPath[selectedSkill.filePath]} />
+                    {selectedSkillModel ? (
+                      <div className="skill-detail__tags">
+                        {selectedSkillModel.tags.map((tag) => (
+                          <span className="skill-tag" key={tag} title={tag}>{tag}</span>
+                        ))}
+                      </div>
+                    ) : null}
+                    <div className="skill-detail__command">
+                      <div>
+                        <div className="skill-detail__meta-label">Use</div>
+                        <div className="skill-detail__command-token">{selectedSkill.slashCommand}</div>
+                      </div>
+                      <button className="button button--primary" type="button" onClick={() => onTrySkill(selectedSkill)}>
+                        Try skill
                       </button>
                     </div>
-                  </div>
-                  <p className="skill-detail__description">{selectedSkill.description}</p>
-                  <SkillModeControl
-                    mode={selectedSkill.mode}
-                    onChange={(mode) => onSetSkillMode(selectedSkill.filePath, mode)}
-                  />
-                  <SkillUsageStats usage={usageByPath[selectedSkill.filePath]} />
-                  {selectedSkillModel ? (
-                    <div className="skill-detail__tags">
-                      {selectedSkillModel.tags.map((tag) => (
-                        <span className="skill-tag" key={tag} title={tag}>{tag}</span>
-                      ))}
+                    <div className="skill-detail__meta-list">
+                      <div>
+                        <div className="skill-detail__meta-label">Source</div>
+                        <div className="skill-detail__description">{selectedSkillModel?.sourceDetail ?? selectedSkill.source}</div>
+                      </div>
+                      <div>
+                        <div className="skill-detail__meta-label">Category</div>
+                        <div className="skill-detail__description">{selectedSkillModel?.categoryLabel ?? "Workflow"}</div>
+                      </div>
+                      <div>
+                        <div className="skill-detail__meta-label">Path</div>
+                        <div className="skill-detail__path">{selectedSkill.filePath}</div>
+                      </div>
                     </div>
-                  ) : null}
-                  <div className="skill-detail__command">
-                    <div>
-                      <div className="skill-detail__meta-label">Use</div>
-                      <div className="skill-detail__command-token">{selectedSkill.slashCommand}</div>
+                    <div className="skill-detail__actions">
+                      <button className="button button--secondary" type="button" onClick={() => onOpenSkillFolder(selectedSkill.filePath)}>
+                        Open folder
+                      </button>
                     </div>
-                    <button className="button button--primary" type="button" onClick={() => onTrySkill(selectedSkill)}>
-                      Try skill
-                    </button>
-                  </div>
-                  <div className="skill-detail__meta-list">
-                    <div>
-                      <div className="skill-detail__meta-label">Source</div>
-                      <div className="skill-detail__description">{selectedSkillModel?.sourceDetail ?? selectedSkill.source}</div>
-                    </div>
-                    <div>
-                      <div className="skill-detail__meta-label">Category</div>
-                      <div className="skill-detail__description">{selectedSkillModel?.categoryLabel ?? "Workflow"}</div>
-                    </div>
-                    <div>
-                      <div className="skill-detail__meta-label">Path</div>
-                      <div className="skill-detail__path">{selectedSkill.filePath}</div>
-                    </div>
-                  </div>
-                  <div className="skill-detail__actions">
-                    <button className="button button--secondary" type="button" onClick={() => onOpenSkillFolder(selectedSkill.filePath)}>
-                      Open folder
-                    </button>
-                  </div>
-                </>
-              ) : (
-                <SkillDetailPlaceholder title="Select a skill" body="Pick a card to inspect usage, tags, command details, and enablement." />
-              )}
+                  </>
+                ) : (
+                  <SkillDetailPlaceholder title="Select a skill" body="Pick a card to inspect usage, tags, command details, and enablement." />
+                )}
+              </div>
             </div>
-          </div>
+          ) : null}
         </div>
         {profileDialog ? (
           <div className="action-dialog-backdrop" role="presentation">

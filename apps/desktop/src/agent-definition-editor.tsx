@@ -15,6 +15,7 @@ import {
 } from "./subagent-shinobi-roster";
 import { resolveSubagentRoleColor, useSubagentRoleColorMap } from "./subagent-role-colors";
 import { THINKING_LEVELS, labelForThinking } from "./settings-utils";
+import { logIgnoredError } from "./renderer-diagnostics";
 
 interface AgentDefinitionEditorProps {
   readonly mode: "create" | "edit";
@@ -46,7 +47,8 @@ export function AgentDefinitionEditor({ mode, config, agentKey, runtime, default
   const save = () => {
     setAttemptedSave(true);
     if (!validation.valid) return;
-    void Promise.resolve(onSave({ scope: form.scope, config: buildAgentDefinitionConfig(form) })).catch(() => undefined);
+    void Promise.resolve(onSave({ scope: form.scope, config: buildAgentDefinitionConfig(form) }))
+      .catch((error) => logIgnoredError("agent-definition-editor.save", error));
   };
 
   const roleKey = form.role.trim() || form.name.trim() || config.role || config.name || agentKey;

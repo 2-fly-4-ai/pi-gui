@@ -30,6 +30,7 @@ export interface TimelineToolCall {
   readonly input?: unknown;
   readonly output?: unknown;
   readonly outputText?: string;
+  readonly fullOutputPath?: string;
 }
 
 export interface TimelineSummary {

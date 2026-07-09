@@ -1,5 +1,29 @@
 @import "./styles/base.css";
 @import "./styles/sidebar.css";
+@import "./styles/shell.css";
+@import "./styles/timeline.css";
+@import "./styles/composer.css";
+@import "./styles/app-surfaces.css";
+@import "./styles/settings.css";
+@import "./styles/skills-extensions-tree.css";
+@import "./styles/dark-mode.css";
+@import "./styles/display-mode.css";
+@import "./styles/command-plan-agents.css";
+@import "./styles/logs.css";
 @import "./styles/main.css";
 @import "./styles/syntax-highlight.css";
 @import "./styles/review.css";
+
+:root {
+  --focus-ring: color-mix(in srgb, var(--accent) 68%, transparent);
+}
+
+:is(button, a[href], input, select, textarea, summary, [tabindex]:not([tabindex="-1"]), [role="button"], [role="tab"], [role="menuitem"]):focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+input[type="checkbox"],
+input[type="radio"] {
+  accent-color: var(--accent);
+}

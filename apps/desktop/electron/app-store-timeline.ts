@@ -1,6 +1,7 @@
 import { sessionKey } from "@pi-gui/pi-sdk-driver";
 import type { RuntimeJobSnapshot, SessionDriverEvent, SessionQueuedMessage, SessionRef } from "@pi-gui/session-driver";
 import type { TranscriptMessage } from "../src/desktop-state";
+import { formatSubagentFinalBlockSummary, parseSubagentFinalBlock } from "../src/subagent-final-block";
 import {
   formatElapsedDuration,
   makeActivityItem,
@@ -10,6 +11,8 @@ import {
   makeTranscriptMessage,
   makeTranscriptMessageWithAttachments,
 } from "./app-store-utils";
+
+const TOOL_OUTPUT_TEXT_HARD_LIMIT = 12_000;
 
 export interface RunMetrics {
   readonly startedAt: string;
@@ -283,6 +286,7 @@ export function applyTimelineEvent(
     case "toolFinished": {
       const outputText = textFromToolOutput(event.output);
       const visibleOutputText = sanitizeToolOutputText(outputText);
+      const fullOutputPath = outputText ? extractToolOutputPath(outputText) : undefined;
       const visibleOutput = visibleOutputText !== outputText && visibleOutputText !== undefined
         ? { content: [{ type: "text", text: visibleOutputText }], sanitized: true }
         : event.output;
@@ -297,8 +301,24 @@ export function applyTimelineEvent(
         visibleOutput,
         visibleOutputText,
         event.timestamp,
+        fullOutputPath,
       );
       removeRuntimeJobRowsForToolCall(transcript, event.callId);
+      break;
+    }
+    case "subagentRunUpdated": {
+      upsertToolRow(
+        transcript,
+        event.toolCallId ?? event.subagentRunId,
+        "Agent",
+        subagentToolStatus(event.status),
+        subagentRunLabel(event),
+        subagentRunDetail(event),
+        undefined,
+        undefined,
+        subagentRunOutputText(event),
+        event.timestamp,
+      );
       break;
     }
     case "runtimeJobUpdated":
@@ -403,6 +423,7 @@ function upsertToolRow(
   output?: unknown,
   outputText?: string,
   updatedAt = new Date().toISOString(),
+  fullOutputPath?: string,
 ) {
   const index = transcript.findIndex((item) => item.kind === "tool" && item.callId === callId);
   const existing = index >= 0 ? transcript[index] : undefined;
@@ -418,6 +439,7 @@ function upsertToolRow(
       input: input ?? existingTool?.input,
       output: output ?? existingTool?.output,
       outputText: outputText ?? existingTool?.outputText,
+      fullOutputPath: fullOutputPath ?? existingTool?.fullOutputPath,
       updatedAt,
     },
   );
@@ -471,6 +493,47 @@ function toolLabel(toolName: string, input: unknown): string {
   return detail ? `Ran ${toolName}: ${detail}` : `Ran ${toolName}`;
 }
 
+function subagentRunLabel(event: Extract<SessionDriverEvent, { type: "subagentRunUpdated" }>): string {
+  const name = event.agentName ?? event.role ?? "subagent";
+  if (event.status === "started") return `Started ${name}`;
+  if (event.status === "progress") return `Running ${name}`;
+  if (event.status === "completed") return `Completed ${name}`;
+  if (event.status === "cancelled") return `Cancelled ${name}`;
+  return `Failed ${name}`;
+}
+
+function subagentRunDetail(event: Extract<SessionDriverEvent, { type: "subagentRunUpdated" }>): string | undefined {
+  const details = [
+    event.description,
+    event.toolUseCount !== undefined ? `${event.toolUseCount} tool${event.toolUseCount === 1 ? "" : "s"}` : undefined,
+    event.elapsedMs !== undefined ? formatElapsedMs(event.elapsedMs) : undefined,
+    event.transcriptPath ? `Transcript: ${event.transcriptPath}` : undefined,
+  ].filter((detail): detail is string => Boolean(detail?.trim()));
+  return details.length > 0 ? details.join(" · ") : undefined;
+}
+
+function subagentRunOutputText(event: Extract<SessionDriverEvent, { type: "subagentRunUpdated" }>): string | undefined {
+  const lines = [
+    event.summary,
+    event.toolUseCount !== undefined ? `Tool uses: ${event.toolUseCount}` : undefined,
+    event.elapsedMs !== undefined ? `Elapsed: ${formatElapsedMs(event.elapsedMs)}` : undefined,
+    event.transcriptPath ? `Transcript: ${event.transcriptPath}` : undefined,
+    event.artifacts?.length ? `Artifacts: ${event.artifacts.join(", ")}` : undefined,
+  ].filter((line): line is string => Boolean(line?.trim()));
+  return lines.length > 0 ? lines.join("\n") : undefined;
+}
+
+function subagentToolStatus(status: Extract<SessionDriverEvent, { type: "subagentRunUpdated" }>["status"]): "running" | "success" | "error" {
+  if (status === "completed") return "success";
+  if (status === "failed" || status === "cancelled") return "error";
+  return "running";
+}
+
+function formatElapsedMs(elapsedMs: number): string {
+  if (elapsedMs < 1000) return `${elapsedMs}ms`;
+  return `${Math.round(elapsedMs / 1000)}s`;
+}
+
 function progressLabel(progress: number | undefined): string | undefined {
   if (progress === undefined) {
     return undefined;
@@ -499,20 +562,34 @@ function textFromToolOutput(output: unknown): string | undefined {
 }
 
 function sanitizeToolOutputText(text: string | undefined): string | undefined {
-  if (!text || !shouldSummarizeSubagentTranscript(text)) {
-    return text;
+  if (!text) {
+    return undefined;
+  }
+  if (!shouldSummarizeSubagentTranscript(text)) {
+    return capToolOutputText(text);
   }
 
   const metadata = extractSubagentResultMetadata(text);
-  const finalStatus = extractFinalStatusBlock(text);
-  const transcriptPath = extractSubagentTranscriptPath(text);
+  const finalResult = parseSubagentFinalBlock(text);
+  const transcriptPath = extractToolOutputPath(text);
   const parts = [
     metadata,
-    finalStatus ?? "Subagent result received. Raw transcript JSON hidden from chat.",
+    finalResult ? formatSubagentFinalBlockSummary(finalResult) : "Subagent result received. Summary unavailable - open transcript.",
     transcriptPath ? `Transcript: ${transcriptPath}` : undefined,
   ].filter((part): part is string => Boolean(part?.trim()));
 
-  return parts.join("\n\n");
+  return capToolOutputText(parts.join("\n\n"));
+}
+
+function capToolOutputText(text: string): string {
+  if (text.length <= TOOL_OUTPUT_TEXT_HARD_LIMIT) {
+    return text;
+  }
+  return [
+    text.slice(0, TOOL_OUTPUT_TEXT_HARD_LIMIT),
+    "",
+    `[Output truncated for chat: showing first ${TOOL_OUTPUT_TEXT_HARD_LIMIT.toLocaleString()} of ${text.length.toLocaleString()} characters.]`,
+  ].join("\n");
 }
 
 function shouldSummarizeSubagentTranscript(text: string): boolean {
@@ -534,52 +611,7 @@ function extractSubagentResultMetadata(text: string): string | undefined {
   return lines.length > 0 ? lines.join("\n") : undefined;
 }
 
-function extractFinalStatusBlock(text: string): string | undefined {
-  const statusIndex = text.lastIndexOf("STATUS:");
-  if (statusIndex === -1) {
-    return undefined;
-  }
-
-  const rawBlock = text
-    .slice(statusIndex, Math.min(text.length, statusIndex + 4_000))
-    .replace(/\\n/g, "\n")
-    .replace(/\\"/g, "\"");
-  const lines: string[] = [];
-  for (const line of rawBlock.split(/\r?\n/)) {
-    const trimmed = line.trimEnd();
-    if (!trimmed) {
-      if (lines.length > 0) {
-        break;
-      }
-      continue;
-    }
-    if (
-      trimmed.startsWith("{\"type\":") ||
-      trimmed.startsWith("[Result truncated") ||
-      trimmed.startsWith("[Full output:") ||
-      trimmed.includes("\"api\":") ||
-      trimmed.includes("\"timestamp\":")
-    ) {
-      break;
-    }
-    const jsonStringTailIndex = trimmed.search(/"\}\]}/);
-    lines.push((jsonStringTailIndex >= 0 ? trimmed.slice(0, jsonStringTailIndex) : trimmed).replace(/"?\}\]?[,]?$/, ""));
-    if (jsonStringTailIndex >= 0 || lines.length >= 20) {
-      break;
-    }
-  }
-
-  const firstLine = lines[0]?.trim();
-  if (!firstLine || /\||\bor\b/i.test(firstLine)) {
-    return undefined;
-  }
-  if (!/^STATUS:\s*(DONE|DONE_WITH_CONCERNS|NEEDS_CONTEXT|BLOCKED|APPROVED|CHANGES_REQUESTED)\b/.test(firstLine)) {
-    return undefined;
-  }
-  return lines.join("\n").trim() || undefined;
-}
-
-function extractSubagentTranscriptPath(text: string): string | undefined {
+function extractToolOutputPath(text: string): string | undefined {
   const match = text.match(/\/[^\]\s]+\/tasks\/[A-Za-z0-9-]+\.output/);
   return match?.[0];
 }

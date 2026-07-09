@@ -105,6 +105,147 @@ test("loads Display Mode with clipped recent transcript rows", async () => {
   }
 });
 
+test("loads Display Mode transcripts from persisted history after restart", async () => {
+  const userDataDir = await makeUserDataDir();
+  const workspacePath = await makeWorkspace("display-mode-persisted-transcript");
+  const harness = await launchDesktop(userDataDir, {
+    initialWorkspaces: [workspacePath],
+    testMode: "background",
+  });
+
+  try {
+    const window = await harness.firstWindow();
+    await waitForWorkspaceByPath(window, workspacePath);
+    await createNamedThread(window, "Display mode persisted transcript");
+    await seedTranscriptMessages(harness, window, {
+      count: 1,
+      textFactory: () => "Persisted Display Mode transcript sentinel",
+    });
+  } finally {
+    await harness.close();
+  }
+
+  const restarted = await launchDesktop(userDataDir, {
+    initialWorkspaces: [workspacePath],
+    testMode: "background",
+  });
+
+  try {
+    const window = await restarted.firstWindow();
+    await waitForWorkspaceByPath(window, workspacePath);
+    await window.locator(".sidebar__nav").getByRole("button", { name: "Display Mode" }).click();
+    await expect.poll(async () => window.evaluate(() => window.piApp?.getState().then((state) => state.activeView) ?? "missing")).toBe("display-mode");
+
+    const tile = window.getByTestId("display-mode-thread-tile").filter({ hasText: "Display mode persisted transcript" });
+    await expect(tile).toContainText("Persisted Display Mode transcript sentinel");
+  } finally {
+    await restarted.close();
+  }
+});
+
+test("scales markdown headings inside Display Mode tiles", async () => {
+  const userDataDir = await makeUserDataDir();
+  const workspacePath = await makeWorkspace("display-mode-markdown-heading");
+  const harness = await launchDesktop(userDataDir, {
+    initialWorkspaces: [workspacePath],
+    testMode: "background",
+  });
+
+  try {
+    const window = await harness.firstWindow();
+    await waitForWorkspaceByPath(window, workspacePath);
+    await createNamedThread(window, "Display mode markdown heading");
+    await seedTranscriptMessages(harness, window, {
+      count: 1,
+      textFactory: () => "## Display Tile Heading\n\nBody text under the heading.",
+    });
+
+    await window.locator(".sidebar__nav").getByRole("button", { name: "Display Mode" }).click();
+    await expect.poll(async () => window.evaluate(() => window.piApp?.getState().then((state) => state.activeView) ?? "missing")).toBe("display-mode");
+
+    const tile = window.getByTestId("display-mode-thread-tile").filter({ hasText: "Display mode markdown heading" });
+    const heading = tile.locator(".display-mode-tile__transcript h2", { hasText: "Display Tile Heading" });
+    await expect(heading).toBeVisible();
+    await expect(tile.locator(".display-mode-tile__transcript")).toContainText("Body text under the heading.");
+
+    const headingStyle = await heading.evaluate((element) => {
+      const style = window.getComputedStyle(element);
+      return {
+        fontSize: Number.parseFloat(style.fontSize),
+        lineHeight: Number.parseFloat(style.lineHeight),
+        marginBottom: Number.parseFloat(style.marginBottom),
+        marginTop: Number.parseFloat(style.marginTop),
+      };
+    });
+
+    expect(headingStyle.fontSize).toBeLessThanOrEqual(14);
+    expect(headingStyle.lineHeight).toBeLessThanOrEqual(20);
+    expect(headingStyle.marginTop).toBe(0);
+    expect(headingStyle.marginBottom).toBe(0);
+  } finally {
+    await harness.close();
+  }
+});
+
+test("summarizes running subagents on Display Mode tiles", async () => {
+  const userDataDir = await makeUserDataDir();
+  const workspacePath = await makeWorkspace("display-mode-subagent-activity");
+  const harness = await launchDesktop(userDataDir, {
+    initialWorkspaces: [workspacePath],
+    testMode: "background",
+  });
+
+  try {
+    const window = await harness.firstWindow();
+    await waitForWorkspaceByPath(window, workspacePath);
+    await createNamedThread(window, "Display mode subagent activity");
+    await seedTranscriptMessages(harness, window, {
+      count: 1,
+      textFactory: () => "Parent thread work in progress.",
+    });
+
+    const sessionRef = await window.evaluate(async () => {
+      const state = await window.piApp?.getState();
+      if (!state?.selectedWorkspaceId || !state.selectedSessionId) {
+        throw new Error("No selected session available");
+      }
+      return {
+        workspaceId: state.selectedWorkspaceId,
+        sessionId: state.selectedSessionId,
+      };
+    });
+
+    await emitTestSessionEvent(harness, {
+      type: "subagentRunUpdated",
+      sessionRef,
+      timestamp: new Date().toISOString(),
+      subagentRunId: "display-mode-agent-1",
+      parentSession: sessionRef,
+      toolCallId: "display-mode-agent-1",
+      status: "started",
+      role: "reviewer",
+      description: "Review current diff",
+    } satisfies Extract<SessionDriverEvent, { type: "subagentRunUpdated" }>);
+
+    await seedTranscriptMessages(harness, window, {
+      count: 14,
+      textFactory: (index) => `Later parent update ${index}`,
+    });
+
+    await window.locator(".sidebar__nav").getByRole("button", { name: "Display Mode" }).click();
+    await expect.poll(async () => window.evaluate(() => window.piApp?.getState().then((state) => state.activeView) ?? "missing")).toBe("display-mode");
+
+    const tile = window.getByTestId("display-mode-thread-tile").filter({ hasText: "Display mode subagent activity" });
+    await expect(tile.locator(".display-mode-tile__transcript")).toContainText("Later parent update 13");
+    await expect(tile.locator(".display-mode-tile__transcript")).not.toContainText("Started reviewer");
+    const activity = tile.getByTestId("display-mode-subagent-activity");
+    await expect(activity).toBeVisible();
+    await expect(activity).toHaveText("1 Agent running · reviewer");
+  } finally {
+    await harness.close();
+  }
+});
+
 test("uses the thread composer input in Display Mode tiles", async () => {
   const userDataDir = await makeUserDataDir();
   const workspacePath = await makeWorkspace("display-mode-composer-parity");
@@ -125,9 +266,29 @@ test("uses the thread composer input in Display Mode tiles", async () => {
 
     const tile = window.getByTestId("display-mode-thread-tile").filter({ hasText: "Display mode composer parity" });
     await expect(tile.locator(".display-mode-tile__reply > .conversation--composer")).toHaveCount(1);
+    await expect(tile).not.toContainText("No messages yet");
     const displayComposerStyles = await tile.locator(".display-mode-tile__reply .composer__surface").evaluate(readComposerSurfaceStyles);
+    const widthDelta = await tile.evaluate((tileElement) => {
+      const reply = tileElement.querySelector<HTMLElement>(".display-mode-tile__reply");
+      const surface = tileElement.querySelector<HTMLElement>(".display-mode-tile__reply .composer__surface");
+      if (!reply || !surface) {
+        return Number.POSITIVE_INFINITY;
+      }
+      return Math.abs(reply.getBoundingClientRect().width - surface.getBoundingClientRect().width);
+    });
+    const replyOffsetRatio = await tile.evaluate((tileElement) => {
+      const reply = tileElement.querySelector<HTMLElement>(".display-mode-tile__reply");
+      if (!reply) {
+        return 0;
+      }
+      const tileBox = tileElement.getBoundingClientRect();
+      const replyBox = reply.getBoundingClientRect();
+      return (replyBox.top - tileBox.top) / tileBox.height;
+    });
 
     expect(displayComposerStyles).toEqual(threadComposerStyles);
+    expect(widthDelta).toBeLessThanOrEqual(2);
+    expect(replyOffsetRatio).toBeGreaterThan(0.55);
   } finally {
     await harness.close();
   }

@@ -15,6 +15,14 @@ test("persists renderer diagnostics to the desktop log", async () => {
         kind: "playwright-renderer-diagnostic",
         message: "renderer diagnostic smoke test",
       });
+      (window as PiAppWindow).piApp?.reportRendererDiagnostic({
+        kind: "ignored-error",
+        message: "Ignored error in playwright diagnostics smoke",
+        details: {
+          scope: "playwright.diagnostics-smoke",
+          error: { message: "ignored diagnostic smoke test" },
+        },
+      });
       console.error("playwright console diagnostic smoke test");
     });
 
@@ -33,6 +41,8 @@ test("persists renderer diagnostics to the desktop log", async () => {
 
     const log = await readFile(logPath, "utf8");
     expect(log).toContain("renderer diagnostic smoke test");
+    expect(log).toContain("playwright.diagnostics-smoke");
+    expect(log).toContain("ignored diagnostic smoke test");
     expect(log).toContain("playwright console diagnostic smoke test");
   } finally {
     await harness.close();

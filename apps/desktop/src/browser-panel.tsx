@@ -188,8 +188,6 @@ export function BrowserPanel({
     const handleNewWindow = (event: BrowserNewWindowEvent) => {
       event.preventDefault();
       if (event.url && isHttpUrl(event.url)) {
-        onNavigate(event.url);
-      } else if (event.url) {
         onOpenExternal(event.url);
       }
     };

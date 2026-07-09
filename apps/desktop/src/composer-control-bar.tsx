@@ -8,7 +8,7 @@ interface ComposerControlBarProps {
   readonly reasoningControl: ReactNode;
   readonly fastModeControl?: ReactNode;
   readonly skillProfileControl?: ReactNode;
-  readonly modeControl: ReactNode;
+  readonly modeControl?: ReactNode;
   readonly supervisionControl: ReactNode;
   readonly contextControl: ReactNode;
   readonly thinkingTraceControl?: ReactNode;
@@ -123,7 +123,7 @@ export function ComposerControlBar({
                 <ComposerOverflowRow label="Reasoning">{reasoningControl}</ComposerOverflowRow>
                 {fastModeControl ? <ComposerOverflowRow label="Fast Mode">{fastModeControl}</ComposerOverflowRow> : null}
                 {skillProfileControl ? <ComposerOverflowRow label="Skills">{skillProfileControl}</ComposerOverflowRow> : null}
-                <ComposerOverflowRow label="Mode">{modeControl}</ComposerOverflowRow>
+                {modeControl ? <ComposerOverflowRow label="Mode">{modeControl}</ComposerOverflowRow> : null}
                 <ComposerOverflowRow label="Access">{supervisionControl}</ComposerOverflowRow>
                 <div className="composer-control-bar__overflow-divider" />
                 {thinkingTraceControl ? <ComposerOverflowRow label="Thinking">{thinkingTraceControl}</ComposerOverflowRow> : null}
@@ -159,8 +159,12 @@ export function ComposerControlBar({
             {skillProfileControl}
           </>
         ) : null}
-        <span aria-hidden="true" className="composer-control-bar__separator" />
-        {modeControl}
+        {modeControl ? (
+          <>
+            <span aria-hidden="true" className="composer-control-bar__separator" />
+            {modeControl}
+          </>
+        ) : null}
         <span aria-hidden="true" className="composer-control-bar__separator" />
         {supervisionControl}
       </div>

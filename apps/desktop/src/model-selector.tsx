@@ -154,6 +154,7 @@ export function ModelSelector({
               {modelOptions.length === 0 ? (
                 <div className="model-selector__empty">
                   <strong>{emptyModelTitle}</strong>
+                  <span>{emptyModelDescription}</span>
                 </div>
               ) : null}
               {modelOptions.length > 0 && groupedModels.length === 0 ? (

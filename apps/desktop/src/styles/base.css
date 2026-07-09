@@ -11,12 +11,9 @@
   --text-strong: #1f2638;
   --muted: #747d93;
   --muted-strong: #556077;
-  --muted-soft: #8f97aa;
-  --muted-subtle: #a3a9b8;
-  --muted-icon: #8a92a8;
-  --muted-path: #a0a7b8;
-  --muted-settings: #8b92a4;
+  --muted-faint: #8f97aa;
   --accent: #6a55f2;
+  --link: #3358d4;
   --error: #c45666;
   --error-ink: #8f3040;
   --font-ui:
@@ -32,6 +29,57 @@
     "Cascadia Code",
     "Consolas",
     monospace;
+  --radius-2xs: 4px;
+  --radius-xs: 5px;
+  --radius-compact: 6px;
+  --radius-tight: 7px;
+  --radius-sm: 8px;
+  --radius-control: 9px;
+  --radius-md: 10px;
+  --radius-panel: 11px;
+  --radius-lg: 12px;
+  --radius-xl: 14px;
+  --radius-2xl: 16px;
+  --radius-3xl: 18px;
+  --radius-4xl: 20px;
+  --radius-5xl: 22px;
+  --radius-6xl: 24px;
+  --radius-7xl: 26px;
+  --radius-8xl: 28px;
+  --radius-full: 999px;
+  --radius-circle: 50%;
+  --font-size-xs: 11px;
+  --font-size-sm: 12px;
+  --font-size-md: 13px;
+  --font-size-lg: 14px;
+  --font-size-base: 15px;
+  --font-size-xl: 16px;
+  --font-size-2xl: 18px;
+  --font-size-3xl: 20px;
+  --font-size-4xl: 22px;
+  --font-size-display-sm: 24px;
+  --font-size-display-md: 26px;
+  --font-size-display-lg: 30px;
+  --font-size-display-xl: 52px;
+  --z-base: 1;
+  --z-above: 2;
+  --z-raised: 3;
+  --z-sticky: 4;
+  --z-docked: 5;
+  --z-overlay: 8;
+  --z-scrim: 10;
+  --z-panel: 20;
+  --z-panel-resize: 25;
+  --z-menu-underlay: 28;
+  --z-menu: 30;
+  --z-menu-floating: 34;
+  --z-popover: 35;
+  --z-modal: 40;
+  --z-tooltip: 60;
+  --z-command-palette: 80;
+  --z-window-controls: 200;
+  --transition-fast: 120ms ease;
+  --transition-slow: 200ms ease;
   --border: var(--line);
   --ink: var(--text);
   --ink-strong: var(--text-strong);
@@ -61,12 +109,9 @@
   --text-strong: #f4f4f5;
   --muted: #8b8d94;
   --muted-strong: #9ea0a8;
-  --muted-soft: #6b6e76;
-  --muted-subtle: #5a5d65;
-  --muted-icon: #7a7d85;
-  --muted-path: #6e727a;
-  --muted-settings: #7b7e86;
+  --muted-faint: #6b6e76;
   --accent: #7c6bf5;
+  --link: #8da7ff;
   --error: #e05467;
   --error-ink: #f87171;
   --border: var(--line);
@@ -103,7 +148,7 @@
 *::-webkit-scrollbar-thumb {
   min-height: 48px;
   border: 2px solid transparent;
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   background: var(--scrollbar-thumb);
   background-clip: content-box;
 }
@@ -129,7 +174,7 @@ body {
   font-family: var(--font-ui);
   color: var(--text-strong);
   background: var(--window);
-  font-size: 15px;
+  font-size: var(--font-size-base);
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }
@@ -154,7 +199,7 @@ svg {
 .loading-card {
   width: min(720px, 100%);
   padding: 24px;
-  border-radius: 14px;
+  border-radius: var(--radius-xl);
   border: 1px solid var(--line);
   background: var(--surface);
 }
@@ -162,7 +207,7 @@ svg {
 .loading-card__eyebrow,
 .session-header__eyebrow {
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--font-size-sm);
   font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -189,7 +234,7 @@ svg {
   margin: 0;
   color: var(--muted);
   line-height: 1.5;
-  font-size: 15px;
+  font-size: var(--font-size-base);
 }
 
 .loading-card p {
@@ -198,14 +243,14 @@ svg {
 
 .empty-state {
   padding: 16px;
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   border: 1px dashed var(--line-strong);
   background: rgba(255, 255, 255, 0.45);
 }
 
 .empty-state h2 {
   margin: 0 0 8px;
-  font-size: 17px;
+  font-size: var(--font-size-xl);
   letter-spacing: -0.03em;
 }
 
@@ -216,17 +261,17 @@ svg {
   gap: 8px;
   min-height: 36px;
   padding: 0 13px;
-  border-radius: 9px;
+  border-radius: var(--radius-control);
   background: var(--surface);
   border: 1px solid transparent;
   color: var(--text-strong);
-  font-size: 14px;
+  font-size: var(--font-size-lg);
   font-weight: 600;
   transition:
-    background 140ms ease,
-    border-color 140ms ease,
-    color 140ms ease,
-    opacity 140ms ease;
+    background var(--transition-fast),
+    border-color var(--transition-fast),
+    color var(--transition-fast),
+    opacity var(--transition-fast);
 }
 
 .button--primary {
@@ -269,7 +314,7 @@ svg {
   padding: 0;
   display: inline-grid;
   place-items: center;
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
 }
 
 .button--cta-icon svg {
@@ -281,9 +326,9 @@ svg {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   padding: 6px 10px;
-  font-size: 12px;
+  font-size: var(--font-size-sm);
   font-weight: 500;
   color: var(--muted-strong);
   background: rgba(255, 255, 255, 0.8);

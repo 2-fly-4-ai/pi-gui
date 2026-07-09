@@ -40,6 +40,20 @@ export function CommandPalette({ actions, onClose }: CommandPaletteProps) {
   }, []);
 
   useEffect(() => {
+    const handleEscape = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== "Escape") {
+        return;
+      }
+      event.preventDefault();
+      onClose();
+    };
+    window.addEventListener("keydown", handleEscape);
+    return () => {
+      window.removeEventListener("keydown", handleEscape);
+    };
+  }, [onClose]);
+
+  useEffect(() => {
     setSelectedIndex(firstEnabledIndex(filteredActions));
   }, [filteredActions]);
 

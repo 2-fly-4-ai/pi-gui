@@ -7,7 +7,41 @@ on:
   pull_request:
 
 jobs:
+  gitleaks:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Secret scan
+        uses: gitleaks/gitleaks-action@v3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  lint:
+    needs: gitleaks
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm lint
+
   typecheck:
+    needs: lint
     runs-on: ubuntu-latest
 
     steps:
@@ -26,7 +60,28 @@ jobs:
       - name: Typecheck
         run: pnpm typecheck
 
+  unit:
+    needs: typecheck
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Unit Tests
+        run: pnpm test:unit
+
   desktop-core:
+    needs: unit
     runs-on: macos-latest
 
     steps:
@@ -46,6 +101,7 @@ jobs:
         run: pnpm --filter @pi-gui/desktop run test:e2e:ci:mac
 
   desktop-package-linux:
+    needs: unit
     runs-on: ubuntu-latest
 
     steps:

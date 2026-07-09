@@ -4,6 +4,7 @@ import {
   createNamedThread,
   emitTestSessionEvent,
   emitTestSessionEventNoWait,
+  emitTestTranscriptEvent,
   getAppDiagnostics,
   getDesktopState,
   launchDesktop,
@@ -81,6 +82,7 @@ test("coalesces streaming transcript updates without rerendering the idle compos
       Number((node as HTMLElement).dataset.renderCount ?? "0"),
     );
     const diagnosticsBefore = await getAppDiagnostics(harness);
+    expect(diagnosticsBefore.statePatchChangedIpcCount).toBeGreaterThan(0);
 
     await Promise.all(
       Array.from({ length: 80 }, (_, index) =>
@@ -99,15 +101,45 @@ test("coalesces streaming transcript updates without rerendering the idle compos
       )
       .toBe(true);
 
+    await expect
+      .poll(
+        async () =>
+          (await getAppDiagnostics(harness)).transcriptEventIpcCount -
+          diagnosticsBefore.transcriptEventIpcCount,
+        { timeout: 5_000 },
+      )
+      .toBeGreaterThan(0);
+
     const renderCountAfterStream = await surface.evaluate((node) =>
       Number((node as HTMLElement).dataset.renderCount ?? "0"),
     );
     const diagnosticsAfter = await getAppDiagnostics(harness);
     const selectedTranscriptPublishes =
       diagnosticsAfter.selectedTranscriptPublishCount - diagnosticsBefore.selectedTranscriptPublishCount;
+    const selectedTranscriptIpcPublishes =
+      diagnosticsAfter.selectedTranscriptChangedIpcCount - diagnosticsBefore.selectedTranscriptChangedIpcCount;
+    const selectedTranscriptIpcBytes =
+      diagnosticsAfter.selectedTranscriptChangedIpcBytes - diagnosticsBefore.selectedTranscriptChangedIpcBytes;
+    const stateChangedIpcPublishes =
+      diagnosticsAfter.stateChangedIpcCount - diagnosticsBefore.stateChangedIpcCount;
+    const stateChangedIpcBytes =
+      diagnosticsAfter.stateChangedIpcBytes - diagnosticsBefore.stateChangedIpcBytes;
+    const transcriptEventIpcPublishes =
+      diagnosticsAfter.transcriptEventIpcCount - diagnosticsBefore.transcriptEventIpcCount;
+    const transcriptEventIpcBytes =
+      diagnosticsAfter.transcriptEventIpcBytes - diagnosticsBefore.transcriptEventIpcBytes;
 
     expect(renderCountAfterStream - renderCountBefore).toBeLessThanOrEqual(6);
+    expect(diagnosticsAfter.statePatchChangedIpcBytes).toBeGreaterThan(0);
     expect(selectedTranscriptPublishes).toBeLessThan(20);
+    expect(selectedTranscriptIpcPublishes).toBe(0);
+    expect(selectedTranscriptIpcBytes).toBe(0);
+    expect(diagnosticsAfter.selectedTranscriptChangedLastIpcBytes).toBe(0);
+    expect(stateChangedIpcPublishes).toBe(0);
+    expect(stateChangedIpcBytes).toBe(0);
+    expect(transcriptEventIpcPublishes).toBeGreaterThan(0);
+    expect(transcriptEventIpcBytes).toBeGreaterThan(0);
+    expect(diagnosticsAfter.transcriptEventLastIpcBytes).toBeGreaterThan(0);
 
     await composer.press("End");
     await composer.type(" plus typing", { delay: 1 });
@@ -122,6 +154,66 @@ test("coalesces streaming transcript updates without rerendering the idle compos
       return performance.now() - before;
     });
     expect(markerCost).toBeLessThan(50);
+  } finally {
+    await harness.close();
+  }
+});
+
+test("resets the transcript after a delta sequence gap", async () => {
+  test.setTimeout(60_000);
+  const userDataDir = await makeUserDataDir();
+  const workspacePath = await makeWorkspace("chat-performance-gap-reset-workspace");
+  const harness = await launchDesktop(userDataDir, {
+    initialWorkspaces: [workspacePath],
+    testMode: "background",
+  });
+
+  try {
+    const window = await harness.firstWindow();
+    await createNamedThread(window, "Gap reset session");
+    const seeded = await seedTranscriptMessages(harness, window, {
+      count: 1,
+      textFactory: () => "authoritative transcript row",
+    });
+    await expect(window.getByTestId("transcript")).toContainText("authoritative transcript row");
+    await expect
+      .poll(async () => (await getAppDiagnostics(harness)).transcriptEventIpcCount, { timeout: 5_000 })
+      .toBeGreaterThan(0);
+
+    const diagnosticsBefore = await getAppDiagnostics(harness);
+    await emitTestTranscriptEvent(harness, {
+      kind: "append",
+      workspaceId: seeded.sessionRef.workspaceId,
+      sessionId: seeded.sessionRef.sessionId,
+      sequence: 99,
+      items: [{
+        kind: "message",
+        id: "fault-injected-gap-message",
+        role: "assistant",
+        text: "bad sequence text should not render",
+        createdAt: new Date().toISOString(),
+      }],
+    });
+
+    await expect
+      .poll(
+        async () => (await getAppDiagnostics(harness)).transcriptEventIpcCount -
+          diagnosticsBefore.transcriptEventIpcCount,
+        { timeout: 5_000 },
+      )
+      .toBeGreaterThanOrEqual(2);
+    await expect(window.getByTestId("transcript")).toContainText("authoritative transcript row");
+    await expect(window.getByTestId("transcript")).not.toContainText("bad sequence text should not render");
+    await expect
+      .poll(async () =>
+        window.evaluate(async () => {
+          const transcript = await window.piApp?.getSelectedTranscript();
+          return transcript?.transcript.some((item) =>
+            item.kind === "message" && item.text.includes("bad sequence text should not render"),
+          ) ?? false;
+        }),
+      )
+      .toBe(false);
   } finally {
     await harness.close();
   }

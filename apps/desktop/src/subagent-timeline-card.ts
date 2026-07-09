@@ -1,4 +1,5 @@
 export interface SubagentTimelineCardModel {
+  readonly workflowRunId?: string;
   readonly workflow: string;
   readonly roles: readonly string[];
   readonly artifacts: readonly string[];
@@ -20,14 +21,14 @@ export function parseSubagentWorkflowMarker(text: string): SubagentTimelineCardM
     .filter(Boolean) ?? [];
 
   if (!workflow) return undefined;
-  return { workflow, roles, artifacts };
+  return { workflow, roles, artifacts, ...(fields.workflowRunId ? { workflowRunId: fields.workflowRunId } : {}) };
 }
 
 function normalizeMarkerLines(text: string): readonly string[] {
   const normalized = text
     .replace(/\r/g, "")
     .trim()
-    .replace(/\s+(workflow|roles|artifacts|User instruction):/gi, "\n$1:")
+    .replace(/\s+(workflow_run_id|workflow|roles|artifacts|User instruction):/gi, "\n$1:")
     .replace(/\s+Run this Nico-lite subagent workflow/gi, "\nRun this Nico-lite subagent workflow");
 
   return normalized
@@ -36,14 +37,21 @@ function normalizeMarkerLines(text: string): readonly string[] {
     .filter(Boolean);
 }
 
-function markerFields(lines: readonly string[]): { readonly workflow?: string; readonly roles?: string; readonly artifacts?: string } {
-  const fields: { workflow?: string; roles?: string; artifacts?: string } = {};
+function markerFields(lines: readonly string[]): {
+  readonly workflowRunId?: string;
+  readonly workflow?: string;
+  readonly roles?: string;
+  readonly artifacts?: string;
+} {
+  const fields: { workflowRunId?: string; workflow?: string; roles?: string; artifacts?: string } = {};
   for (const line of lines.slice(1)) {
     const lower = line.toLowerCase();
     if (lower.startsWith("run this nico-lite subagent workflow") || lower.startsWith("user instruction:")) {
       break;
     }
-    if (fields.workflow === undefined && lower.startsWith("workflow:")) {
+    if (fields.workflowRunId === undefined && lower.startsWith("workflow_run_id:")) {
+      fields.workflowRunId = line.slice("workflow_run_id:".length).trim();
+    } else if (fields.workflow === undefined && lower.startsWith("workflow:")) {
       fields.workflow = line.slice("workflow:".length).trim();
     } else if (fields.roles === undefined && lower.startsWith("roles:")) {
       fields.roles = line.slice("roles:".length).trim();

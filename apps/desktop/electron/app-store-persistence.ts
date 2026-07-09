@@ -1,5 +1,6 @@
 import type {
   AppView,
+  DiagnosticReportingPreferences,
   ExtensionCommandCompatibilityRecord,
   DesktopCustomInstructionsRecord,
   ModelSettingsScopeMode,
@@ -9,10 +10,11 @@ import type { ModelSettingsSnapshot } from "@pi-gui/session-driver/runtime-types
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
+import { logIgnoredError } from "./diagnostics";
 
 const uiStateWriteQueueByPath = new Map<string, Promise<void>>();
 export interface PersistedUiState {
-  readonly version?: 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11;
+  readonly version?: 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13;
   readonly selectedWorkspaceId?: string;
   readonly selectedSessionId?: string;
   readonly activeView?: AppView;
@@ -20,6 +22,7 @@ export interface PersistedUiState {
   readonly composerDraftsBySession?: Record<string, string>;
   readonly extensionCommandCompatibilityByWorkspace?: Record<string, readonly ExtensionCommandCompatibilityRecord[]>;
   readonly notificationPreferences?: NotificationPreferences;
+  readonly diagnosticReporting?: DiagnosticReportingPreferences;
   readonly integratedTerminalShell?: string;
   readonly lastViewedAtBySession?: Record<string, string>;
   readonly workspaceOrder?: readonly string[];
@@ -41,7 +44,11 @@ export async function readPersistedUiState(uiStateFilePath: string): Promise<Leg
     const parsed = JSON.parse(raw) as LegacyPersistedUiState;
     return {
       version:
-        parsed.version === 11
+        parsed.version === 13
+          ? 13
+          : parsed.version === 12
+          ? 12
+          : parsed.version === 11
           ? 11
           : parsed.version === 10
           ? 10
@@ -69,6 +76,7 @@ export async function readPersistedUiState(uiStateFilePath: string): Promise<Leg
       composerDraftsBySession: parsed.composerDraftsBySession,
       extensionCommandCompatibilityByWorkspace: parsed.extensionCommandCompatibilityByWorkspace,
       notificationPreferences: parsed.notificationPreferences,
+      diagnosticReporting: toPersistedDiagnosticReportingPreferences(parsed.diagnosticReporting),
       integratedTerminalShell:
         typeof parsed.integratedTerminalShell === "string" ? parsed.integratedTerminalShell : undefined,
       lastViewedAtBySession: parsed.lastViewedAtBySession,
@@ -97,7 +105,7 @@ export async function writePersistedUiState(
     await mkdir(dirname(uiStateFilePath), { recursive: true });
     const serialized = `${JSON.stringify(
       {
-        version: 11,
+        version: 13,
         ...payload,
       } satisfies PersistedUiState,
       null,
@@ -131,6 +139,18 @@ export async function writePersistedUiState(
       }
     }
   });
+}
+
+function toPersistedDiagnosticReportingPreferences(value: unknown): DiagnosticReportingPreferences | undefined {
+  if (!value || typeof value !== "object") {
+    return undefined;
+  }
+  const candidate = value as Record<string, unknown>;
+  return {
+    issueDraftsEnabled: candidate.issueDraftsEnabled === true,
+    nativeCrashReportsEnabled: candidate.nativeCrashReportsEnabled === true,
+    onboardingDismissed: candidate.onboardingDismissed === true,
+  };
 }
 
 function toPersistedDesktopCustomInstructions(value: unknown): DesktopCustomInstructionsRecord | undefined {
@@ -182,7 +202,7 @@ async function cleanupTempFile(filePath: string): Promise<void> {
 
 async function enqueueUiStateWrite(uiStateFilePath: string, write: () => Promise<void>): Promise<void> {
   const previous = uiStateWriteQueueByPath.get(uiStateFilePath) ?? Promise.resolve();
-  const next = previous.catch(() => undefined).then(write);
+  const next = previous.catch((error) => logIgnoredError("ui-state-write.previous", error)).then(write);
   uiStateWriteQueueByPath.set(uiStateFilePath, next);
 
   try {

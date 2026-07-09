@@ -1,13 +1,25 @@
-import { app, type BrowserWindow, type IpcMainEvent } from "electron";
-import { appendFile, mkdir } from "node:fs/promises";
+import { app, crashReporter, type BrowserWindow, type IpcMainEvent } from "electron";
+import type { Dirent } from "node:fs";
+import { appendFile, mkdir, readdir, stat } from "node:fs/promises";
 import path from "node:path";
 import type { RendererDiagnosticPayload } from "../src/ipc";
 
 const MAX_LOG_FIELD_LENGTH = 8_000;
 const MAX_LOG_LINE_LENGTH = 32_000;
+const MAX_CRASH_REPORT_ARTIFACTS = 20;
+const MAX_CRASH_REPORT_SCAN_DEPTH = 3;
 
 let userDataDir = "";
 let registeredProcessDiagnostics = false;
+let nativeCrashReporterStarted = false;
+
+export interface NativeCrashReportArtifact {
+  readonly id: string;
+  readonly path: string;
+  readonly name: string;
+  readonly sizeBytes: number;
+  readonly modifiedAt: string;
+}
 
 export function configureDesktopDiagnostics(options: { readonly userDataDir: string }): void {
   userDataDir = options.userDataDir;
@@ -87,6 +99,49 @@ export function registerProcessDiagnostics(): void {
   });
 }
 
+export function startNativeCrashReporter(reason: string): void {
+  if (nativeCrashReporterStarted) {
+    return;
+  }
+  nativeCrashReporterStarted = true;
+  try {
+    crashReporter.start({
+      productName: app.getName(),
+      uploadToServer: false,
+      globalExtra: {
+        appVersion: app.getVersion(),
+        electron: process.versions.electron ?? "unknown",
+        platform: process.platform,
+      },
+    });
+    crashReporter.setUploadToServer(false);
+    void logDesktopDiagnostic("native-crash-reporter-started", {
+      uploadToServer: crashReporter.getUploadToServer(),
+      crashDumpsPath: safeCall(() => app.getPath("crashDumps")),
+      reason,
+    });
+  } catch (error) {
+    nativeCrashReporterStarted = false;
+    void logDesktopDiagnostic("native-crash-reporter-start-failed", serializeError(error));
+  }
+}
+
+export function isNativeCrashReporterStarted(): boolean {
+  return nativeCrashReporterStarted;
+}
+
+export async function listNativeCrashReportArtifacts(): Promise<readonly NativeCrashReportArtifact[]> {
+  const crashDumpsPath = safeCall(() => app.getPath("crashDumps"));
+  if (!crashDumpsPath) {
+    return [];
+  }
+  const artifacts: NativeCrashReportArtifact[] = [];
+  await collectCrashReportArtifacts(crashDumpsPath, 0, artifacts);
+  return artifacts
+    .sort((a, b) => Date.parse(b.modifiedAt) - Date.parse(a.modifiedAt))
+    .slice(0, MAX_CRASH_REPORT_ARTIFACTS);
+}
+
 export function reportRendererDiagnostic(event: IpcMainEvent, payload: RendererDiagnosticPayload): void {
   void logDesktopDiagnostic("renderer-diagnostic", {
     webContentsId: event.sender.id,
@@ -103,6 +158,13 @@ export async function logDesktopDiagnostic(event: string, payload: unknown): Pro
   } catch (error) {
     console.error("[desktop-diagnostics] failed to write diagnostic log", error);
   }
+}
+
+export function logIgnoredError(scope: string, error: unknown): void {
+  void logDesktopDiagnostic("ignored-error", {
+    scope,
+    error: serializeError(error),
+  });
 }
 
 export function getDesktopLogPath(): string {
@@ -169,4 +231,47 @@ function safeCall(callback: () => string): string {
   } catch {
     return "";
   }
+}
+
+async function collectCrashReportArtifacts(
+  directory: string,
+  depth: number,
+  artifacts: NativeCrashReportArtifact[],
+): Promise<void> {
+  if (depth > MAX_CRASH_REPORT_SCAN_DEPTH || artifacts.length >= MAX_CRASH_REPORT_ARTIFACTS * 3) {
+    return;
+  }
+  let entries: Dirent[];
+  try {
+    entries = await readdir(directory, { withFileTypes: true });
+  } catch {
+    return;
+  }
+
+  await Promise.all(entries.map(async (entry) => {
+    const entryPath = path.join(directory, entry.name);
+    if (entry.isDirectory()) {
+      await collectCrashReportArtifacts(entryPath, depth + 1, artifacts);
+      return;
+    }
+    if (!entry.isFile() || !isCrashReportArtifactName(entry.name)) {
+      return;
+    }
+    try {
+      const info = await stat(entryPath);
+      artifacts.push({
+        id: `${info.mtimeMs}:${info.size}:${entryPath}`,
+        path: entryPath,
+        name: entry.name,
+        sizeBytes: info.size,
+        modifiedAt: info.mtime.toISOString(),
+      });
+    } catch {
+      // Crashpad rotates files while the app is running; ignore disappearing entries.
+    }
+  }));
+}
+
+function isCrashReportArtifactName(name: string): boolean {
+  return /\.(dmp|dump|crash|ips|json|log|txt)$/i.test(name);
 }

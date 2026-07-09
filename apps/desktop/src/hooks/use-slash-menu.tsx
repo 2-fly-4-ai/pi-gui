@@ -1,6 +1,12 @@
 import { useEffect, useState, type Dispatch, type KeyboardEvent, type SetStateAction } from "react";
 import type { RuntimeCommandRecord, RuntimeSnapshot } from "@pi-gui/session-driver/runtime-types";
-import type { DesktopAppState, ExtensionCommandCompatibilityRecord, SessionRecord, WorkspaceRecord } from "../desktop-state";
+import {
+  applySessionConfigPatch,
+  type DesktopAppState,
+  type ExtensionCommandCompatibilityRecord,
+  type SessionRecord,
+  type WorkspaceRecord,
+} from "../desktop-state";
 import {
   buildModelOptions,
   isExactSlashCommand,
@@ -67,11 +73,6 @@ interface UseSlashMenuParams {
   readonly setSnapshot: Dispatch<SetStateAction<DesktopAppState | null>>;
   readonly focusComposer: () => void;
   readonly openSettings: (workspaceId?: string, section?: SettingsSection) => void;
-  readonly updateSnapshot: (
-    api: PiDesktopApi,
-    setSnapshot: Dispatch<SetStateAction<DesktopAppState | null>>,
-    action: () => Promise<DesktopAppState>,
-  ) => Promise<DesktopAppState>;
   readonly allowTreeCommand?: boolean;
   readonly immediateCommandMode?: "submit" | "prefill";
   readonly onRunTreeCommand?: () => void;
@@ -116,7 +117,6 @@ export function useSlashMenu(params: UseSlashMenuParams): SlashMenuState {
     setSnapshot,
     focusComposer,
     openSettings,
-    updateSnapshot,
     allowTreeCommand = true,
     immediateCommandMode = "submit",
     onRunTreeCommand,
@@ -204,7 +204,7 @@ export function useSlashMenu(params: UseSlashMenuParams): SlashMenuState {
       setActiveSlashFlow(undefined);
       setSlashOptionIndex(0);
     }
-  }, [activeSlashFlow, activeSlashQuery, slashQuery]);
+  }, [activeSlashFlow, activeSlashQuery, composerDraft, slashQuery]);
 
   useEffect(() => {
     setActiveSlashFlow(undefined);
@@ -286,7 +286,8 @@ export function useSlashMenu(params: UseSlashMenuParams): SlashMenuState {
           return;
         }
         setComposerDraft(command.command);
-        void updateSnapshot(api, setSnapshot, () => api.submitComposer(command.command)).then((state) => {
+        void api.submitComposer(command.command).then(() => api.getState()).then((state) => {
+          setSnapshot(state);
           setComposerDraft(state.composerDraft);
         });
         return;
@@ -327,11 +328,15 @@ export function useSlashMenu(params: UseSlashMenuParams): SlashMenuState {
       if (!selectedWorkspace || !selectedSession || !api) {
         return;
       }
-      void updateSnapshot(api, setSnapshot, () =>
-        api.setSessionModel(selectedWorkspace.id, selectedSession.id, providerId, option.value),
-      ).then((state) => {
-        setComposerDraft(state.composerDraft);
-      });
+      setSnapshot((current) =>
+        current
+          ? applySessionConfigPatch(current, selectedWorkspace.id, selectedSession.id, {
+              provider: providerId,
+              modelId: option.value,
+            })
+          : current,
+      );
+      void api.setSessionModel(selectedWorkspace.id, selectedSession.id, providerId, option.value);
       return;
     }
 
@@ -345,15 +350,13 @@ export function useSlashMenu(params: UseSlashMenuParams): SlashMenuState {
       if (!selectedWorkspace || !selectedSession || !api) {
         return;
       }
-      void updateSnapshot(api, setSnapshot, () =>
-        api.setSessionThinkingLevel(
-          selectedWorkspace.id,
-          selectedSession.id,
-          option.value as NonNullable<RuntimeSnapshot["settings"]["defaultThinkingLevel"]>,
-        ),
-      ).then((state) => {
-        setComposerDraft(state.composerDraft);
-      });
+      const thinkingLevel = option.value as NonNullable<RuntimeSnapshot["settings"]["defaultThinkingLevel"]>;
+      setSnapshot((current) =>
+        current
+          ? applySessionConfigPatch(current, selectedWorkspace.id, selectedSession.id, { thinkingLevel })
+          : current,
+      );
+      void api.setSessionThinkingLevel(selectedWorkspace.id, selectedSession.id, thinkingLevel);
       return;
     }
 
@@ -367,7 +370,8 @@ export function useSlashMenu(params: UseSlashMenuParams): SlashMenuState {
       if (!selectedWorkspace || !api) {
         return;
       }
-      void updateSnapshot(api, setSnapshot, () => api.loginProvider(selectedWorkspace.id, option.value)).then((state) => {
+      void api.loginProvider(selectedWorkspace.id, option.value).then(() => api.getState()).then((state) => {
+        setSnapshot(state);
         setComposerDraft(state.composerDraft);
       });
       return;
@@ -383,7 +387,8 @@ export function useSlashMenu(params: UseSlashMenuParams): SlashMenuState {
       if (!selectedWorkspace || !api) {
         return;
       }
-      void updateSnapshot(api, setSnapshot, () => api.logoutProvider(selectedWorkspace.id, option.value)).then((state) => {
+      void api.logoutProvider(selectedWorkspace.id, option.value).then(() => api.getState()).then((state) => {
+        setSnapshot(state);
         setComposerDraft(state.composerDraft);
       });
       return;

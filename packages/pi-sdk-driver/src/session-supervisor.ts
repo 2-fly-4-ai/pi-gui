@@ -83,6 +83,7 @@ import {
   upsertRuntimeJob,
   type RuntimeJobRegistryState,
 } from "./runtime-job-registry.js";
+import { logIgnoredError } from "./ignored-error.js";
 import { isProcessAlive, signalProcessGroup, snapshotProcessTree, type ProcessInfo } from "./runtime-process-inspector.js";
 import { createPtyBashToolDefinition, type PtyBashLifecycleEvent } from "./pty-bash-tool.js";
 
@@ -756,7 +757,8 @@ export class SessionSupervisor {
     }
 
     record.listeners.add(listener);
-    void Promise.resolve(listener(sessionUpdatedEvent(record))).catch(() => {});
+    void Promise.resolve(listener(sessionUpdatedEvent(record)))
+      .catch((error) => logIgnoredError("session-supervisor.subscribe.initial-event", error));
     this.replayExtensionUiState(record, listener);
 
     return () => {
@@ -1466,7 +1468,7 @@ export class SessionSupervisor {
             text,
           },
         }),
-      ).catch(() => {});
+      ).catch((error) => logIgnoredError("session-supervisor.replay-status", error));
     }
 
     for (const widget of record.extensionUiState.widgets.values()) {
@@ -1483,7 +1485,7 @@ export class SessionSupervisor {
             placement: widget.placement,
           },
         }),
-      ).catch(() => {});
+      ).catch((error) => logIgnoredError("session-supervisor.replay-widget", error));
     }
 
     if (record.extensionUiState.title) {
@@ -1498,7 +1500,7 @@ export class SessionSupervisor {
             title: record.extensionUiState.title,
           },
         }),
-      ).catch(() => {});
+      ).catch((error) => logIgnoredError("session-supervisor.replay-title", error));
     }
 
     if (record.extensionUiState.editorText) {
@@ -1513,7 +1515,7 @@ export class SessionSupervisor {
             text: record.extensionUiState.editorText,
           },
         }),
-      ).catch(() => {});
+      ).catch((error) => logIgnoredError("session-supervisor.replay-editor-text", error));
     }
   }
 
@@ -1598,7 +1600,7 @@ export class SessionSupervisor {
         await this.emit(record, event);
       }
     });
-    record.eventQueue.catch(() => {});
+    record.eventQueue.catch((error) => logIgnoredError("session-supervisor.emit-batch", error));
   }
 
   private async handleAgentEvent(record: ManagedSessionRecord, event: AgentSessionEvent): Promise<void> {
@@ -1717,6 +1719,16 @@ export class SessionSupervisor {
           });
         }
 
+        if (isAgentToolName(event.toolName)) {
+          insertBeforeSessionUpdated(events, buildSubagentRunUpdatedEvent(record, {
+            timestamp,
+            subagentRunId: event.toolCallId,
+            toolCallId: event.toolCallId,
+            status: "started",
+            input: event.args,
+          }));
+        }
+
         return events;
       }
       case "tool_execution_update": {
@@ -1729,7 +1741,7 @@ export class SessionSupervisor {
             progress: typeof event.partialResult === "number" ? event.partialResult : undefined,
           });
         }
-        return toDriverEvents({
+        const events = toDriverEvents({
           type: "toolUpdated" as const,
           sessionRef: record.ref,
           timestamp,
@@ -1737,10 +1749,26 @@ export class SessionSupervisor {
           ...(text ? { text } : {}),
           ...(typeof event.partialResult === "number" ? { progress: event.partialResult } : {}),
         }, record);
+        if (isAgentToolName(event.toolName)) {
+          const progress = typeof event.partialResult === "number" ? event.partialResult : undefined;
+          const transcriptPath = text ? extractSubagentTranscriptPath(text) : undefined;
+          insertBeforeSessionUpdated(events, buildSubagentRunUpdatedEvent(record, {
+            timestamp,
+            subagentRunId: event.toolCallId,
+            toolCallId: event.toolCallId,
+            status: "progress",
+            input: event.args,
+            ...(text ? { summary: truncate(text, 500) } : {}),
+            ...(progress !== undefined ? { progress } : {}),
+            ...(transcriptPath !== undefined ? { transcriptPath } : {}),
+          }));
+        }
+        return events;
       }
-      case "tool_execution_end":
+      case "tool_execution_end": {
         record.pendingBashToolCalls.delete(event.toolCallId);
-        return toDriverEvents({
+        const outputText = extractToolResultText(event.result);
+        const events = toDriverEvents({
           type: "toolFinished" as const,
           sessionRef: record.ref,
           timestamp,
@@ -1748,17 +1776,32 @@ export class SessionSupervisor {
           success: !event.isError,
           output: event.result,
         }, record);
+        if (isAgentToolName(event.toolName)) {
+          const transcriptPath = outputText ? extractSubagentTranscriptPath(outputText) : undefined;
+          insertBeforeSessionUpdated(events, buildSubagentRunUpdatedEvent(record, {
+            timestamp,
+            subagentRunId: event.toolCallId,
+            toolCallId: event.toolCallId,
+            status: event.isError ? "failed" : "completed",
+            input: {},
+            ...(outputText ? { summary: truncate(outputText, 500) } : {}),
+            ...(transcriptPath !== undefined ? { transcriptPath } : {}),
+          }));
+        }
+        return events;
+      }
       case "turn_end":
         return [sessionUpdatedEvent(record)];
       case "agent_end": {
         const outcome = determineRunOutcome(event.messages);
         const runId = record.runningRunId;
         record.runningRunId = undefined;
-        if (!outcome.success && outcome.error?.code === "ABORTED") {
+        const aborted = !outcome.success && outcome.error?.code === "ABORTED";
+        if (aborted) {
           record.session?.clearQueue();
           record.queuedMessages = [];
         }
-        record.status = outcome.success ? "idle" : "failed";
+        record.status = outcome.success || aborted ? "idle" : "failed";
         record.updatedAt = timestamp;
         if (!outcome.success && outcome.error) {
           record.preview = outcome.error.message;
@@ -2020,7 +2063,7 @@ export class SessionSupervisor {
         summary: this.runtimeSummaryFor(record),
       });
     });
-    record.eventQueue.catch(() => {});
+    record.eventQueue.catch((error) => logIgnoredError("session-supervisor.runtime-job-update", error));
     await record.eventQueue;
   }
 
@@ -2649,6 +2692,91 @@ function extractToolResultText(result: unknown): string | undefined {
     .join("\n")
     .trim();
   return text || undefined;
+}
+
+interface SubagentRunEventInput {
+  readonly timestamp: string;
+  readonly subagentRunId: string;
+  readonly toolCallId: string;
+  readonly status: Extract<SessionDriverEvent, { type: "subagentRunUpdated" }>["status"];
+  readonly input: unknown;
+  readonly toolUseCount?: number;
+  readonly elapsedMs?: number;
+  readonly progress?: number;
+  readonly summary?: string;
+  readonly transcriptPath?: string;
+  readonly artifacts?: readonly string[];
+}
+
+function buildSubagentRunUpdatedEvent(
+  record: ManagedSessionRecord,
+  input: SubagentRunEventInput,
+): Extract<SessionDriverEvent, { type: "subagentRunUpdated" }> {
+  const metadata = subagentMetadataFromToolInput(input.input);
+  return {
+    type: "subagentRunUpdated",
+    sessionRef: record.ref,
+    timestamp: input.timestamp,
+    ...(record.runningRunId !== undefined ? { runId: record.runningRunId } : {}),
+    subagentRunId: input.subagentRunId,
+    parentSession: record.ref,
+    status: input.status,
+    toolCallId: input.toolCallId,
+    ...metadata,
+    ...(input.toolUseCount !== undefined ? { toolUseCount: input.toolUseCount } : {}),
+    ...(input.elapsedMs !== undefined ? { elapsedMs: input.elapsedMs } : {}),
+    ...(input.progress !== undefined ? { progress: input.progress } : {}),
+    ...(input.summary !== undefined ? { summary: input.summary } : {}),
+    ...(input.transcriptPath !== undefined ? { transcriptPath: input.transcriptPath } : {}),
+    ...(input.artifacts !== undefined ? { artifacts: input.artifacts } : {}),
+  };
+}
+
+function insertBeforeSessionUpdated(events: SessionDriverEvent[], event: SessionDriverEvent): void {
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    if (events[index]?.type === "sessionUpdated") {
+      events.splice(index, 0, event);
+      return;
+    }
+  }
+  events.push(event);
+}
+
+function isAgentToolName(toolName: string): boolean {
+  const normalized = toolName.toLowerCase();
+  return normalized === "agent" || normalized.endsWith(".agent");
+}
+
+function subagentMetadataFromToolInput(input: unknown): {
+  readonly role?: string;
+  readonly agentName?: string;
+  readonly description?: string;
+} {
+  if (!isUnknownRecord(input)) {
+    return {};
+  }
+  const role = stringField(input, ["subagent_type", "subagentType", "type", "role"]);
+  const agentName = stringField(input, ["agentName", "agent_name", "name"]);
+  const description = stringField(input, ["description"]);
+  return {
+    ...(role !== undefined ? { role } : {}),
+    ...(agentName !== undefined ? { agentName } : {}),
+    ...(description !== undefined ? { description } : {}),
+  };
+}
+
+function stringField(record: Record<string, unknown>, keys: readonly string[]): string | undefined {
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === "string" && value.trim()) {
+      return value.trim();
+    }
+  }
+  return undefined;
+}
+
+function extractSubagentTranscriptPath(text: string): string | undefined {
+  return text.match(/\/[^\]\s]+\/tasks\/[A-Za-z0-9-]+\.output/)?.[0];
 }
 
 function isUnknownRecord(value: unknown): value is Record<string, unknown> {

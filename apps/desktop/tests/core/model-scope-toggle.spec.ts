@@ -123,11 +123,16 @@ test("switches between app-global and per-repo model scope while worktrees inher
       visibleModelLabels: ["GPT-5", "GPT-4 Turbo"],
       hiddenModelLabels: ["GPT-4o"],
     });
+    await cancelCurrentRun(window);
+    await waitForSelectedSessionStatus(window, "idle");
 
     const composer = window.getByTestId("composer");
-    await composer.fill("/model");
+    await composer.click();
+    await composer.fill("");
+    await composer.pressSequentially("/model");
+    await expect(composer).toHaveValue("/model");
     const optionsMenu = window.getByTestId("slash-options-menu");
-    await expect(optionsMenu).toBeVisible();
+    await expect(optionsMenu).toBeVisible({ timeout: 15_000 });
     await expect(optionsMenu).toContainText("GPT-5");
     await expect(optionsMenu).toContainText("GPT-4 Turbo");
     await expect(optionsMenu).not.toContainText("GPT-4o");
@@ -144,6 +149,26 @@ async function openSettings(window: Page): Promise<void> {
 async function openSettingsSection(window: Page, section: "General" | "Models"): Promise<void> {
   await window.getByRole("button", { name: section, exact: true }).click();
   await expect(window.locator(".view-header__title")).toContainText(section);
+}
+
+async function cancelCurrentRun(window: Page): Promise<void> {
+  await window.evaluate(async () => {
+    const app = window.piApp;
+    if (!app) {
+      throw new Error("piApp IPC bridge is unavailable");
+    }
+    await app.cancelCurrentRun();
+  });
+}
+
+async function waitForSelectedSessionStatus(window: Page, status: "idle" | "running"): Promise<void> {
+  await expect
+    .poll(async () => {
+      const state = await getDesktopState(window);
+      const workspace = state.workspaces.find((entry) => entry.id === state.selectedWorkspaceId);
+      return workspace?.sessions.find((entry) => entry.id === state.selectedSessionId)?.status;
+    }, { timeout: 15_000 })
+    .toBe(status);
 }
 
 async function ensureEnabledModelsDisclosureOpen(window: Page): Promise<void> {

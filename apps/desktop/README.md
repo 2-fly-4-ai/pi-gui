@@ -51,6 +51,7 @@ Use the smallest lane that matches the changed surface.
   ```bash
   pnpm --filter @pi-gui/desktop run test:e2e
   pnpm --filter @pi-gui/desktop run test:e2e:core
+  pnpm --filter @pi-gui/desktop run test:e2e:core:run
   ```
 
 - `live`
@@ -58,6 +59,7 @@ Use the smallest lane that matches the changed surface.
 
   ```bash
   pnpm --filter @pi-gui/desktop run test:e2e:live
+  pnpm --filter @pi-gui/desktop run test:e2e:live:run
   ```
 
 - `native`
@@ -65,6 +67,7 @@ Use the smallest lane that matches the changed surface.
 
   ```bash
   pnpm --filter @pi-gui/desktop run test:e2e:native
+  pnpm --filter @pi-gui/desktop run test:e2e:native:run
   ```
 
 - `production`
@@ -73,6 +76,8 @@ Use the smallest lane that matches the changed surface.
   ```bash
   pnpm --filter @pi-gui/desktop run test:prod:real-auth-contract
   pnpm --filter @pi-gui/desktop run test:prod:packaged-smoke
+  pnpm --filter @pi-gui/desktop run test:prod:first-run-onboarding
+  pnpm --filter @pi-gui/desktop run test:prod:native-crash-report
   pnpm --filter @pi-gui/desktop run test:prod:applications-relaunch
   pnpm --filter @pi-gui/desktop run test:prod:release-zip-smoke
   pnpm --filter @pi-gui/desktop run test:prod:open-folder-real
@@ -83,6 +88,8 @@ Run all desktop lanes:
 ```bash
 pnpm --filter @pi-gui/desktop run test:e2e:all
 ```
+
+The public lane scripts (`test:e2e:core`, `test:e2e:live`, `test:e2e:native`) rebuild first and are the right closing proof. The matching `:run` scripts skip the rebuild and are intended for local iteration after a known-current `pnpm --filter @pi-gui/desktop build`.
 
 For mac-first CI, use:
 
@@ -125,16 +132,20 @@ Use manual Computer Use smoke only as a complement, not a replacement.
 Use a targeted script while iterating.
 Rerun the matching lane before closing for `core` and `live`.
 For `native`, rerun the targeted native spec by default and expand to `test:e2e:native` only when the change touches shared native helpers, multiple native specs, or lane-wide native behavior.
+After a known-current build, use `test:e2e:core:run`, `test:e2e:live:run`, or `test:e2e:native:run` for faster whole-lane iteration without rebuilding.
 
 ```bash
-pnpm --filter @pi-gui/desktop run test:core:worktrees
-pnpm --filter @pi-gui/desktop run test:core:persistence
-pnpm --filter @pi-gui/desktop run test:live:tool-calls
-pnpm --filter @pi-gui/desktop run test:native:paste
-pnpm --filter @pi-gui/desktop run test:native:open-folder
-pnpm --filter @pi-gui/desktop run test:native:attach-image
+pnpm --filter @pi-gui/desktop run test:e2e:runner -- apps/desktop/tests/core/worktrees.spec.ts
+pnpm --filter @pi-gui/desktop run test:e2e:runner -- apps/desktop/tests/core/persistence.spec.ts
+pnpm --filter @pi-gui/desktop run test:e2e:runner -- apps/desktop/tests/core/update-status.spec.ts
+pnpm --filter @pi-gui/desktop run test:e2e:runner -- apps/desktop/tests/live/tool-calls.spec.ts
+PI_APP_TEST_MODE=foreground pnpm --filter @pi-gui/desktop run test:e2e:runner -- apps/desktop/tests/native/paste.spec.ts
+PI_APP_TEST_MODE=foreground pnpm --filter @pi-gui/desktop run test:e2e:runner -- apps/desktop/tests/native/open-folder.spec.ts
+PI_APP_TEST_MODE=foreground pnpm --filter @pi-gui/desktop run test:e2e:runner -- apps/desktop/tests/native/attach-image.spec.ts
 pnpm --filter @pi-gui/desktop run test:prod:real-auth-contract
 pnpm --filter @pi-gui/desktop run test:prod:packaged-smoke
+pnpm --filter @pi-gui/desktop run test:prod:first-run-onboarding
+pnpm --filter @pi-gui/desktop run test:prod:native-crash-report
 pnpm --filter @pi-gui/desktop run test:prod:applications-relaunch
 pnpm --filter @pi-gui/desktop run test:prod:release-zip-smoke
 pnpm --filter @pi-gui/desktop run test:prod:open-folder-real
@@ -153,7 +164,8 @@ PI_APP_REAL_AUTH=1 PI_APP_REAL_AUTH_SOURCE_DIR=/absolute/path/to/agent \
 For dev-loop verification, use:
 
 ```bash
-pnpm --filter @pi-gui/desktop run test:dev:reload
+PI_APP_DEV_RELOAD_MARKERS=1 PI_APP_OPEN_DEVTOOLS=0 \
+  pnpm --filter @pi-gui/desktop run test:e2e:runner -- apps/desktop/tests/dev/dev-reload.spec.ts
 ```
 
 That spec launches the app in development mode, edits isolated probe modules for renderer/Electron/shared-package wiring, and proves the running window picks up the changes.
@@ -167,6 +179,8 @@ That spec launches the app in development mode, edits isolated probe modules for
 - `pasteTinyPngViaClipboard()` uses Electron clipboard plus `webContents.paste()` and is appropriate for foreground/native coverage.
 - `tests/production/real-auth-contract.spec.ts` proves the default non-real-auth path still seeds a temporary fake-auth agent dir and keeps real-auth coverage opt-in.
 - `tests/production/packaged-smoke.spec.ts` proves the packaged `.app` bundle launches and can start a thread through the real UI.
+- `tests/production/first-run-onboarding-packaged.spec.ts` proves a clean packaged profile can follow the first-run provider setup path and reach a ready starter prompt.
+- `tests/production/native-crash-report-packaged.spec.ts` proves a packaged app opt-in records a real `process.crash()` Crashpad artifact and surfaces it in App Logs after relaunch.
 - `tests/production/applications-relaunch.spec.ts` proves an installed copy under `/Applications` launches and relaunches with persisted state.
 - `tests/production/release-zip-smoke.spec.ts` proves the packaged release ZIP can be extracted to a temp download-style path and launched through the real UI before publish.
 - `tests/production/open-folder-real.spec.ts` proves the real macOS open panel can add a workspace through the empty-state button.

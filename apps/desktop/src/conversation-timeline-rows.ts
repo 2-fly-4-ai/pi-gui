@@ -60,6 +60,7 @@ function transcriptItemsEqual(left: TranscriptMessage, right: TranscriptMessage)
         left.metadata === tool.metadata &&
         left.updatedAt === tool.updatedAt &&
         left.outputText === tool.outputText &&
+        left.fullOutputPath === tool.fullOutputPath &&
         unknownValuesLikelyEqual(left.input, tool.input) &&
         unknownValuesLikelyEqual(left.output, tool.output)
       );

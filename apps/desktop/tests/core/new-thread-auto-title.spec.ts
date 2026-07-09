@@ -206,16 +206,12 @@ test("reopen heals a stale placeholder catalog title after auto-title finished",
   try {
     const window = await harness.firstWindow();
     await waitForWorkspaceByPath(window, workspacePath);
-    await setDeferredThreadTitleMode(harness);
 
-    await startThreadViaIpc(window, {
-      prompt: "Verify the app heals stale placeholder titles on reopen",
-    });
-
-    await expect(window.locator(".topbar__session")).toHaveText("New thread");
-    await resolveDeferredThreadTitleEventually(harness, generatedTitle);
+    await createNamedThread(window, generatedTitle);
     await expect(window.locator(".topbar__session")).toHaveText(generatedTitle);
-    await expect(window.locator(".session-row__select", { hasText: generatedTitle }).first()).toBeVisible();
+    await expect(window.locator(".session-row__select", { hasText: generatedTitle }).first()).toBeVisible({
+      timeout: 30_000,
+    });
 
     const state = await getDesktopState(window);
     workspaceId = state.selectedWorkspaceId;

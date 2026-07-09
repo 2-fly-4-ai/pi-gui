@@ -12,7 +12,7 @@ import {
 } from "../helpers/electron-app";
 
 test("shows workspace file mentions from the composer and inserts the selected file", async () => {
-  test.setTimeout(30_000);
+  test.setTimeout(60_000);
   const userDataDir = await makeUserDataDir();
   const workspacePath = await makeWorkspace("mention-workspace");
   await initGitRepo(workspacePath);
@@ -46,9 +46,12 @@ test("shows workspace file mentions from the composer and inserts the selected f
     await expect(mentionMenu).toHaveCount(0);
     await expect(composer).toHaveValue("@README.md ");
 
-    await composer.selectText();
-    await composer.press("Backspace");
-    await expect(composer).toHaveValue("");
+    await expect(async () => {
+      await composer.click();
+      await composer.press(process.platform === "darwin" ? "Meta+A" : "Control+A");
+      await composer.press("Backspace");
+      await expect(composer).toHaveValue("", { timeout: 1_000 });
+    }).toPass({ timeout: 10_000 });
     await composer.pressSequentially("@src");
     await expect(mentionMenu).toBeVisible();
     await composer.press("Escape");

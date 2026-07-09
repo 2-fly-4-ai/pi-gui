@@ -85,6 +85,17 @@ export function reportRendererDiagnostic(payload: RendererDiagnosticPayload): vo
   }
 }
 
+export function logIgnoredError(scope: string, error: unknown): void {
+  reportRendererDiagnostic({
+    kind: "ignored-error",
+    message: `Ignored error in ${scope}`,
+    details: {
+      scope,
+      error: serializeErrorLike(error),
+    },
+  });
+}
+
 export function serializeErrorLike(error: unknown): Pick<RendererDiagnosticPayload, "message" | "stack"> {
   if (error instanceof Error) {
     return {

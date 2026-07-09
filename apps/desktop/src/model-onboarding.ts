@@ -10,6 +10,15 @@ export interface ModelOnboardingNotice {
   readonly actionSection: ModelOnboardingSettingsSection;
 }
 
+export interface FirstRunOnboardingGuide {
+  readonly title: string;
+  readonly description: string;
+  readonly actionLabel: string;
+  readonly actionSection: ModelOnboardingSettingsSection;
+  readonly promptLabel: string;
+  readonly prompt: string;
+}
+
 export interface ModelOnboardingState {
   readonly hasSelectableModels: boolean;
   readonly requiresModelSelection: boolean;
@@ -17,6 +26,7 @@ export interface ModelOnboardingState {
   readonly emptyModelTitle: string;
   readonly emptyModelDescription: string;
   readonly notice?: ModelOnboardingNotice;
+  readonly firstRunGuide?: FirstRunOnboardingGuide;
 }
 
 interface ModelSelectionInput {
@@ -64,6 +74,16 @@ export function deriveModelOnboardingState(
             actionLabel: "Open Settings > Providers",
             actionSection: "providers",
           },
+      firstRunGuide: connectedProviderCount === 0
+        ? {
+            title: "First run setup",
+            description: "Connect a provider, choose a model, then start with a repo scan prompt.",
+            actionLabel: "Connect provider",
+            actionSection: "providers",
+            promptLabel: "Use starter prompt",
+            prompt: "Inspect this repo and suggest the first useful improvement.",
+          }
+        : undefined,
     };
   }
 
@@ -129,6 +149,13 @@ export function deriveModelOnboardingState(
     emptyModelTitle: "No models available",
     emptyModelDescription: "Pick a model.",
   };
+}
+
+export function selectorEmptyModelDescription(state: ModelOnboardingState): string {
+  if (!state.hasSelectableModels && state.notice?.actionSection === "models") {
+    return "All available models are currently disabled.";
+  }
+  return state.emptyModelDescription;
 }
 
 function isUsableSelection(

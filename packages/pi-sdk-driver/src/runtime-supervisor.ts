@@ -28,7 +28,7 @@ import type { WorkspaceRef } from "@pi-gui/session-driver";
 import { createRuntimeDependencies } from "./runtime-deps.js";
 import { createSettingsManagerWithoutNpmPackages, isGlobalNpmLookupError } from "./npm-package-fallback.js";
 import { skillSlashCommand } from "./runtime-command-utils.js";
-import { SkillCatalogStore, toCatalogSkill, type SkillInvocationMode } from "./skill-catalog.js";
+import { SkillCatalogStore, type SkillInvocationMode } from "./skill-catalog.js";
 import type { AuthStatus, AuthStorage, ModelRegistry, Skill } from "@earendil-works/pi-coding-agent";
 
 interface ModelSettingsSnapshot {
@@ -82,9 +82,9 @@ export class RuntimeSupervisor implements RuntimeResourceDriver {
 
   async refreshRuntime(workspace: WorkspaceRef): Promise<RuntimeSnapshot> {
     const context = await this.ensureContext(workspace);
-    context.settingsManager.reload();
+    await context.settingsManager.reload();
     this.authStorage.reload();
-    this.modelRegistry.refresh();
+    await this.modelRegistry.refresh();
     await this.skillCatalog.reload();
     await context.resourceLoader.reload();
     await this.autoEnableModelsForAuthenticatedProviders(context);
@@ -94,7 +94,7 @@ export class RuntimeSupervisor implements RuntimeResourceDriver {
   async login(workspace: WorkspaceRef, providerId: string, callbacks: RuntimeLoginCallbacks): Promise<RuntimeSnapshot> {
     const context = await this.ensureContext(workspace);
     await this.authStorage.login(providerId, callbacks);
-    this.modelRegistry.refresh();
+    await this.modelRegistry.refresh();
     await context.resourceLoader.reload();
     await this.autoEnableModelsForAuthenticatedProviders(context, [providerId]);
     return this.buildSnapshot(context);
@@ -103,7 +103,7 @@ export class RuntimeSupervisor implements RuntimeResourceDriver {
   async logout(workspace: WorkspaceRef, providerId: string): Promise<RuntimeSnapshot> {
     const context = await this.ensureContext(workspace);
     this.authStorage.logout(providerId);
-    this.modelRegistry.refresh();
+    await this.modelRegistry.refresh();
     await context.resourceLoader.reload();
     return this.buildSnapshot(context);
   }
@@ -118,7 +118,7 @@ export class RuntimeSupervisor implements RuntimeResourceDriver {
       throw new Error(`API key setup is not supported for ${providerId}.`);
     }
     this.authStorage.set(providerId, { type: "api_key", key: normalized });
-    this.modelRegistry.refresh();
+    await this.modelRegistry.refresh();
     await context.resourceLoader.reload();
     await this.autoEnableModelsForAuthenticatedProviders(context, [providerId]);
     return this.buildSnapshot(context);
@@ -153,7 +153,7 @@ export class RuntimeSupervisor implements RuntimeResourceDriver {
     settingsManager.markProjectModified("defaultModel");
     settingsManager.saveProjectSettings(projectSettings);
     await context.settingsManager.flush();
-    context.settingsManager.reload();
+    await context.settingsManager.reload();
     return this.buildSnapshot(context);
   }
 
@@ -184,7 +184,7 @@ export class RuntimeSupervisor implements RuntimeResourceDriver {
     settingsManager.markProjectModified("defaultThinkingLevel");
     settingsManager.saveProjectSettings(projectSettings);
     await context.settingsManager.flush();
-    context.settingsManager.reload();
+    await context.settingsManager.reload();
     return this.buildSnapshot(context);
   }
 
@@ -211,7 +211,7 @@ export class RuntimeSupervisor implements RuntimeResourceDriver {
     settingsManager.markProjectModified("enabledModels");
     settingsManager.saveProjectSettings(projectSettings);
     await context.settingsManager.flush();
-    context.settingsManager.reload();
+    await context.settingsManager.reload();
     return this.buildSnapshot(context);
   }
 
@@ -487,7 +487,7 @@ export class RuntimeSupervisor implements RuntimeResourceDriver {
   }
 
   private async buildModelRecords(): Promise<readonly RuntimeModelRecord[]> {
-    this.modelRegistry.refresh();
+    await this.modelRegistry.refresh();
     const availableKeys = new Set(
       (await this.modelRegistry.getAvailable()).map((model) => `${model.provider}:${model.id}`),
     );

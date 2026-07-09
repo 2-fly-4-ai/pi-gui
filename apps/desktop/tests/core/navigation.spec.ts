@@ -8,6 +8,7 @@ import {
   makeUserDataDir,
   makeWorkspace,
   selectSession,
+  seedTranscriptMessages,
   streamAssistantDeltas,
   waitForWorkspaceByPath,
 } from "../helpers/electron-app";
@@ -123,6 +124,43 @@ test("navigates across folders and sessions through the sidebar", async () => {
     const selectedWorkspace = state.workspaces.find((workspace) => workspace.id === state.selectedWorkspaceId);
     expect(selectedWorkspace?.path).toBeTruthy();
     expect(state.selectedSessionId).not.toBe("");
+  } finally {
+    await harness.close();
+  }
+});
+
+test("renders markdown session previews as plain text in the sidebar", async () => {
+  const userDataDir = await makeUserDataDir();
+  const workspacePath = await makeWorkspace("sidebar-preview-markdown-workspace");
+
+  const harness = await launchDesktop(userDataDir, {
+    initialWorkspaces: [workspacePath],
+    testMode: "background",
+  });
+
+  try {
+    const window = await harness.firstWindow();
+    await waitForWorkspaceByPath(window, workspacePath);
+    await createNamedThread(window, "Markdown preview session");
+
+    await seedTranscriptMessages(harness, window, {
+      count: 1,
+      textFactory: () => "## Implementation Plan\n\n- [ ] Inspect `src/sidebar.tsx`\n- Use [docs](https://example.com)",
+    });
+
+    await expect
+      .poll(async () => {
+        const state = await getDesktopState(window);
+        return state.workspaces.flatMap((workspace) => workspace.sessions).find((session) => session.title === "Markdown preview session")
+          ?.preview;
+      })
+      .toBe("Implementation Plan Inspect src/sidebar.tsx Use docs");
+
+    const preview = window.locator(".session-row", { hasText: "Markdown preview session" }).locator(".session-row__preview");
+    await expect(preview).toHaveText("Implementation Plan Inspect src/sidebar.tsx Use docs");
+    await expect(preview).not.toContainText("##");
+    await expect(preview).not.toContainText("`");
+    await expect(preview).not.toContainText("[");
   } finally {
     await harness.close();
   }

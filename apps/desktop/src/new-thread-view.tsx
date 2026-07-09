@@ -1,8 +1,13 @@
 import { useEffect, useRef, type ClipboardEvent, type DragEvent, type KeyboardEvent, type ReactNode, type RefObject } from "react";
 import type { ToolAccessSelection } from "@pi-gui/session-driver";
 import type { RuntimeSnapshot } from "@pi-gui/session-driver/runtime-types";
-import type { ComposerAttachment, NewThreadEnvironment, WorkspaceRecord } from "./desktop-state";
-import { ArrowUpIcon, PiLogoMark, PlusIcon } from "./icons";
+import type {
+  ComposerAttachment,
+  DiagnosticReportingPreferences,
+  NewThreadEnvironment,
+  WorkspaceRecord,
+} from "./desktop-state";
+import { PiLogoMark } from "./icons";
 import {
   MODEL_OPTIONS_EMPTY_TITLE,
   type ComposerSlashCommand,
@@ -11,8 +16,8 @@ import {
   type ComposerSlashOptionEmptyState,
 } from "./composer-commands";
 import { ComposerSurface } from "./composer-surface";
-import { ModelOnboardingNoticeBanner } from "./model-onboarding-notice";
-import type { ModelOnboardingState, ModelOnboardingSettingsSection } from "./model-onboarding";
+import { FirstRunOnboardingCard, ModelOnboardingNoticeBanner } from "./model-onboarding-notice";
+import { selectorEmptyModelDescription, type ModelOnboardingState, type ModelOnboardingSettingsSection } from "./model-onboarding";
 import { ModelSelector } from "./model-selector";
 import { ComposerControlBar } from "./composer-control-bar";
 import { ReasoningSelector } from "./reasoning-selector";
@@ -20,8 +25,9 @@ import { ToolAccessSelector } from "./tool-access-selector";
 import { ContextWindowIndicator } from "./context-window-indicator";
 import { FastModeSelector, type FastModeSelection } from "./fast-mode-selector";
 import { ThinkingTraceToggle } from "./thinking-trace-toggle";
+import { DiagnosticReportingOnboardingCard } from "./diagnostic-reporting-onboarding";
 
-interface NewThreadViewProps {
+export interface NewThreadViewProps {
   readonly workspaces: readonly WorkspaceRecord[];
   readonly selectedWorkspaceId: string;
   readonly runtime?: RuntimeSnapshot;
@@ -34,6 +40,7 @@ interface NewThreadViewProps {
   readonly thinkingLevel: string | undefined;
   readonly showThinking: boolean;
   readonly modelOnboarding: ModelOnboardingState;
+  readonly diagnosticReporting: DiagnosticReportingPreferences;
   readonly toolAccess: ToolAccessSelection;
   readonly fastMode: FastModeSelection;
   readonly fastModeAvailable: boolean;
@@ -60,6 +67,7 @@ interface NewThreadViewProps {
   readonly onSetToolAccess: (selection: ToolAccessSelection) => void;
   readonly onSetFastMode: (mode: FastModeSelection) => void;
   readonly onOpenModelSettings: (section: ModelOnboardingSettingsSection) => void;
+  readonly onSetDiagnosticReportingPreferences: (preferences: Partial<DiagnosticReportingPreferences>) => void;
   readonly onComposerKeyDown: (event: KeyboardEvent<HTMLTextAreaElement>) => void;
   readonly onComposerPaste: (event: ClipboardEvent<HTMLDivElement>) => void;
   readonly onComposerDrop: (event: DragEvent<HTMLDivElement>) => void;
@@ -86,6 +94,7 @@ export function NewThreadView({
   thinkingLevel,
   showThinking,
   modelOnboarding,
+  diagnosticReporting,
   toolAccess,
   fastMode,
   fastModeAvailable,
@@ -112,6 +121,7 @@ export function NewThreadView({
   onSetToolAccess,
   onSetFastMode,
   onOpenModelSettings,
+  onSetDiagnosticReportingPreferences,
   onComposerKeyDown,
   onComposerPaste,
   onComposerDrop,
@@ -190,7 +200,18 @@ export function NewThreadView({
               activeSlashCommand={activeSlashCommand}
               activeSlashCommandMeta={activeSlashCommandMeta}
               topNotice={(
-                <ModelOnboardingNoticeBanner notice={modelOnboarding.notice} onOpenSettings={onOpenModelSettings} />
+                <>
+                  <FirstRunOnboardingCard
+                    guide={modelOnboarding.firstRunGuide}
+                    onOpenSettings={onOpenModelSettings}
+                    onUsePrompt={onChangePrompt}
+                  />
+                  <DiagnosticReportingOnboardingCard
+                    preferences={diagnosticReporting}
+                    onSetPreferences={onSetDiagnosticReportingPreferences}
+                  />
+                  <ModelOnboardingNoticeBanner notice={modelOnboarding.notice} onOpenSettings={onOpenModelSettings} />
+                </>
               )}
               queuedMessages={[]}
               composerDraft={prompt}
@@ -319,7 +340,7 @@ function NewThreadComposerFooter({
               unselectedModelLabel={modelOnboarding.unselectedModelLabel}
               emptyModelLabel={MODEL_OPTIONS_EMPTY_TITLE}
               emptyModelTitle={modelOnboarding.emptyModelTitle}
-              emptyModelDescription={modelOnboarding.emptyModelDescription}
+              emptyModelDescription={selectorEmptyModelDescription(modelOnboarding)}
               onSetModel={onSetModel}
               onSetThinking={onSetThinking}
             />

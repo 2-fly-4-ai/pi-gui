@@ -9,6 +9,7 @@ import type { ModelSettingsSnapshot, RuntimeCommandRecord, RuntimeSnapshot } fro
 export type SessionStatus = "idle" | "running" | "failed";
 export type { SessionRole, TranscriptMessage } from "./timeline-types";
 import type { TranscriptMessage } from "./timeline-types";
+import type { DisplayModeSubagentActivity } from "./display-mode-subagent-activity";
 import type { CreateReviewSnapshotOptions } from "./review/review-types";
 
 export type AppView = "threads" | "new-thread" | "display-mode" | "skills" | "extensions" | "settings" | "review";
@@ -29,6 +30,12 @@ export interface NotificationPreferences {
   readonly backgroundCompletion: boolean;
   readonly backgroundFailure: boolean;
   readonly attentionNeeded: boolean;
+}
+
+export interface DiagnosticReportingPreferences {
+  readonly issueDraftsEnabled: boolean;
+  readonly nativeCrashReportsEnabled: boolean;
+  readonly onboardingDismissed: boolean;
 }
 
 export interface ComposerImageAttachment {
@@ -85,6 +92,7 @@ export interface DisplayModeThreadRecord {
   readonly workspace: WorkspaceRecord;
   readonly session: SessionRecord;
   readonly transcript: readonly TranscriptMessage[];
+  readonly subagentActivity?: DisplayModeSubagentActivity;
 }
 
 export interface WorktreeRecord {
@@ -197,6 +205,7 @@ export interface DesktopAppState {
   readonly sessionExtensionUiBySession: Readonly<Record<string, SessionExtensionUiStateRecord>>;
   readonly extensionCommandCompatibilityByWorkspace: Readonly<Record<string, readonly ExtensionCommandCompatibilityRecord[]>>;
   readonly notificationPreferences: NotificationPreferences;
+  readonly diagnosticReporting: DiagnosticReportingPreferences;
   readonly integratedTerminalShell: string;
   readonly lastViewedAtBySession: Readonly<Record<string, string>>;
   readonly workspaceOrder: readonly string[];
@@ -243,6 +252,11 @@ export function createEmptyDesktopAppState(): DesktopAppState {
       backgroundFailure: true,
       attentionNeeded: true,
     },
+    diagnosticReporting: {
+      issueDraftsEnabled: false,
+      nativeCrashReportsEnabled: false,
+      onboardingDismissed: false,
+    },
     integratedTerminalShell: "",
     lastViewedAtBySession: {},
     workspaceOrder: [],
@@ -273,4 +287,123 @@ export function getSelectedWorkspace(state: DesktopAppState): WorkspaceRecord | 
 
 export function getSelectedSession(state: DesktopAppState): SessionRecord | undefined {
   return getSelectedWorkspace(state)?.sessions.find((session) => session.id === state.selectedSessionId);
+}
+
+export function applySessionConfigPatch(
+  state: DesktopAppState,
+  workspaceId: string,
+  sessionId: string,
+  patch: Partial<SessionConfig>,
+): DesktopAppState {
+  let changed = false;
+  const workspaces = state.workspaces.map((workspace) => {
+    if (workspace.id !== workspaceId) {
+      return workspace;
+    }
+    let workspaceChanged = false;
+    const sessions = workspace.sessions.map((session) => {
+      if (session.id !== sessionId) {
+        return session;
+      }
+      changed = true;
+      workspaceChanged = true;
+      return {
+        ...session,
+        config: {
+          ...(session.config ?? {}),
+          ...patch,
+        },
+      };
+    });
+    return workspaceChanged ? { ...workspace, sessions } : workspace;
+  });
+
+  return changed ? { ...state, workspaces, lastError: undefined } : state;
+}
+
+export function appendComposerAttachments(
+  state: DesktopAppState,
+  attachments: readonly ComposerAttachment[],
+): DesktopAppState {
+  if (attachments.length === 0) {
+    return state;
+  }
+  return {
+    ...state,
+    composerAttachments: [...state.composerAttachments, ...attachments],
+    lastError: undefined,
+  };
+}
+
+export function removeComposerAttachmentFromState(
+  state: DesktopAppState,
+  attachmentId: string,
+): DesktopAppState {
+  const composerAttachments = state.composerAttachments.filter((attachment) => attachment.id !== attachmentId);
+  return composerAttachments.length === state.composerAttachments.length
+    ? state
+    : {
+        ...state,
+        composerAttachments,
+        lastError: undefined,
+      };
+}
+
+export function setQueuedComposerMessageMode(
+  state: DesktopAppState,
+  messageId: string,
+  mode: QueuedComposerMessageMode,
+): DesktopAppState {
+  let changed = false;
+  const queuedComposerMessages = state.queuedComposerMessages.map((message) => {
+    if (message.id !== messageId || message.mode === mode) {
+      return message;
+    }
+    changed = true;
+    return {
+      ...message,
+      mode,
+      updatedAt: new Date().toISOString(),
+    };
+  });
+  return changed
+    ? {
+        ...state,
+        queuedComposerMessages,
+        lastError: undefined,
+      }
+    : state;
+}
+
+export function beginQueuedComposerMessageEdit(
+  state: DesktopAppState,
+  messageId: string,
+): DesktopAppState {
+  const message = state.queuedComposerMessages.find((entry) => entry.id === messageId);
+  if (!message) {
+    return state;
+  }
+  return {
+    ...state,
+    composerDraft: message.text,
+    composerAttachments: [...message.attachments],
+    editingQueuedMessageId: messageId,
+    lastError: undefined,
+  };
+}
+
+export function cancelQueuedComposerMessageEdit(
+  state: DesktopAppState,
+  restore: {
+    readonly draft: string;
+    readonly attachments: readonly ComposerAttachment[];
+  },
+): DesktopAppState {
+  return {
+    ...state,
+    composerDraft: restore.draft,
+    composerAttachments: [...restore.attachments],
+    editingQueuedMessageId: undefined,
+    lastError: undefined,
+  };
 }

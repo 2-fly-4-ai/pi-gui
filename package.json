@@ -8,17 +8,28 @@
     "dev": "pnpm --filter @pi-gui/desktop dev",
     "build": "pnpm -r --if-present build",
     "typecheck": "pnpm --filter @pi-gui/session-driver build && pnpm --filter @pi-gui/catalogs build && pnpm --filter @pi-gui/pi-sdk-driver build && pnpm -r --if-present typecheck",
-    "lint": "pnpm -r --if-present lint",
+    "lint": "eslint --max-warnings=0 \"apps/**/*.{ts,tsx}\" \"packages/**/*.ts\" \"vitest.config.ts\"",
     "test": "pnpm -r --if-present test",
+    "test:unit": "vitest run --config vitest.config.ts",
     "e2e": "playwright test",
+    "hooks:install": "git config core.hooksPath .githooks",
     "test:homebrew-tap": "node scripts/test-update-homebrew-tap.mjs",
     "verify:install-copy": "node scripts/verify-install-copy.mjs",
     "verify:homebrew-flow": "node scripts/verify-homebrew-flow.mjs",
     "release:homebrew-sync": "node scripts/release-homebrew-sync.mjs"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@playwright/test": "^1.52.0",
     "@types/node": "^24.0.0",
-    "typescript": "^5.9.3"
+    "eslint": "^10.6.0",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "eslint-plugin-unused-imports": "^4.4.1",
+    "globals": "^17.7.0",
+    "prettier": "^3.9.4",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.63.0",
+    "vitest": "^4.0.15"
   }
 }

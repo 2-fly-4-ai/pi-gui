@@ -1,0 +1,20 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "allowImportingTsExtensions": true,
+    "jsx": "react-jsx",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "noEmit": true,
+    "types": ["node", "vite/client"]
+  },
+  "include": ["apps/**/*.ts", "apps/**/*.tsx", "packages/**/*.ts", "vitest.config.ts"],
+  "exclude": [
+    "**/dist/**",
+    "**/dist-electron/**",
+    "**/node_modules/**",
+    "**/out/**",
+    "apps/desktop/release*/**",
+    "**/test-results/**"
+  ]
+}

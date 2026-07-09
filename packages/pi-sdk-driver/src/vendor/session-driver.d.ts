@@ -228,6 +228,25 @@ declare module "@pi-gui/session-driver" {
     readonly output?: unknown;
   }
 
+  export type SubagentRunLifecycleStatus = "started" | "progress" | "completed" | "failed" | "cancelled";
+
+  export interface SubagentRunUpdatedEvent extends SessionEventBase {
+    readonly type: "subagentRunUpdated";
+    readonly subagentRunId: RunId;
+    readonly parentSession: SessionRef;
+    readonly status: SubagentRunLifecycleStatus;
+    readonly toolCallId?: string;
+    readonly role?: string;
+    readonly agentName?: string;
+    readonly description?: string;
+    readonly toolUseCount?: number;
+    readonly elapsedMs?: number;
+    readonly progress?: number;
+    readonly summary?: string;
+    readonly transcriptPath?: string;
+    readonly artifacts?: readonly string[];
+  }
+
   export interface RuntimeJobUpdatedEvent extends SessionEventBase {
     readonly type: "runtimeJobUpdated";
     readonly job: RuntimeJobSnapshot;
@@ -349,6 +368,7 @@ declare module "@pi-gui/session-driver" {
     | ToolStartedEvent
     | ToolUpdatedEvent
     | ToolFinishedEvent
+    | SubagentRunUpdatedEvent
     | RuntimeJobUpdatedEvent
     | RunCompletedEvent
     | RunFailedEvent

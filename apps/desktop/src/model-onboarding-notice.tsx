@@ -1,4 +1,4 @@
-import type { ModelOnboardingNotice } from "./model-onboarding";
+import type { FirstRunOnboardingGuide, ModelOnboardingNotice } from "./model-onboarding";
 
 interface ModelOnboardingNoticeBannerProps {
   readonly notice: ModelOnboardingNotice | undefined;
@@ -26,6 +26,47 @@ export function ModelOnboardingNoticeBanner({
       >
         {notice.actionLabel}
       </button>
+    </div>
+  );
+}
+
+interface FirstRunOnboardingCardProps {
+  readonly guide: FirstRunOnboardingGuide | undefined;
+  readonly onOpenSettings: (section: FirstRunOnboardingGuide["actionSection"]) => void;
+  readonly onUsePrompt: (prompt: string) => void;
+}
+
+export function FirstRunOnboardingCard({
+  guide,
+  onOpenSettings,
+  onUsePrompt,
+}: FirstRunOnboardingCardProps) {
+  if (!guide) {
+    return null;
+  }
+
+  return (
+    <div className="first-run-onboarding" data-testid="first-run-onboarding">
+      <div className="first-run-onboarding__body">
+        <span className="first-run-onboarding__title">{guide.title}</span>
+        <span className="first-run-onboarding__description">{guide.description}</span>
+      </div>
+      <div className="first-run-onboarding__actions">
+        <button
+          className="first-run-onboarding__action"
+          type="button"
+          onClick={() => onOpenSettings(guide.actionSection)}
+        >
+          {guide.actionLabel}
+        </button>
+        <button
+          className="first-run-onboarding__action first-run-onboarding__action--secondary"
+          type="button"
+          onClick={() => onUsePrompt(guide.prompt)}
+        >
+          {guide.promptLabel}
+        </button>
+      </div>
     </div>
   );
 }

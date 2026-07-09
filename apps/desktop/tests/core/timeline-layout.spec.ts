@@ -31,15 +31,20 @@ test("keeps assistant markdown from widening the chat surface", async () => {
     await seedTranscriptMessages(harness, window, {
       count: 1,
       textFactory: () => [
-        `A long inline token must wrap: ${longToken}`,
+        `A long inline token must wrap: \`${longToken}\``,
         "",
         "```ts",
         `const generatedIdentifier = \"${longToken}\";`,
         "```",
         "",
+        "> A quoted note should use the app line token.",
+        "",
+        "[Open pi-gui](https://example.test/pi-gui)",
+        "",
         "| file | note |",
         "| --- | --- |",
         `| ${longPath} | ${longToken} |`,
+        "| next.md | second row |",
       ].join("\n"),
     });
 
@@ -81,6 +86,89 @@ test("keeps assistant markdown from widening the chat surface", async () => {
         transcriptNarrowerThanPane: true,
         transcriptWithinPane: true,
         messagesWithinMain: true,
+      });
+
+    await expect
+      .poll(async () => window.evaluate(() => {
+        const root = document.documentElement;
+        const content = document.querySelector<HTMLElement>(".message__content");
+        const pre = content?.querySelector<HTMLElement>("pre");
+        const inlineCode = content?.querySelector<HTMLElement>(":not(pre) > code");
+        const table = content?.querySelector<HTMLElement>("table");
+        const headingCell = content?.querySelector<HTMLElement>("th");
+        const bodyCell = content?.querySelector<HTMLElement>("td");
+        const link = content?.querySelector<HTMLElement>("a");
+        const blockquote = content?.querySelector<HTMLElement>("blockquote");
+        if (!content || !pre || !inlineCode || !table || !headingCell || !bodyCell || !link || !blockquote) return null;
+
+        const resolveColor = (value: string) => {
+          const probe = document.createElement("span");
+          probe.style.color = value;
+          document.body.append(probe);
+          const color = getComputedStyle(probe).color;
+          probe.remove();
+          return color;
+        };
+        const rootStyles = getComputedStyle(root);
+        const expectedSurfaceMuted = resolveColor(rootStyles.getPropertyValue("--surface-muted").trim());
+        const expectedLine = resolveColor(rootStyles.getPropertyValue("--line").trim());
+        const expectedLink = resolveColor(rootStyles.getPropertyValue("--link").trim());
+        const preStyles = getComputedStyle(pre);
+        const inlineCodeStyles = getComputedStyle(inlineCode);
+        const headingStyles = getComputedStyle(headingCell);
+        const bodyStyles = getComputedStyle(bodyCell);
+        const linkStyles = getComputedStyle(link);
+        const quoteStyles = getComputedStyle(blockquote);
+
+        const light = {
+          preUsesSurfaceMuted: preStyles.backgroundColor === expectedSurfaceMuted,
+          preUsesLine: preStyles.borderTopColor === expectedLine,
+          inlineCodeUsesSurfaceMuted: inlineCodeStyles.backgroundColor === expectedSurfaceMuted,
+          headingUsesSurfaceMuted: headingStyles.backgroundColor === expectedSurfaceMuted,
+          headingAlign: headingStyles.textAlign,
+          bodyBorderBottom: bodyStyles.borderBottomStyle,
+          bodyBorderLeftWidth: bodyStyles.borderLeftWidth,
+          bodyBorderRightWidth: bodyStyles.borderRightWidth,
+          linkUsesToken: linkStyles.color === expectedLink,
+          linkDecoration: linkStyles.textDecorationLine,
+          quoteUsesLine: quoteStyles.borderLeftColor === expectedLine,
+        };
+
+        root.classList.add("dark");
+        const darkRootStyles = getComputedStyle(root);
+        const darkPreStyles = getComputedStyle(pre);
+        const darkLinkStyles = getComputedStyle(link);
+        const darkExpectedSurfaceMuted = resolveColor(darkRootStyles.getPropertyValue("--surface-muted").trim());
+        const darkExpectedLine = resolveColor(darkRootStyles.getPropertyValue("--line").trim());
+        const darkExpectedLink = resolveColor(darkRootStyles.getPropertyValue("--link").trim());
+        const dark = {
+          preUsesSurfaceMuted: darkPreStyles.backgroundColor === darkExpectedSurfaceMuted,
+          preUsesLine: darkPreStyles.borderTopColor === darkExpectedLine,
+          linkUsesToken: darkLinkStyles.color === darkExpectedLink,
+        };
+        root.classList.remove("dark");
+
+        return { light, dark };
+      }))
+      .toMatchObject({
+        light: {
+          preUsesSurfaceMuted: true,
+          preUsesLine: true,
+          inlineCodeUsesSurfaceMuted: true,
+          headingUsesSurfaceMuted: true,
+          headingAlign: "left",
+          bodyBorderBottom: "solid",
+          bodyBorderLeftWidth: "0px",
+          bodyBorderRightWidth: "0px",
+          linkUsesToken: true,
+          linkDecoration: "underline",
+          quoteUsesLine: true,
+        },
+        dark: {
+          preUsesSurfaceMuted: true,
+          preUsesLine: true,
+          linkUsesToken: true,
+        },
       });
   } finally {
     await harness.close();

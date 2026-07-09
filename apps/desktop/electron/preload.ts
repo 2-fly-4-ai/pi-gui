@@ -3,13 +3,17 @@ import { PRELOAD_DEV_RELOAD_MARKER } from "./dev-reload-preload-probe";
 import {
   desktopIpc,
   type DesktopNotificationPermissionStatus,
+  type DesktopUpdateStatus,
   type PiDesktopCommand,
   type RendererDiagnosticPayload,
+  type StatePatchEvent,
   type TerminalDataEvent,
   type TerminalErrorEvent,
   type TerminalExitEvent,
   type TerminalPanelSnapshot,
   type TerminalSize,
+  type TranscriptResetRequest,
+  type TranscriptSyncEvent,
 } from "../src/ipc";
 import type {
   NavigateSessionTreeOptions,
@@ -28,6 +32,7 @@ import type {
   CreateSessionInput,
   CreateWorktreeInput,
   DesktopAppState,
+  DiagnosticReportingPreferences,
   DisplayModeThreadRecord,
   NotificationPreferences,
   RemoveWorktreeInput,
@@ -78,30 +83,18 @@ contextBridge.exposeInMainWorld("piApp", {
   },
   ping: () => ipcRenderer.invoke(desktopIpc.ping) as Promise<string>,
   getState: () => ipcRenderer.invoke(desktopIpc.stateRequest) as Promise<DesktopAppState>,
-  onStateChanged: (listener: (state: DesktopAppState) => void) => {
-    const handle = (_event: Electron.IpcRendererEvent, state: DesktopAppState) => {
-      listener(state);
-    };
-    ipcRenderer.on(desktopIpc.stateChanged, handle);
-    return () => {
-      ipcRenderer.removeListener(desktopIpc.stateChanged, handle);
-    };
-  },
+  onStatePatchChanged: (listener: (event: StatePatchEvent) => void) =>
+    subscribeIpc(desktopIpc.statePatchChanged, listener),
   getSelectedTranscript: () =>
     ipcRenderer.invoke(desktopIpc.selectedTranscriptRequest) as Promise<SelectedTranscriptRecord | null>,
   getDisplayModeThreads: () =>
     ipcRenderer.invoke(desktopIpc.displayModeThreadsRequest) as Promise<readonly DisplayModeThreadRecord[]>,
   listObservabilityEvents: (input?: ObservabilityQuery) =>
     ipcRenderer.invoke(desktopIpc.listObservabilityEvents, input) as Promise<ObservabilityEventPage>,
-  onSelectedTranscriptChanged: (listener: (payload: SelectedTranscriptRecord | null) => void) => {
-    const handle = (_event: Electron.IpcRendererEvent, payload: SelectedTranscriptRecord | null) => {
-      listener(payload);
-    };
-    ipcRenderer.on(desktopIpc.selectedTranscriptChanged, handle);
-    return () => {
-      ipcRenderer.removeListener(desktopIpc.selectedTranscriptChanged, handle);
-    };
-  },
+  onTranscriptEvent: (listener: (event: TranscriptSyncEvent) => void) =>
+    subscribeIpc(desktopIpc.transcriptEvent, listener),
+  requestTranscriptReset: (input: TranscriptResetRequest) =>
+    ipcRenderer.invoke(desktopIpc.transcriptResetRequest, input) as Promise<SelectedTranscriptRecord | null>,
   onCommand: (listener: (command: PiDesktopCommand) => void) => {
     const handle = (_event: Electron.IpcRendererEvent, command: PiDesktopCommand) => {
       listener(command);
@@ -131,97 +124,97 @@ contextBridge.exposeInMainWorld("piApp", {
   },
   getPathForFile: (file: File) => webUtils.getPathForFile(file),
   addWorkspacePath: (workspacePath: string) =>
-    ipcRenderer.invoke(desktopIpc.addWorkspacePath, workspacePath) as Promise<DesktopAppState>,
-  pickWorkspace: () => ipcRenderer.invoke(desktopIpc.pickWorkspace) as Promise<DesktopAppState>,
+    ipcRenderer.invoke(desktopIpc.addWorkspacePath, workspacePath) as Promise<void>,
+  pickWorkspace: () => ipcRenderer.invoke(desktopIpc.pickWorkspace) as Promise<void>,
   selectWorkspace: (workspaceId: string) =>
-    ipcRenderer.invoke(desktopIpc.selectWorkspace, workspaceId) as Promise<DesktopAppState>,
+    ipcRenderer.invoke(desktopIpc.selectWorkspace, workspaceId) as Promise<void>,
   renameWorkspace: (workspaceId: string, displayName: string) =>
-    ipcRenderer.invoke(desktopIpc.renameWorkspace, workspaceId, displayName) as Promise<DesktopAppState>,
+    ipcRenderer.invoke(desktopIpc.renameWorkspace, workspaceId, displayName) as Promise<void>,
   removeWorkspace: (workspaceId: string) =>
-    ipcRenderer.invoke(desktopIpc.removeWorkspace, workspaceId) as Promise<DesktopAppState>,
+    ipcRenderer.invoke(desktopIpc.removeWorkspace, workspaceId) as Promise<void>,
   reorderWorkspaces: (workspaceOrder: readonly string[]) =>
-    ipcRenderer.invoke(desktopIpc.reorderWorkspaces, workspaceOrder) as Promise<DesktopAppState>,
+    ipcRenderer.invoke(desktopIpc.reorderWorkspaces, workspaceOrder) as Promise<void>,
   openWorkspaceInFinder: (workspaceId: string) =>
     ipcRenderer.invoke(desktopIpc.openWorkspaceInFinder, workspaceId) as Promise<void>,
   openWorkspaceInVSCode: (workspaceId: string) =>
     ipcRenderer.invoke(desktopIpc.openWorkspaceInVSCode, workspaceId) as Promise<void>,
   createWorktree: (input: CreateWorktreeInput) =>
-    ipcRenderer.invoke(desktopIpc.createWorktree, input) as Promise<DesktopAppState>,
+    ipcRenderer.invoke(desktopIpc.createWorktree, input) as Promise<void>,
   removeWorktree: (input: RemoveWorktreeInput) =>
-    ipcRenderer.invoke(desktopIpc.removeWorktree, input) as Promise<DesktopAppState>,
+    ipcRenderer.invoke(desktopIpc.removeWorktree, input) as Promise<void>,
   openSkillInFinder: (workspaceId: string, filePath: string) =>
     ipcRenderer.invoke(desktopIpc.openSkillInFinder, workspaceId, filePath) as Promise<void>,
   openExtensionInFinder: (workspaceId: string, filePath: string) =>
     ipcRenderer.invoke(desktopIpc.openExtensionInFinder, workspaceId, filePath) as Promise<void>,
   syncCurrentWorkspace: () =>
-    ipcRenderer.invoke(desktopIpc.syncCurrentWorkspace) as Promise<DesktopAppState>,
+    ipcRenderer.invoke(desktopIpc.syncCurrentWorkspace) as Promise<void>,
   selectSession: (target: WorkspaceSessionTarget) =>
-    ipcRenderer.invoke(desktopIpc.selectSession, target) as Promise<DesktopAppState>,
+    ipcRenderer.invoke(desktopIpc.selectSession, target) as Promise<void>,
   renameSession: (target: WorkspaceSessionTarget, title: string) =>
-    ipcRenderer.invoke(desktopIpc.renameSession, target, title) as Promise<DesktopAppState>,
+    ipcRenderer.invoke(desktopIpc.renameSession, target, title) as Promise<void>,
   ensureVSCodeServer: (workspaceId: string) =>
     ipcRenderer.invoke(desktopIpc.ensureVSCodeServer, workspaceId) as Promise<number>,
   killVSCodeServer: (workspaceId: string) =>
     ipcRenderer.invoke(desktopIpc.killVSCodeServer, workspaceId) as Promise<void>,
   archiveSession: (target: WorkspaceSessionTarget) =>
-    ipcRenderer.invoke(desktopIpc.archiveSession, target) as Promise<DesktopAppState>,
+    ipcRenderer.invoke(desktopIpc.archiveSession, target) as Promise<void>,
   unarchiveSession: (target: WorkspaceSessionTarget) =>
-    ipcRenderer.invoke(desktopIpc.unarchiveSession, target) as Promise<DesktopAppState>,
+    ipcRenderer.invoke(desktopIpc.unarchiveSession, target) as Promise<void>,
   createSession: (input: CreateSessionInput) =>
-    ipcRenderer.invoke(desktopIpc.createSession, input) as Promise<DesktopAppState>,
+    ipcRenderer.invoke(desktopIpc.createSession, input) as Promise<void>,
   startThread: (input: StartThreadInput) =>
-    ipcRenderer.invoke(desktopIpc.startThread, input) as Promise<DesktopAppState>,
-  cancelCurrentRun: () => ipcRenderer.invoke(desktopIpc.cancelCurrentRun) as Promise<DesktopAppState>,
+    ipcRenderer.invoke(desktopIpc.startThread, input) as Promise<void>,
+  cancelCurrentRun: () => ipcRenderer.invoke(desktopIpc.cancelCurrentRun) as Promise<void>,
   cancelSessionRun: (target: WorkspaceSessionTarget) =>
-    ipcRenderer.invoke(desktopIpc.cancelSessionRun, target) as Promise<DesktopAppState>,
+    ipcRenderer.invoke(desktopIpc.cancelSessionRun, target) as Promise<void>,
   stopRuntimeJob: (target: WorkspaceSessionTarget, jobId: string) =>
-    ipcRenderer.invoke(desktopIpc.stopRuntimeJob, target, jobId) as Promise<DesktopAppState>,
+    ipcRenderer.invoke(desktopIpc.stopRuntimeJob, target, jobId) as Promise<void>,
   refreshRuntimeJobs: (target: WorkspaceSessionTarget) =>
-    ipcRenderer.invoke(desktopIpc.refreshRuntimeJobs, target) as Promise<DesktopAppState>,
+    ipcRenderer.invoke(desktopIpc.refreshRuntimeJobs, target) as Promise<void>,
   setActiveView: (view: AppView) =>
-    ipcRenderer.invoke(desktopIpc.setActiveView, view) as Promise<DesktopAppState>,
+    ipcRenderer.invoke(desktopIpc.setActiveView, view) as Promise<void>,
   setSidebarCollapsed: (collapsed: boolean) =>
-    ipcRenderer.invoke(desktopIpc.setSidebarCollapsed, collapsed) as Promise<DesktopAppState>,
+    ipcRenderer.invoke(desktopIpc.setSidebarCollapsed, collapsed) as Promise<void>,
   setShowThinking: (showThinking: boolean) =>
-    ipcRenderer.invoke(desktopIpc.setShowThinking, showThinking) as Promise<DesktopAppState>,
+    ipcRenderer.invoke(desktopIpc.setShowThinking, showThinking) as Promise<void>,
   setFastMode: (enabled: boolean) =>
-    ipcRenderer.invoke(desktopIpc.setFastMode, enabled) as Promise<DesktopAppState>,
+    ipcRenderer.invoke(desktopIpc.setFastMode, enabled) as Promise<void>,
   refreshRuntime: (workspaceId?: string) =>
-    ipcRenderer.invoke(desktopIpc.refreshRuntime, workspaceId) as Promise<DesktopAppState>,
+    ipcRenderer.invoke(desktopIpc.refreshRuntime, workspaceId) as Promise<void>,
   setModelSettingsScopeMode: (mode: "app-global" | "per-repo") =>
-    ipcRenderer.invoke(desktopIpc.setModelSettingsScopeMode, mode) as Promise<DesktopAppState>,
+    ipcRenderer.invoke(desktopIpc.setModelSettingsScopeMode, mode) as Promise<void>,
   setDefaultModel: (workspaceId: string, provider: string, modelId: string) =>
-    ipcRenderer.invoke(desktopIpc.setDefaultModel, workspaceId, provider, modelId) as Promise<DesktopAppState>,
+    ipcRenderer.invoke(desktopIpc.setDefaultModel, workspaceId, provider, modelId) as Promise<void>,
   setDefaultThinkingLevel: (workspaceId: string, thinkingLevel: RuntimeSettingsSnapshot["defaultThinkingLevel"]) =>
-    ipcRenderer.invoke(desktopIpc.setDefaultThinkingLevel, workspaceId, thinkingLevel) as Promise<DesktopAppState>,
+    ipcRenderer.invoke(desktopIpc.setDefaultThinkingLevel, workspaceId, thinkingLevel) as Promise<void>,
   setSessionModel: (workspaceId: string, sessionId: string, provider: string, modelId: string) =>
-    ipcRenderer.invoke(desktopIpc.setSessionModel, workspaceId, sessionId, provider, modelId) as Promise<DesktopAppState>,
+    ipcRenderer.invoke(desktopIpc.setSessionModel, workspaceId, sessionId, provider, modelId) as Promise<void>,
   setSessionThinkingLevel: (workspaceId: string, sessionId: string, thinkingLevel: RuntimeSettingsSnapshot["defaultThinkingLevel"]) =>
-    ipcRenderer.invoke(desktopIpc.setSessionThinkingLevel, workspaceId, sessionId, thinkingLevel) as Promise<DesktopAppState>,
+    ipcRenderer.invoke(desktopIpc.setSessionThinkingLevel, workspaceId, sessionId, thinkingLevel) as Promise<void>,
   setSessionToolAccess: (workspaceId: string, sessionId: string, toolAccess: ToolAccessSelection) =>
-    ipcRenderer.invoke(desktopIpc.setSessionToolAccess, workspaceId, sessionId, toolAccess) as Promise<DesktopAppState>,
+    ipcRenderer.invoke(desktopIpc.setSessionToolAccess, workspaceId, sessionId, toolAccess) as Promise<void>,
   loginProvider: (workspaceId: string, providerId: string) =>
-    ipcRenderer.invoke(desktopIpc.loginProvider, workspaceId, providerId) as Promise<DesktopAppState>,
+    ipcRenderer.invoke(desktopIpc.loginProvider, workspaceId, providerId) as Promise<void>,
   logoutProvider: (workspaceId: string, providerId: string) =>
-    ipcRenderer.invoke(desktopIpc.logoutProvider, workspaceId, providerId) as Promise<DesktopAppState>,
+    ipcRenderer.invoke(desktopIpc.logoutProvider, workspaceId, providerId) as Promise<void>,
   setProviderApiKey: (workspaceId: string, providerId: string, apiKey: string) =>
-    ipcRenderer.invoke(desktopIpc.setProviderApiKey, workspaceId, providerId, apiKey) as Promise<DesktopAppState>,
+    ipcRenderer.invoke(desktopIpc.setProviderApiKey, workspaceId, providerId, apiKey) as Promise<void>,
   setEnableSkillCommands: (workspaceId: string, enabled: boolean) =>
-    ipcRenderer.invoke(desktopIpc.setEnableSkillCommands, workspaceId, enabled) as Promise<DesktopAppState>,
+    ipcRenderer.invoke(desktopIpc.setEnableSkillCommands, workspaceId, enabled) as Promise<void>,
   setScopedModelPatterns: (workspaceId: string, patterns: readonly string[]) =>
-    ipcRenderer.invoke(desktopIpc.setScopedModelPatterns, workspaceId, patterns) as Promise<DesktopAppState>,
+    ipcRenderer.invoke(desktopIpc.setScopedModelPatterns, workspaceId, patterns) as Promise<void>,
   setSkillEnabled: (workspaceId: string, filePath: string, enabled: boolean) =>
-    ipcRenderer.invoke(desktopIpc.setSkillEnabled, workspaceId, filePath, enabled) as Promise<DesktopAppState>,
+    ipcRenderer.invoke(desktopIpc.setSkillEnabled, workspaceId, filePath, enabled) as Promise<void>,
   setSkillMode: (workspaceId: string, filePath: string, mode: "auto" | "manual" | "off") =>
-    ipcRenderer.invoke(desktopIpc.setSkillMode, workspaceId, filePath, mode) as Promise<DesktopAppState>,
+    ipcRenderer.invoke(desktopIpc.setSkillMode, workspaceId, filePath, mode) as Promise<void>,
   setActiveSkillProfile: (workspaceId: string, profileId: string) =>
-    ipcRenderer.invoke(desktopIpc.setActiveSkillProfile, workspaceId, profileId) as Promise<DesktopAppState>,
+    ipcRenderer.invoke(desktopIpc.setActiveSkillProfile, workspaceId, profileId) as Promise<void>,
   saveSkillProfile: (workspaceId: string, profile: RuntimeSkillProfileRecord) =>
-    ipcRenderer.invoke(desktopIpc.saveSkillProfile, workspaceId, profile) as Promise<DesktopAppState>,
+    ipcRenderer.invoke(desktopIpc.saveSkillProfile, workspaceId, profile) as Promise<void>,
   deleteSkillProfile: (workspaceId: string, profileId: string) =>
-    ipcRenderer.invoke(desktopIpc.deleteSkillProfile, workspaceId, profileId) as Promise<DesktopAppState>,
+    ipcRenderer.invoke(desktopIpc.deleteSkillProfile, workspaceId, profileId) as Promise<void>,
   setExtensionEnabled: (workspaceId: string, filePath: string, enabled: boolean) =>
-    ipcRenderer.invoke(desktopIpc.setExtensionEnabled, workspaceId, filePath, enabled) as Promise<DesktopAppState>,
+    ipcRenderer.invoke(desktopIpc.setExtensionEnabled, workspaceId, filePath, enabled) as Promise<void>,
   listAgentDefinitions: (workspaceId: string) =>
     ipcRenderer.invoke(desktopIpc.listAgentDefinitions, workspaceId) as Promise<AgentDefinitionsSnapshot>,
   saveAgentDefinition: (workspaceId: string, input: SaveAgentDefinitionInput) =>
@@ -234,14 +227,20 @@ contextBridge.exposeInMainWorld("piApp", {
     ipcRenderer.invoke(desktopIpc.listSubagentRuns, workspaceId) as Promise<readonly SubagentRunRecord[]>,
   runSubagentWorkflow: (workspaceId: string, input: RunSubagentWorkflowInput) =>
     ipcRenderer.invoke(desktopIpc.runSubagentWorkflow, workspaceId, input) as Promise<readonly SubagentRunRecord[]>,
+  cancelSubagentRun: (workspaceId: string, runId: string) =>
+    ipcRenderer.invoke(desktopIpc.cancelSubagentRun, workspaceId, runId) as Promise<readonly SubagentRunRecord[]>,
+  onSubagentRunsChanged: (listener: (workspaceId: string) => void) =>
+    subscribeIpc(desktopIpc.subagentRunsChanged, listener),
   respondToHostUiRequest: (workspaceId: string, sessionId: string, response: HostUiResponse) =>
-    ipcRenderer.invoke(desktopIpc.respondToHostUiRequest, workspaceId, sessionId, response) as Promise<DesktopAppState>,
+    ipcRenderer.invoke(desktopIpc.respondToHostUiRequest, workspaceId, sessionId, response) as Promise<void>,
   setNotificationPreferences: (preferences: Partial<NotificationPreferences>) =>
-    ipcRenderer.invoke(desktopIpc.setNotificationPreferences, preferences) as Promise<DesktopAppState>,
+    ipcRenderer.invoke(desktopIpc.setNotificationPreferences, preferences) as Promise<void>,
+  setDiagnosticReportingPreferences: (preferences: Partial<DiagnosticReportingPreferences>) =>
+    ipcRenderer.invoke(desktopIpc.setDiagnosticReportingPreferences, preferences) as Promise<void>,
   setDesktopCustomInstructions: (input: Partial<DesktopAppState["desktopCustomInstructions"]>) =>
-    ipcRenderer.invoke(desktopIpc.setDesktopCustomInstructions, input) as Promise<DesktopAppState>,
+    ipcRenderer.invoke(desktopIpc.setDesktopCustomInstructions, input) as Promise<void>,
   setIntegratedTerminalShell: (shellPath: string) =>
-    ipcRenderer.invoke(desktopIpc.setIntegratedTerminalShell, shellPath) as Promise<DesktopAppState>,
+    ipcRenderer.invoke(desktopIpc.setIntegratedTerminalShell, shellPath) as Promise<void>,
   ensureTerminalPanel: (workspaceId: string, terminalScopeId: string, size?: Partial<TerminalSize>) =>
     ipcRenderer.invoke(desktopIpc.terminalEnsurePanel, workspaceId, terminalScopeId, size) as Promise<TerminalPanelSnapshot>,
   createTerminalSession: (workspaceId: string, terminalScopeId: string, size?: Partial<TerminalSize>) =>
@@ -281,26 +280,37 @@ contextBridge.exposeInMainWorld("piApp", {
       ipcRenderer.removeListener(desktopIpc.notificationPermissionStatusChanged, handler);
     };
   },
-  pickComposerAttachments: () => ipcRenderer.invoke(desktopIpc.pickComposerAttachments) as Promise<DesktopAppState>,
-  readClipboardImage: () => ipcRenderer.sendSync(desktopIpc.readClipboardImage) as ComposerImageAttachment | null,
+  getUpdateStatus: () =>
+    ipcRenderer.invoke(desktopIpc.updateStatusRequest) as Promise<DesktopUpdateStatus>,
+  onUpdateStatusChanged: (listener: (status: DesktopUpdateStatus) => void) =>
+    subscribeIpc(desktopIpc.updateStatusChanged, listener),
+  checkForUpdates: () =>
+    ipcRenderer.invoke(desktopIpc.checkForUpdates) as Promise<DesktopUpdateStatus>,
+  installUpdate: () =>
+    ipcRenderer.invoke(desktopIpc.installUpdate) as Promise<void>,
+  copyText: (text: string) =>
+    ipcRenderer.invoke(desktopIpc.copyText, text) as Promise<void>,
+  pickComposerAttachments: () => ipcRenderer.invoke(desktopIpc.pickComposerAttachments) as Promise<void>,
+  readClipboardImage: () =>
+    ipcRenderer.invoke(desktopIpc.readClipboardImage) as Promise<ComposerImageAttachment | null>,
   addComposerAttachments: (attachments: readonly ComposerAttachment[]) =>
-    ipcRenderer.invoke(desktopIpc.addComposerAttachments, attachments) as Promise<DesktopAppState>,
+    ipcRenderer.invoke(desktopIpc.addComposerAttachments, attachments) as Promise<void>,
   removeComposerAttachment: (attachmentId: string) =>
-    ipcRenderer.invoke(desktopIpc.removeComposerAttachment, attachmentId) as Promise<DesktopAppState>,
+    ipcRenderer.invoke(desktopIpc.removeComposerAttachment, attachmentId) as Promise<void>,
   editQueuedComposerMessage: (messageId: string, currentDraft?: string) =>
-    ipcRenderer.invoke(desktopIpc.editQueuedComposerMessage, messageId, currentDraft) as Promise<DesktopAppState>,
+    ipcRenderer.invoke(desktopIpc.editQueuedComposerMessage, messageId, currentDraft) as Promise<void>,
   cancelQueuedComposerEdit: () =>
-    ipcRenderer.invoke(desktopIpc.cancelQueuedComposerEdit) as Promise<DesktopAppState>,
+    ipcRenderer.invoke(desktopIpc.cancelQueuedComposerEdit) as Promise<void>,
   removeQueuedComposerMessage: (messageId: string) =>
-    ipcRenderer.invoke(desktopIpc.removeQueuedComposerMessage, messageId) as Promise<DesktopAppState>,
+    ipcRenderer.invoke(desktopIpc.removeQueuedComposerMessage, messageId) as Promise<void>,
   steerQueuedComposerMessage: (messageId: string) =>
-    ipcRenderer.invoke(desktopIpc.steerQueuedComposerMessage, messageId) as Promise<DesktopAppState>,
+    ipcRenderer.invoke(desktopIpc.steerQueuedComposerMessage, messageId) as Promise<void>,
   updateComposerDraft: (composerDraft: string) =>
-    ipcRenderer.invoke(desktopIpc.updateComposerDraft, composerDraft) as Promise<DesktopAppState>,
+    ipcRenderer.invoke(desktopIpc.updateComposerDraft, composerDraft) as Promise<void>,
   submitComposer: (text: string, options?: { readonly deliverAs?: "steer" | "followUp" }) =>
-    ipcRenderer.invoke(desktopIpc.submitComposer, text, options) as Promise<DesktopAppState>,
+    ipcRenderer.invoke(desktopIpc.submitComposer, text, options) as Promise<void>,
   submitComposerToSession: (target: WorkspaceSessionTarget, text: string, options?: { readonly deliverAs?: "steer" | "followUp" }) =>
-    ipcRenderer.invoke(desktopIpc.submitComposerToSession, target, text, options) as Promise<DesktopAppState>,
+    ipcRenderer.invoke(desktopIpc.submitComposerToSession, target, text, options) as Promise<void>,
   getSessionTree: (target: WorkspaceSessionTarget) =>
     ipcRenderer.invoke(desktopIpc.getSessionTree, target) as Promise<SessionTreeSnapshot>,
   navigateSessionTree: (target: WorkspaceSessionTarget, targetId: string, options?: NavigateSessionTreeOptions) =>

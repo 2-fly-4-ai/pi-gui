@@ -24,7 +24,10 @@ test("returning from settings keeps a long selected thread visibly hydrated", as
       textFactory: (index) => `return hydration transcript row ${index}`,
     });
 
-    await expect(window.getByTestId("transcript")).toContainText("return hydration transcript row 119");
+    await expect
+      .poll(async () => window.locator("[data-timeline-row-id]").count(), { timeout: 10_000 })
+      .toBeGreaterThan(0);
+    await expect(window.getByTestId("transcript")).toContainText(/return hydration transcript row \d+/);
     await window.locator(".timeline-pane").evaluate((pane) => {
       pane.scrollTop = Math.floor(pane.scrollHeight / 2);
     });

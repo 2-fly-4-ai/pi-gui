@@ -8,7 +8,6 @@ import type {
   DesktopAppState,
   ExtensionCommandCompatibilityRecord,
   QueuedComposerMessage,
-  TranscriptMessage,
   WorkspaceSessionTarget,
 } from "../src/desktop-state";
 import type { PendingAutoTitle, QueuedComposerEditState, SessionStateMap } from "./session-state-map";

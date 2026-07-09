@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ObservabilityCategory, ObservabilityEvent, ObservabilityEventPage, ObservabilitySeverity } from "./observability-types";
 import type { PiDesktopApi } from "./ipc";
-import type { SessionRecord, WorkspaceRecord } from "./desktop-state";
+import type { DiagnosticReportingPreferences, SessionRecord, WorkspaceRecord } from "./desktop-state";
 import { CloseIcon, RefreshIcon } from "./icons";
+import { buildDiagnosticIssueDraft } from "./diagnostic-issue-draft";
+import { logIgnoredError } from "./renderer-diagnostics";
 import { canStopRuntimeJob } from "./runtime-jobs";
 import { runtimeStatusLabel } from "./runtime-status";
 
@@ -29,11 +31,13 @@ const SEVERITIES: readonly { value: ObservabilitySeverity | "all" | "failures"; 
 
 export function LogsPanel({
   api,
+  diagnosticReporting,
   selectedWorkspace,
   selectedSession,
   onClose,
 }: {
   readonly api: PiDesktopApi;
+  readonly diagnosticReporting: DiagnosticReportingPreferences;
   readonly selectedWorkspace?: WorkspaceRecord;
   readonly selectedSession?: SessionRecord;
   readonly onClose: () => void;
@@ -53,16 +57,20 @@ export function LogsPanel({
   const [query, setQuery] = useState(() => readLocal("logs:query") || "");
   const [includeGlobal, setIncludeGlobal] = useState(() => readLocal("logs:scope") === "global");
   const [selectedId, setSelectedId] = useState<string>("");
+  const [issueDraftStatus, setIssueDraftStatus] = useState<"idle" | "opening" | "opened" | "failed">("idle");
+  const selectedWorkspaceId = selectedWorkspace?.id;
+  const selectedWorkspacePath = selectedWorkspace?.path;
+  const selectedSessionId = selectedSession?.id;
 
   const refresh = useCallback(async () => {
     if (tab === "runtime") {
       setLoading(true);
       setError(undefined);
       try {
-        if (selectedWorkspace && selectedSession) {
+        if (selectedWorkspaceId && selectedSessionId) {
           await api.refreshRuntimeJobs({
-            workspaceId: selectedWorkspace.id,
-            sessionId: selectedSession.id,
+            workspaceId: selectedWorkspaceId,
+            sessionId: selectedSessionId,
           });
         }
       } catch (err) {
@@ -84,9 +92,9 @@ export function LogsPanel({
         query,
         limit: 500,
         includeGlobal,
-        workspaceId: selectedWorkspace?.id,
-        workspacePath: selectedWorkspace?.path,
-        sessionId: tab === "app" ? undefined : selectedSession?.id,
+        workspaceId: selectedWorkspaceId,
+        workspacePath: selectedWorkspacePath,
+        sessionId: tab === "app" ? undefined : selectedSessionId,
       });
       setPage(next);
       setSelectedId((current) => current && next.events.some((event) => event.id === current) ? current : next.events[0]?.id ?? "");
@@ -95,7 +103,7 @@ export function LogsPanel({
     } finally {
       setLoading(false);
     }
-  }, [api, category, includeGlobal, query, selectedSession?.id, selectedWorkspace?.id, selectedWorkspace?.path, severity, tab]);
+  }, [api, category, includeGlobal, query, selectedSessionId, selectedWorkspaceId, selectedWorkspacePath, severity, tab]);
 
   useEffect(() => { void refresh(); }, [refresh]);
   useEffect(() => { writeLocal("logs:severity", severity); }, [severity]);
@@ -107,6 +115,32 @@ export function LogsPanel({
   const failureCount = page.events.filter((event) => event.severity === "error").length;
   const runtimeJobs = selectedSession?.runtimeSummary?.jobs ?? [];
   const runtimeLabel = runtimeStatusLabel(selectedSession);
+  const issueDraftsEnabled = diagnosticReporting.issueDraftsEnabled;
+
+  const openDiagnosticIssueDraft = useCallback(async () => {
+    setIssueDraftStatus("opening");
+    try {
+      const draft = buildDiagnosticIssueDraft({
+        events: page.events,
+        selectedEvent: selected,
+        versions: api.versions,
+        platform: api.platform,
+      });
+      await api.openExternal(draft.url);
+      setIssueDraftStatus("opened");
+    } catch (err) {
+      logIgnoredError("logs-panel.openDiagnosticIssueDraft", err);
+      setIssueDraftStatus("failed");
+    }
+  }, [api, page.events, selected]);
+
+  useEffect(() => {
+    if (issueDraftStatus === "idle" || issueDraftStatus === "opening") {
+      return;
+    }
+    const timer = window.setTimeout(() => setIssueDraftStatus("idle"), 4_000);
+    return () => window.clearTimeout(timer);
+  }, [issueDraftStatus]);
 
   return (
     <aside className="logs-panel" data-testid="logs-panel" aria-label="Runtime inspector">
@@ -118,6 +152,16 @@ export function LogsPanel({
         <span className="logs-panel__failure-count" data-testid="logs-failure-count">
           {tab === "runtime" ? `${runtimeJobs.length} jobs` : `${failureCount} failures`}
         </span>
+        {tab === "app" ? (
+          <button
+            className="secondary-button logs-panel__issue-button"
+            type="button"
+            disabled={!issueDraftsEnabled || page.events.length === 0 || issueDraftStatus === "opening"}
+            onClick={() => void openDiagnosticIssueDraft()}
+          >
+            Draft issue
+          </button>
+        ) : null}
         <button className="icon-button" type="button" aria-label="Refresh logs" onClick={() => void refresh()} disabled={loading}><RefreshIcon /></button>
         <button className="icon-button" type="button" aria-label="Close logs" onClick={onClose}><CloseIcon /></button>
       </header>
@@ -159,7 +203,13 @@ export function LogsPanel({
             {tab === "task"
               ? "Task logs are filtered to tools only."
               : tab === "app"
-                ? "App logs show Electron and renderer diagnostics only."
+                ? issueDraftStatus === "opened"
+                  ? "Draft opened in the browser."
+                  : issueDraftStatus === "failed"
+                    ? "Unable to open the draft."
+                    : issueDraftsEnabled
+                      ? "App logs show Electron and renderer diagnostics only."
+                      : "Enable diagnostic issue drafts in Settings > General to prefill a report."
                 : ""}
           </div>
           {error ? <div className="logs-panel__error">{error}</div> : null}
@@ -314,9 +364,18 @@ function formatTime(value: string): string {
 }
 
 function readLocal(key: string): string | undefined {
-  try { return localStorage.getItem(key) ?? undefined; } catch { return undefined; }
+  try {
+    return localStorage.getItem(key) ?? undefined;
+  } catch (error) {
+    logIgnoredError("logs-panel.readLocalStorage", error);
+    return undefined;
+  }
 }
 
 function writeLocal(key: string, value: string): void {
-  try { localStorage.setItem(key, value); } catch {}
+  try {
+    localStorage.setItem(key, value);
+  } catch (error) {
+    logIgnoredError("logs-panel.writeLocalStorage", error);
+  }
 }

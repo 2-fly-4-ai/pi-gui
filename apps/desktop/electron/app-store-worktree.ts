@@ -9,6 +9,7 @@ import { sendMessageToSession } from "./app-store-composer";
 import type { CreateWorktreeOptions } from "./worktree-manager";
 import type { AppStoreInternals } from "./app-store-internals";
 import { NEW_THREAD_PLACEHOLDER_TITLE } from "./thread-title-constants";
+import { logIgnoredError } from "./diagnostics";
 
 /* ── Public methods ─────────────────────────────────────── */
 
@@ -56,7 +57,9 @@ export async function removeWorktree(store: AppStoreInternals, input: RemoveWork
     const worktree = await store.catalogStore.worktrees.getWorktree(input.worktreeId);
     await store.worktreeManager.removeWorktree(rootWorkspace, input.worktreeId);
     if (worktree?.path) {
-      await store.driver.removeWorkspace(worktree.path).catch(() => undefined);
+      await store.driver
+        .removeWorkspace(worktree.path)
+        .catch((error) => logIgnoredError("worktree.removeWorkspaceCatalogEntry", error));
     }
 
     const selectedWorkspaceId =
@@ -235,12 +238,14 @@ export async function syncAndListWorktrees(
           path: entry.workspace.path,
           displayName: entry.workspace.displayName,
         })
-        .catch(() => undefined),
+        .catch((error) => logIgnoredError("worktree.refreshWorktrees", error)),
     ),
   );
   await Promise.all(
     staleWorkspaceIds.map((workspaceId) =>
-      store.catalogStore.worktrees.replaceWorkspaceWorktrees(workspaceId, []).catch(() => undefined),
+      store.catalogStore.worktrees
+        .replaceWorkspaceWorktrees(workspaceId, [])
+        .catch((error) => logIgnoredError("worktree.clearStaleWorkspaceWorktrees", error)),
     ),
   );
 

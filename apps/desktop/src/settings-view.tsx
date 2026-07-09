@@ -1,7 +1,13 @@
 import type { ReactNode } from "react";
 import type { RuntimeSettingsSnapshot, RuntimeSnapshot } from "@pi-gui/session-driver/runtime-types";
 import type { AgentDefinitionsSnapshot, DeleteAgentDefinitionInput, ResetAgentDefinitionInput, SaveAgentDefinitionInput } from "./agent-definitions";
-import type { DesktopCustomInstructionsRecord, ModelSettingsScopeMode, NotificationPreferences, WorkspaceRecord } from "./desktop-state";
+import type {
+  DesktopCustomInstructionsRecord,
+  DiagnosticReportingPreferences,
+  ModelSettingsScopeMode,
+  NotificationPreferences,
+  WorkspaceRecord,
+} from "./desktop-state";
 import type { DesktopNotificationPermissionStatus } from "./ipc";
 import type { RunSubagentWorkflowInput, SubagentRunRecord } from "./subagent-workflows";
 import { SettingsAgentsSection } from "./settings-agents-section";
@@ -19,6 +25,7 @@ interface SettingsViewProps {
   readonly runtime?: RuntimeSnapshot;
   readonly section: SettingsSection;
   readonly notificationPreferences: NotificationPreferences;
+  readonly diagnosticReporting: DiagnosticReportingPreferences;
   readonly notificationPermissionStatus: DesktopNotificationPermissionStatus;
   readonly notificationPermissionPending: boolean;
   readonly agentDefinitions?: AgentDefinitionsSnapshot;
@@ -43,6 +50,7 @@ interface SettingsViewProps {
   readonly onSetProviderApiKey: (providerId: string, apiKey: string) => Promise<string | undefined>;
   readonly onRemoveProviderApiKey: (providerId: string) => Promise<string | undefined>;
   readonly onSetNotificationPreferences: (preferences: Partial<NotificationPreferences>) => void;
+  readonly onSetDiagnosticReportingPreferences: (preferences: Partial<DiagnosticReportingPreferences>) => void;
   readonly onSetIntegratedTerminalShell: (shellPath: string) => void;
   readonly onSetDesktopCustomInstructions: (input: Partial<DesktopCustomInstructionsRecord>) => void;
   readonly onRequestNotificationPermission: () => void;
@@ -52,7 +60,9 @@ interface SettingsViewProps {
   readonly onResetAgentDefinition: (input: ResetAgentDefinitionInput) => Promise<void>;
   readonly onDeleteAgentDefinition: (input: DeleteAgentDefinitionInput) => Promise<void>;
   readonly onRunWorkflow: (input: RunSubagentWorkflowInput) => Promise<void>;
+  readonly onCancelSubagentRun: (runId: string) => Promise<void>;
   readonly onOpenRunTarget: (target: SubagentRunRecord["target"]) => void;
+  readonly onOpenRunArtifact: (input: { readonly target: SubagentRunRecord["target"]; readonly path: string }) => void;
   readonly onOpenAgentsSettings: () => void;
 }
 
@@ -61,6 +71,7 @@ export function SettingsView({
   runtime,
   section,
   notificationPreferences,
+  diagnosticReporting,
   notificationPermissionStatus,
   notificationPermissionPending,
   agentDefinitions,
@@ -85,6 +96,7 @@ export function SettingsView({
   onSetProviderApiKey,
   onRemoveProviderApiKey,
   onSetNotificationPreferences,
+  onSetDiagnosticReportingPreferences,
   onSetIntegratedTerminalShell,
   onSetDesktopCustomInstructions,
   onRequestNotificationPermission,
@@ -94,7 +106,9 @@ export function SettingsView({
   onResetAgentDefinition,
   onDeleteAgentDefinition,
   onRunWorkflow,
+  onCancelSubagentRun,
   onOpenRunTarget,
+  onOpenRunArtifact,
   onOpenAgentsSettings,
 }: SettingsViewProps) {
   if (!workspace && section !== "general" && section !== "notifications" && section !== "appearance") {
@@ -137,9 +151,11 @@ export function SettingsView({
               modelSettingsScopeMode={modelSettingsScopeMode}
               integratedTerminalShell={integratedTerminalShell}
               desktopCustomInstructions={desktopCustomInstructions}
+              diagnosticReporting={diagnosticReporting}
               onSetModelSettingsScopeMode={onSetModelSettingsScopeMode}
               onSetIntegratedTerminalShell={onSetIntegratedTerminalShell}
               onSetDesktopCustomInstructions={onSetDesktopCustomInstructions}
+              onSetDiagnosticReportingPreferences={onSetDiagnosticReportingPreferences}
               onToggleSkillCommands={onToggleSkillCommands}
             />
           ) : null}
@@ -179,7 +195,9 @@ export function SettingsView({
               onReset={onResetAgentDefinition}
               onDelete={onDeleteAgentDefinition}
               onRunWorkflow={onRunWorkflow}
+              onCancelRun={onCancelSubagentRun}
               onOpenRunTarget={onOpenRunTarget}
+              onOpenRunArtifact={onOpenRunArtifact}
             />
           ) : null}
 

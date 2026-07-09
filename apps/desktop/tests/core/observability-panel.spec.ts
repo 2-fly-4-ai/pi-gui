@@ -2,7 +2,15 @@ import { appendFile, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promise
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { expect, test } from "@playwright/test";
-import { createSessionViaIpc, getDesktopState, launchDesktop } from "../helpers/electron-app";
+import { createSessionViaIpc, desktopShortcut, type DesktopHarness, getDesktopState, launchDesktop } from "../helpers/electron-app";
+
+interface CatalogSessionRecord {
+  readonly sessionRef?: {
+    readonly workspaceId?: string;
+    readonly sessionId?: string;
+  };
+  readonly sessionFilePath?: string;
+}
 
 async function seedLogs(userDataDir: string, agentDir: string, workspacePath: string): Promise<void> {
   await mkdir(join(userDataDir, "logs"), { recursive: true });
@@ -92,14 +100,14 @@ async function sessionFileFor(userDataDir: string, workspaceId: string, sessionI
   return expect.poll(async () => {
     const catalogs = JSON.parse(await readFile(catalogsPath, "utf8"));
     return catalogs.sessionFiles?.[`${workspaceId}:${sessionId}`]
-      ?? catalogs.sessions?.find((session: any) =>
+      ?? (catalogs.sessions as CatalogSessionRecord[] | undefined)?.find((session) =>
         session.sessionRef?.workspaceId === workspaceId && session.sessionRef?.sessionId === sessionId,
       )?.sessionFilePath
       ?? "";
   }, { timeout: 10_000 }).not.toBe("").then(async () => {
     const catalogs = JSON.parse(await readFile(catalogsPath, "utf8"));
     return catalogs.sessionFiles?.[`${workspaceId}:${sessionId}`]
-      ?? catalogs.sessions?.find((session: any) =>
+      ?? (catalogs.sessions as CatalogSessionRecord[] | undefined)?.find((session) =>
         session.sessionRef?.workspaceId === workspaceId && session.sessionRef?.sessionId === sessionId,
       )?.sessionFilePath;
   });
@@ -159,6 +167,95 @@ test("logs panel renders object payloads as useful messages", async () => {
   }
 });
 
+test("app logs can open a redacted diagnostic issue draft", async () => {
+  const userDataDir = await mkdtemp(join(tmpdir(), "pi-gui-observability-issue-"));
+  const agentDir = join(userDataDir, "agent");
+  await seedLogs(userDataDir, agentDir, userDataDir);
+  await appendFile(
+    join(userDataDir, "logs", "desktop.log"),
+    `${JSON.stringify({
+      timestamp: "2026-05-21T08:31:35.000Z",
+      event: "renderer-console-message",
+      payload: {
+        level: 3,
+        message: `Failed in ${join(userDataDir, "private-project", "src", "secret.ts")} with token=sk-abcdefghijklmnopqrstuvwxyz`,
+        prompt: "Do not include prompt text",
+      },
+    })}\n`,
+    "utf8",
+  );
+  const app = await launchDesktop(userDataDir, { agentDir, initialWorkspaces: [userDataDir], testMode: "background" });
+
+  try {
+    await stubExternalOpens(app);
+    const page = await app.firstWindow();
+    await page.keyboard.press(desktopShortcut(","));
+    await expect(page.getByTestId("settings-surface")).toBeVisible();
+    await page.getByRole("button", { name: "General", exact: true }).click();
+    await page.getByRole("checkbox", { name: "Enable diagnostic issue drafts" }).click();
+    await expect(page.getByRole("checkbox", { name: "Enable diagnostic issue drafts" })).toBeChecked();
+    await page.getByRole("button", { name: "Back to app", exact: true }).click();
+    await page.getByLabel("Toggle logs panel").click();
+    await page.getByRole("tab", { name: "App logs" }).click();
+    await page.getByRole("button", { name: "Draft issue" }).click();
+
+    const urls = await readExternalOpens(app);
+    expect(urls).toHaveLength(1);
+    const url = new URL(urls[0]);
+    expect(`${url.origin}${url.pathname}`).toBe("https://github.com/minghinmatthewlam/pi-gui/issues/new");
+    expect(url.searchParams.get("title")).toContain("Diagnostics report:");
+    const body = url.searchParams.get("body") ?? "";
+    expect(body).toContain("Electron:");
+    expect(body).toContain("Renderer console error");
+    expect(body).toContain("[path]");
+    expect(body).toContain("token=[secret]");
+    expect(body).not.toContain(userDataDir);
+    expect(body).not.toContain("secret.ts");
+    expect(body).not.toContain("Do not include prompt text");
+    await expect(page.locator(".logs-panel__runtime-note", { hasText: "Draft opened in the browser." })).toBeVisible();
+  } finally {
+    await app.close();
+  }
+});
+
+test("app logs include local native crash artifacts only after opt-in", async () => {
+  const userDataDir = await mkdtemp(join(tmpdir(), "pi-gui-observability-crash-"));
+  const agentDir = join(userDataDir, "agent");
+  await seedLogs(userDataDir, agentDir, userDataDir);
+  const app = await launchDesktop(userDataDir, { agentDir, initialWorkspaces: [userDataDir], testMode: "background" });
+
+  try {
+    const crashDumpsPath = await app.electronApp.evaluate(({ app: electronApp }) => electronApp.getPath("crashDumps"));
+    await mkdir(join(crashDumpsPath, "completed"), { recursive: true });
+    await writeFile(join(crashDumpsPath, "completed", "local-native-crash.dmp"), "minidump", "utf8");
+
+    const page = await app.firstWindow();
+    await page.getByLabel("Toggle logs panel").click();
+    await page.getByRole("tab", { name: "App logs" }).click();
+    await expect(page.locator(".logs-panel__event-title", { hasText: "Native crash report artifact" })).toHaveCount(0);
+
+    await page.keyboard.press(desktopShortcut(","));
+    await expect(page.getByTestId("settings-surface")).toBeVisible();
+    await page.getByRole("button", { name: "General", exact: true }).click();
+    await page.getByRole("checkbox", { name: "Enable local native crash reports" }).click();
+    await expect(page.getByRole("checkbox", { name: "Enable local native crash reports" })).toBeChecked();
+    await expect.poll(async () => (await getDesktopState(page)).diagnosticReporting.nativeCrashReportsEnabled).toBe(true);
+    const crashReporterState = await app.electronApp.evaluate(({ crashReporter }) => ({
+      uploadToServer: crashReporter.getUploadToServer(),
+    }));
+    expect(crashReporterState.uploadToServer).toBe(false);
+
+    await page.getByRole("button", { name: "Back to app", exact: true }).click();
+    await expect(page.getByTestId("logs-panel")).toBeVisible();
+    await page.getByRole("tab", { name: "App logs" }).click();
+    await page.getByLabel("Refresh logs").click();
+    await expect(page.locator(".logs-panel__event-title", { hasText: "Native crash report artifact" })).toBeVisible();
+    await expect(page.locator(".logs-panel__event-message", { hasText: "local-native-crash.dmp" })).toBeVisible();
+  } finally {
+    await app.close();
+  }
+});
+
 test("logs panel can opt into global subagent audit history", async () => {
   const userDataDir = await mkdtemp(join(tmpdir(), "pi-gui-observability-global-"));
   const agentDir = join(userDataDir, "agent");
@@ -176,6 +273,24 @@ test("logs panel can opt into global subagent audit history", async () => {
     await app.close();
   }
 });
+
+async function stubExternalOpens(harness: DesktopHarness): Promise<void> {
+  await harness.electronApp.evaluate(({ shell }) => {
+    const state = globalThis as typeof globalThis & { __piExternalUrls?: string[] };
+    state.__piExternalUrls = [];
+    shell.openExternal = ((url: string) => {
+      state.__piExternalUrls?.push(url);
+      return Promise.resolve();
+    }) as typeof shell.openExternal;
+  });
+}
+
+async function readExternalOpens(harness: DesktopHarness): Promise<readonly string[]> {
+  return harness.electronApp.evaluate(() => {
+    const state = globalThis as typeof globalThis & { __piExternalUrls?: string[] };
+    return state.__piExternalUrls ?? [];
+  });
+}
 
 test("logs panel includes current thread tool failures", async () => {
   const userDataDir = await mkdtemp(join(tmpdir(), "pi-gui-observability-tools-"));

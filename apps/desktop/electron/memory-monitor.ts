@@ -1,6 +1,7 @@
 import { app, type BrowserWindow, type ProcessMemoryInfo } from "electron";
 import { appendFile, mkdir } from "node:fs/promises";
 import path from "node:path";
+import { logIgnoredError } from "./diagnostics";
 
 const MEMORY_MONITOR_ENV = "PI_APP_MEMORY_MONITOR";
 const DEFAULT_INTERVAL_MS = 1_000;
@@ -49,7 +50,7 @@ export function startMemoryMonitor(options: MemoryMonitorOptions): (() => void) 
 
     const entry = await buildMemorySample(options);
     writeChain = writeChain
-      .catch(() => undefined)
+      .catch((error) => logIgnoredError("memory-monitor.previous-write", error))
       .then(async () => {
         await mkdir(path.dirname(logPath), { recursive: true });
         await appendFile(logPath, `${JSON.stringify({ ...entry, logPath })}\n`, "utf8");
@@ -73,7 +74,12 @@ export function startMemoryMonitor(options: MemoryMonitorOptions): (() => void) 
 
 async function buildMemorySample(options: MemoryMonitorOptions) {
   const window = options.getWindow();
-  const mainProcessMemory = await process.getProcessMemoryInfo().catch(() => undefined);
+  const mainProcessMemory = await process
+    .getProcessMemoryInfo()
+    .catch((error) => {
+      logIgnoredError("memory-monitor.main-process-memory", error);
+      return undefined;
+    });
   const metrics = app.getAppMetrics().map(formatMetric);
   const focusedMetric = window ? metrics.find((metric) => metric.pid === window.webContents.getOSProcessId()) : undefined;
 
