@@ -726,6 +726,8 @@ void app.whenReady().then(async () => {
     userDataDir: configuredUserDataDir,
     initialWorkspacePaths: resolveInitialWorkspacePaths(),
     getWindow: () => mainWindow,
+    listSubagentRunsForDisplayMode: async (workspaceId) =>
+      subagentRunsStore?.listRuns(workspaceId, store.getWorkspacePath(workspaceId)) ?? [],
     generateThreadTitleOverride: async (workspace, options) => generateThreadTitleOverride?.(workspace, options),
   });
   const publishSubagentRunsChanged = (workspaceId: string) => {

@@ -94,7 +94,12 @@ import {
   toSessionRef,
 } from "./app-store-utils";
 import { resolveRepoWorkspaceId } from "../src/workspace-roots";
-import { summarizeDisplayModeSubagents } from "../src/display-mode-subagent-activity";
+import {
+  mergeDisplayModeSubagentActivity,
+  summarizeDisplayModeSubagentRuns,
+  summarizeDisplayModeSubagents,
+} from "../src/display-mode-subagent-activity";
+import type { SubagentRunRecord } from "../src/subagent-workflows";
 import { SessionStateMap, type QueuedComposerEditState } from "./session-state-map";
 import { createEmptyExtensionUiState, serializeExtensionUiState } from "./session-state-map";
 import { GitWorktreeManager } from "./worktree-manager";
@@ -286,6 +291,7 @@ export interface DesktopAppStoreOptions {
   readonly userDataDir: string;
   readonly initialWorkspacePaths: readonly string[];
   readonly getWindow?: () => BrowserWindow | null;
+  readonly listSubagentRunsForDisplayMode?: (workspaceId: string) => Promise<readonly SubagentRunRecord[]>;
   readonly generateThreadTitleOverride?: (
     workspace: WorkspaceRef,
     options: GenerateThreadTitleOptions,
@@ -335,6 +341,7 @@ export class DesktopAppStore implements AppStoreInternals {
   private readonly reportedCompatibilityIssuesBySession = new Map<string, Set<string>>();
   private readonly initialWorkspacePaths: readonly string[];
   private readonly getWindow: () => BrowserWindow | null;
+  private readonly listSubagentRunsForDisplayMode: (workspaceId: string) => Promise<readonly SubagentRunRecord[]>;
   private persistUiStateTimer: NodeJS.Timeout | undefined;
   private readonly transcriptPersistTimers = new Map<string, NodeJS.Timeout>();
   private initPromise: Promise<void> | undefined;
@@ -365,6 +372,7 @@ export class DesktopAppStore implements AppStoreInternals {
     this.attachmentStore = new JsonFileStore<ComposerAttachment[]>(options.userDataDir, "attachments");
     this.initialWorkspacePaths = options.initialWorkspacePaths;
     this.getWindow = options.getWindow ?? (() => null);
+    this.listSubagentRunsForDisplayMode = options.listSubagentRunsForDisplayMode ?? (async () => []);
   }
 
   /* ── Lifecycle ──────────────────────────────────────────── */
@@ -407,16 +415,31 @@ export class DesktopAppStore implements AppStoreInternals {
         return Date.parse(b.session.updatedAt) - Date.parse(a.session.updatedAt);
       });
 
+    const subagentRunsByWorkspace = new Map<string, Promise<readonly SubagentRunRecord[]>>();
+    const getSubagentRuns = (workspaceId: string) => {
+      let promise = subagentRunsByWorkspace.get(workspaceId);
+      if (!promise) {
+        promise = this.listSubagentRunsForDisplayMode(workspaceId);
+        subagentRunsByWorkspace.set(workspaceId, promise);
+      }
+      return promise;
+    };
+
     return Promise.all(entries.map(async ({ workspace: workspaceEntry, session }) => {
       const cachedTranscript = await this.displayModeTranscriptFor({
         workspaceId: workspaceEntry.id,
         sessionId: session.id,
       });
+      const workspaceRuns = await getSubagentRuns(workspaceEntry.id);
+      const sessionRuns = workspaceRuns.filter((run) => run.target.sessionId === session.id);
       return {
         workspace: lightweightDisplayModeWorkspace(workspaceEntry),
         session: structuredClone(session),
         transcript: recentDisplayModeTranscript(cachedTranscript, this.state.showThinking),
-        subagentActivity: summarizeDisplayModeSubagents(cachedTranscript),
+        subagentActivity: mergeDisplayModeSubagentActivity(
+          summarizeDisplayModeSubagents(cachedTranscript),
+          summarizeDisplayModeSubagentRuns(sessionRuns),
+        ),
       };
     }));
   }

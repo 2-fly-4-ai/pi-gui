@@ -1,4 +1,5 @@
 import type { TimelineToolCall, TranscriptMessage } from "./timeline-types";
+import type { SubagentRunRecord } from "./subagent-workflows";
 
 export interface DisplayModeSubagentActivity {
   readonly status: "running" | "completed" | "failed";
@@ -17,6 +18,26 @@ export function summarizeDisplayModeSubagents(transcript: readonly TranscriptMes
   return buildSubagentActivity("completed", agentRows);
 }
 
+export function summarizeDisplayModeSubagentRuns(runs: readonly SubagentRunRecord[]): DisplayModeSubagentActivity | undefined {
+  if (runs.length === 0) return undefined;
+  const active = runs.filter((run) => run.status === "submitted" || run.status === "running");
+  if (active.length > 0) return buildWorkflowActivity("running", active);
+  const failed = runs.filter((run) => run.status === "failed" || run.status === "cancelled");
+  if (failed.length > 0) return buildWorkflowActivity("failed", failed);
+  return buildWorkflowActivity("completed", runs);
+}
+
+export function mergeDisplayModeSubagentActivity(
+  transcriptActivity: DisplayModeSubagentActivity | undefined,
+  runActivity: DisplayModeSubagentActivity | undefined,
+): DisplayModeSubagentActivity | undefined {
+  if (!transcriptActivity) return runActivity;
+  if (!runActivity) return transcriptActivity;
+  return activityPriority(runActivity.status) > activityPriority(transcriptActivity.status)
+    ? runActivity
+    : transcriptActivity;
+}
+
 function buildSubagentActivity(status: DisplayModeSubagentActivity["status"], rows: readonly TimelineToolCall[]): DisplayModeSubagentActivity {
   const roles = uniqueRoles(rows);
   const count = rows.length;
@@ -30,6 +51,19 @@ function buildSubagentActivity(status: DisplayModeSubagentActivity["status"], ro
   };
 }
 
+function buildWorkflowActivity(status: DisplayModeSubagentActivity["status"], runs: readonly SubagentRunRecord[]): DisplayModeSubagentActivity {
+  const roles = uniqueRunRoles(runs);
+  const count = runs.length;
+  const statusLabelText = status === "running" ? "running" : status === "failed" ? "needs attention" : "completed";
+  const workflowLabel = count === 1 ? "Workflow" : "Workflows";
+  return {
+    status,
+    count,
+    roles,
+    label: `${count} ${workflowLabel} ${statusLabelText}${roles.length > 0 ? ` · ${roles.join(", ")}` : ""}`,
+  };
+}
+
 function uniqueRoles(rows: readonly TimelineToolCall[]): readonly string[] {
   const roles = new Set<string>();
   for (const row of rows) {
@@ -37,6 +71,23 @@ function uniqueRoles(rows: readonly TimelineToolCall[]): readonly string[] {
     if (role) roles.add(role);
   }
   return [...roles].slice(0, 3);
+}
+
+function uniqueRunRoles(runs: readonly SubagentRunRecord[]): readonly string[] {
+  const roles = new Set<string>();
+  for (const run of runs) {
+    for (const role of run.roles) {
+      const value = role.trim();
+      if (value) roles.add(value);
+    }
+  }
+  return [...roles].slice(0, 3);
+}
+
+function activityPriority(status: DisplayModeSubagentActivity["status"]): number {
+  if (status === "running") return 3;
+  if (status === "failed") return 2;
+  return 1;
 }
 
 function isAgentToolCall(item: TranscriptMessage): item is TimelineToolCall {

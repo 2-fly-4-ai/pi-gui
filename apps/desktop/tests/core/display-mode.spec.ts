@@ -105,6 +105,67 @@ test("loads Display Mode with clipped recent transcript rows", async () => {
   }
 });
 
+test("summarizes durable workflow runs when transcript lifecycle rows are absent", async () => {
+  const userDataDir = await makeUserDataDir();
+  const workspacePath = await makeWorkspace("display-mode-durable-workflow");
+  const harness = await launchDesktop(userDataDir, {
+    initialWorkspaces: [workspacePath],
+    testMode: "background",
+  });
+
+  try {
+    const window = await harness.firstWindow();
+    await waitForWorkspaceByPath(window, workspacePath);
+    await createNamedThread(window, "Display mode durable workflow");
+
+    const sessionRef = await window.evaluate(async () => {
+      const state = await window.piApp?.getState();
+      return {
+        workspaceId: state?.selectedWorkspaceId ?? "",
+        sessionId: state?.selectedSessionId ?? "",
+      };
+    });
+    expect(sessionRef.workspaceId).not.toBe("");
+    expect(sessionRef.sessionId).not.toBe("");
+
+    const runsDir = join(userDataDir, "subagent-runs");
+    await mkdir(runsDir, { recursive: true });
+    await writeFile(
+      join(runsDir, `${encodeURIComponent(sessionRef.workspaceId)}.json`),
+      `${JSON.stringify([
+        {
+          id: "display-mode-durable-workflow-run",
+          workflowRunId: "display-mode-durable-workflow-run",
+          workflowId: "scout-then-plan",
+          title: "Scout then plan",
+          workspaceId: sessionRef.workspaceId,
+          target: sessionRef,
+          status: "running",
+          roles: ["scout", "planner"],
+          artifacts: ["context.md", "plan.md"],
+          submittedAt: new Date().toISOString(),
+        },
+      ], null, 2)}\n`,
+      "utf8",
+    );
+
+    await window.locator(".sidebar__nav").getByRole("button", { name: "Display Mode" }).click();
+    await expect.poll(async () => window.evaluate(() => window.piApp?.getState().then((state) => state.activeView) ?? "missing")).toBe("display-mode");
+
+    await expect
+      .poll(async () => window.evaluate(async () => {
+        const records = await window.piApp?.getDisplayModeThreads();
+        return records?.find((record) => record.session.title === "Display mode durable workflow")?.subagentActivity?.label ?? "";
+      }))
+      .toBe("1 Workflow running · scout, planner");
+
+    const tile = window.getByTestId("display-mode-thread-tile").filter({ hasText: "Display mode durable workflow" });
+    await expect(tile).toContainText("1 Workflow running");
+  } finally {
+    await harness.close();
+  }
+});
+
 test("loads Display Mode transcripts from persisted history after restart", async () => {
   const userDataDir = await makeUserDataDir();
   const workspacePath = await makeWorkspace("display-mode-persisted-transcript");
