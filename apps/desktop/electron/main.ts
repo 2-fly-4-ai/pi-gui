@@ -24,12 +24,22 @@ import { DesktopAppStore } from "./app-store";
 import { getChangedFiles, getFileDiff, stageFile } from "./app-store-diff";
 import { commitChanges, createPullRequest, currentBranch, pushBranch, stageAllFiles } from "./git-actions";
 import { deleteAgentDefinition, listAgentDefinitions, resetAgentDefinition, saveAgentDefinition } from "./agent-definitions";
+import {
+  deleteSubagentWorkflow,
+  listSubagentWorkflows,
+  resolveSubagentWorkflow,
+  saveSubagentWorkflow,
+} from "./subagent-workflow-definitions";
 import { buildAgentPreReviewPrompt, parseAgentPreReviewComments } from "./review/agent-pre-review";
 import { SubagentRunStore } from "./subagent-runs";
 import { createReviewSnapshot } from "./review/review-snapshot";
 import type { DeleteAgentDefinitionInput, ResetAgentDefinitionInput, SaveAgentDefinitionInput } from "../src/agent-definitions";
 import type { CreateReviewSnapshotOptions, ReviewSnapshot } from "../src/review/review-types";
-import type { RunSubagentWorkflowInput } from "../src/subagent-workflows";
+import type {
+  DeleteSubagentWorkflowInput,
+  RunSubagentWorkflowInput,
+  SaveSubagentWorkflowInput,
+} from "../src/subagent-workflows";
 import { listWorkspaceFiles } from "./app-store-files";
 import { ensureVSCodeServer, killAllVSCodeServers, killVSCodeServer } from "./vscode-server-manager";
 import { MAIN_DEV_RELOAD_MARKER } from "./dev-reload-main-probe";
@@ -1183,6 +1193,15 @@ void app.whenReady().then(async () => {
   handleMainFrameIpc(desktopIpc.deleteAgentDefinition, async (_event, workspaceId: string, input: DeleteAgentDefinitionInput) => {
     return deleteAgentDefinition(store.getWorkspacePath(workspaceId), input);
   });
+  handleMainFrameIpc(desktopIpc.listSubagentWorkflows, async (_event, workspaceId: string) => {
+    return listSubagentWorkflows(store.getWorkspacePath(workspaceId));
+  });
+  handleMainFrameIpc(desktopIpc.saveSubagentWorkflow, async (_event, workspaceId: string, input: SaveSubagentWorkflowInput) => {
+    return saveSubagentWorkflow(store.getWorkspacePath(workspaceId), input);
+  });
+  handleMainFrameIpc(desktopIpc.deleteSubagentWorkflow, async (_event, workspaceId: string, input: DeleteSubagentWorkflowInput) => {
+    return deleteSubagentWorkflow(store.getWorkspacePath(workspaceId), input);
+  });
   handleMainFrameIpc(desktopIpc.listSubagentRuns, async (_event, workspaceId: string) => {
     return subagentRuns.listRuns(workspaceId, store.getWorkspacePath(workspaceId));
   });
@@ -1190,7 +1209,8 @@ void app.whenReady().then(async () => {
     if (input.target.workspaceId !== workspaceId) {
       throw new Error("Subagent workflow target workspace does not match the active settings workspace.");
     }
-    return subagentRuns.runWorkflow(store, input);
+    const workflow = await resolveSubagentWorkflow(store.getWorkspacePath(workspaceId), input.workflowId);
+    return subagentRuns.runWorkflow(store, input, workflow);
   });
   handleMainFrameIpc(desktopIpc.cancelSubagentRun, async (_event, workspaceId: string, runId: string) => {
     return subagentRuns.cancelRun(store, workspaceId, runId);

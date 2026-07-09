@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
 import type { AgentDefinitionsSnapshot, DeleteAgentDefinitionInput, ResetAgentDefinitionInput, SaveAgentDefinitionInput } from "../../agent-definitions";
-import type { RunSubagentWorkflowInput, SubagentRunRecord } from "../../subagent-workflows";
+import type {
+  DeleteSubagentWorkflowInput,
+  RunSubagentWorkflowInput,
+  SaveSubagentWorkflowInput,
+  SubagentRunRecord,
+  SubagentWorkflowSnapshot,
+} from "../../subagent-workflows";
 import type { AppView } from "../../desktop-state";
 
 type SettingsSection = "appearance" | "general" | "providers" | "models" | "agents" | "notifications";
@@ -24,6 +30,9 @@ export function useAgents({
   const [subagentRuns, setSubagentRuns] = useState<readonly SubagentRunRecord[]>([]);
   const [subagentRunsPending, setSubagentRunsPending] = useState(false);
   const [subagentRunsError, setSubagentRunsError] = useState<string | undefined>();
+  const [subagentWorkflows, setSubagentWorkflows] = useState<SubagentWorkflowSnapshot | undefined>();
+  const [subagentWorkflowsPending, setSubagentWorkflowsPending] = useState(false);
+  const [subagentWorkflowsError, setSubagentWorkflowsError] = useState<string | undefined>();
 
   const loadAgentDefinitions = useCallback((workspaceId?: string) => {
     if (!api || !workspaceId) {
@@ -53,12 +62,28 @@ export function useAgents({
     }).finally(() => setSubagentRunsPending(false));
   }, [api]);
 
+  const loadSubagentWorkflows = useCallback((workspaceId?: string) => {
+    if (!api || !workspaceId) {
+      setSubagentWorkflows(undefined);
+      setSubagentWorkflowsError(undefined);
+      setSubagentWorkflowsPending(false);
+      return;
+    }
+    setSubagentWorkflowsPending(true);
+    setSubagentWorkflowsError(undefined);
+    void api.listSubagentWorkflows(workspaceId).then(setSubagentWorkflows).catch((error) => {
+      setSubagentWorkflowsError(error instanceof Error ? error.message : String(error));
+      console.warn("Failed to load subagent workflows", error);
+    }).finally(() => setSubagentWorkflowsPending(false));
+  }, [api]);
+
   useEffect(() => {
     if (activeView === "settings" && settingsSection === "agents") {
       loadAgentDefinitions(settingsWorkspaceId);
+      loadSubagentWorkflows(settingsWorkspaceId);
       loadSubagentRuns(settingsWorkspaceId);
     }
-  }, [activeView, loadAgentDefinitions, loadSubagentRuns, settingsSection, settingsWorkspaceId]);
+  }, [activeView, loadAgentDefinitions, loadSubagentRuns, loadSubagentWorkflows, settingsSection, settingsWorkspaceId]);
 
   useEffect(() => {
     if (!api || activeView !== "settings" || settingsSection !== "agents" || !settingsWorkspaceId) {
@@ -139,6 +164,40 @@ export function useAgents({
     }
   };
 
+  const handleSaveSubagentWorkflow = async (input: SaveSubagentWorkflowInput) => {
+    if (!api || !settingsWorkspaceId) {
+      return;
+    }
+    setSubagentWorkflowsPending(true);
+    setSubagentWorkflowsError(undefined);
+    try {
+      setSubagentWorkflows(await api.saveSubagentWorkflow(settingsWorkspaceId, input));
+    } catch (error) {
+      setSubagentWorkflowsError(error instanceof Error ? error.message : String(error));
+      console.warn("Failed to save subagent workflow", error);
+      throw error;
+    } finally {
+      setSubagentWorkflowsPending(false);
+    }
+  };
+
+  const handleDeleteSubagentWorkflow = async (input: DeleteSubagentWorkflowInput) => {
+    if (!api || !settingsWorkspaceId) {
+      return;
+    }
+    setSubagentWorkflowsPending(true);
+    setSubagentWorkflowsError(undefined);
+    try {
+      setSubagentWorkflows(await api.deleteSubagentWorkflow(settingsWorkspaceId, input));
+    } catch (error) {
+      setSubagentWorkflowsError(error instanceof Error ? error.message : String(error));
+      console.warn("Failed to delete subagent workflow", error);
+      throw error;
+    } finally {
+      setSubagentWorkflowsPending(false);
+    }
+  };
+
   const handleCancelSubagentRun = async (runId: string) => {
     if (!api || !settingsWorkspaceId) {
       return;
@@ -161,12 +220,17 @@ export function useAgents({
     agentDefinitionsError,
     agentDefinitionsPending,
     handleDeleteAgentDefinition,
+    handleDeleteSubagentWorkflow,
     handleCancelSubagentRun,
     handleResetAgentDefinition,
     handleRunSubagentWorkflow,
     handleSaveAgentDefinition,
+    handleSaveSubagentWorkflow,
     subagentRuns,
     subagentRunsError,
     subagentRunsPending,
+    subagentWorkflows,
+    subagentWorkflowsError,
+    subagentWorkflowsPending,
   };
 }

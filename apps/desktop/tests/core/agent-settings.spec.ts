@@ -649,6 +649,66 @@ test("settings subagents submits a built-in workflow and persists the run record
   }
 });
 
+test("settings subagents creates, runs, and deletes a custom workflow template", async () => {
+  test.setTimeout(60_000);
+  const userDataDir = await makeUserDataDir();
+  const agentDir = join(userDataDir, "agent");
+  const workspacePath = await makeGitWorkspace("custom-subagent-workflow-workspace");
+  await seedAgentDir(agentDir, { enabledModels: ["openai/gpt-5"] });
+
+  const harness = await launchDesktop(userDataDir, {
+    agentDir,
+    initialWorkspaces: [workspacePath],
+    testMode: "background",
+  });
+
+  try {
+    const window = await harness.firstWindow();
+    await createNamedThread(window, "Custom workflow target session");
+    await window.getByRole("button", { name: "Settings", exact: true }).click();
+    await window.getByRole("button", { name: "Subagents", exact: true }).click();
+    await window.getByRole("tab", { name: "Workflows" }).click();
+
+    await window.getByRole("button", { name: "New workflow" }).click();
+    const dialog = window.getByRole("dialog", { name: "New workflow" });
+    await expect(dialog).toBeVisible();
+    await dialog.getByLabel("Scope").selectOption("global");
+    await dialog.getByLabel("Workflow ID").fill("custom-research-plan");
+    await dialog.getByLabel("Title").fill("Custom research plan");
+    await dialog.getByLabel("Description").fill("Scout the repository and produce a custom implementation plan.");
+    await dialog.getByLabel("Roles").fill("scout -> planner");
+    await dialog.getByLabel("Artifacts").fill("custom-context.md, custom-plan.md");
+    await dialog.getByRole("button", { name: "Save workflow" }).click();
+
+    const customWorkflowPath = join(agentDir, "workflows", "custom-research-plan.md");
+    const savedWorkflow = await readFile(customWorkflowPath, "utf8");
+    expect(savedWorkflow).toContain('title: "Custom research plan"');
+    expect(savedWorkflow).toContain("roles: scout -> planner");
+    expect(savedWorkflow).toContain("artifacts: custom-context.md, custom-plan.md");
+
+    const card = window.getByTestId("subagent-workflow-custom-research-plan");
+    await expect(card).toContainText("Custom research plan");
+    await expect(card).toContainText("Global custom");
+    await expect(card).toContainText("scout → planner");
+    await card.getByRole("button", { name: "Run workflow" }).click();
+
+    await window.getByRole("tab", { name: "Runs" }).click();
+    const run = window.getByTestId("subagent-run-row").first();
+    await expect(run).toContainText("Custom research plan");
+    await expect(run).toContainText("submitted");
+    await expect(run).toContainText("scout → planner");
+    await expect(run).toContainText("custom-context.md, custom-plan.md");
+
+    await window.getByRole("tab", { name: "Workflows" }).click();
+    await card.getByRole("button", { name: "Delete" }).click();
+    await window.getByRole("dialog", { name: "Delete workflow" }).getByRole("button", { name: "Delete workflow" }).click();
+    await expect(window.getByTestId("subagent-workflow-custom-research-plan")).toHaveCount(0);
+    await expect(readFile(customWorkflowPath, "utf8")).rejects.toThrow();
+  } finally {
+    await harness.close();
+  }
+});
+
 test("settings subagents warns when a workflow references a disabled role", async () => {
   test.setTimeout(60_000);
   const userDataDir = await makeUserDataDir();

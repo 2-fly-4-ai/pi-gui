@@ -9,7 +9,13 @@ import type {
   WorkspaceRecord,
 } from "./desktop-state";
 import type { DesktopNotificationPermissionStatus } from "./ipc";
-import type { RunSubagentWorkflowInput, SubagentRunRecord } from "./subagent-workflows";
+import type {
+  DeleteSubagentWorkflowInput,
+  RunSubagentWorkflowInput,
+  SaveSubagentWorkflowInput,
+  SubagentRunRecord,
+  SubagentWorkflowSnapshot,
+} from "./subagent-workflows";
 import { SettingsAgentsSection } from "./settings-agents-section";
 import { SettingsAppearanceSection } from "./settings-appearance-section";
 import { SettingsGeneralSection } from "./settings-general-section";
@@ -35,6 +41,9 @@ interface SettingsViewProps {
   readonly subagentRuns: readonly SubagentRunRecord[];
   readonly subagentRunsPending: boolean;
   readonly subagentRunsError?: string;
+  readonly subagentWorkflows?: SubagentWorkflowSnapshot;
+  readonly subagentWorkflowsPending: boolean;
+  readonly subagentWorkflowsError?: string;
   readonly modelSettingsScopeMode: ModelSettingsScopeMode;
   readonly integratedTerminalShell: string;
   readonly desktopCustomInstructions: DesktopCustomInstructionsRecord;
@@ -59,6 +68,8 @@ interface SettingsViewProps {
   readonly onSaveAgentDefinition: (input: SaveAgentDefinitionInput) => Promise<void>;
   readonly onResetAgentDefinition: (input: ResetAgentDefinitionInput) => Promise<void>;
   readonly onDeleteAgentDefinition: (input: DeleteAgentDefinitionInput) => Promise<void>;
+  readonly onSaveSubagentWorkflow: (input: SaveSubagentWorkflowInput) => Promise<void>;
+  readonly onDeleteSubagentWorkflow: (input: DeleteSubagentWorkflowInput) => Promise<void>;
   readonly onRunWorkflow: (input: RunSubagentWorkflowInput) => Promise<void>;
   readonly onCancelSubagentRun: (runId: string) => Promise<void>;
   readonly onOpenRunTarget: (target: SubagentRunRecord["target"]) => void;
@@ -81,6 +92,9 @@ export function SettingsView({
   subagentRuns,
   subagentRunsPending,
   subagentRunsError,
+  subagentWorkflows,
+  subagentWorkflowsPending,
+  subagentWorkflowsError,
   modelSettingsScopeMode,
   integratedTerminalShell,
   desktopCustomInstructions,
@@ -105,6 +119,8 @@ export function SettingsView({
   onSaveAgentDefinition,
   onResetAgentDefinition,
   onDeleteAgentDefinition,
+  onSaveSubagentWorkflow,
+  onDeleteSubagentWorkflow,
   onRunWorkflow,
   onCancelSubagentRun,
   onOpenRunTarget,
@@ -191,9 +207,14 @@ export function SettingsView({
               subagentRuns={subagentRuns}
               subagentRunsPending={subagentRunsPending}
               subagentRunsError={subagentRunsError}
+              subagentWorkflows={subagentWorkflows}
+              subagentWorkflowsPending={subagentWorkflowsPending}
+              subagentWorkflowsError={subagentWorkflowsError}
               onSave={onSaveAgentDefinition}
               onReset={onResetAgentDefinition}
               onDelete={onDeleteAgentDefinition}
+              onSaveWorkflow={onSaveSubagentWorkflow}
+              onDeleteWorkflow={onDeleteSubagentWorkflow}
               onRunWorkflow={onRunWorkflow}
               onCancelRun={onCancelSubagentRun}
               onOpenRunTarget={onOpenRunTarget}

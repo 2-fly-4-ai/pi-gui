@@ -6,9 +6,9 @@ import { JsonFileStore } from "./json-file-store";
 import {
   buildSubagentWorkflowMessageMetadata,
   buildSubagentWorkflowPrompt,
-  workflowById,
   type RunSubagentWorkflowInput,
   type SubagentRunRecord,
+  type SubagentWorkflowTemplate,
 } from "../src/subagent-workflows";
 
 const LIVE_ARTIFACT_SCAN_INTERVAL_MS = 750;
@@ -47,9 +47,12 @@ export class SubagentRunStore {
       .sort((left, right) => right.submittedAt.localeCompare(left.submittedAt));
   }
 
-  async runWorkflow(store: DesktopAppStore, input: RunSubagentWorkflowInput): Promise<readonly SubagentRunRecord[]> {
+  async runWorkflow(
+    store: DesktopAppStore,
+    input: RunSubagentWorkflowInput,
+    workflow: SubagentWorkflowTemplate,
+  ): Promise<readonly SubagentRunRecord[]> {
     await this.loadWorkspace(input.target.workspaceId);
-    const workflow = workflowById(input.workflowId);
     const queuedAtSubmission = store.sessionFromState(input.target)?.status === "running";
     const workspacePath = store.getWorkspacePath(input.target.workspaceId);
     const workflowRunId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;

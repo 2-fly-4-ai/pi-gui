@@ -24,7 +24,13 @@ import type {
 } from "./desktop-state";
 import type { AgentDefinitionsSnapshot, DeleteAgentDefinitionInput, ResetAgentDefinitionInput, SaveAgentDefinitionInput } from "./agent-definitions";
 import type { CreateReviewSnapshotOptions, ReviewSnapshot } from "./review/review-types";
-import type { RunSubagentWorkflowInput, SubagentRunRecord } from "./subagent-workflows";
+import type {
+  DeleteSubagentWorkflowInput,
+  RunSubagentWorkflowInput,
+  SaveSubagentWorkflowInput,
+  SubagentRunRecord,
+  SubagentWorkflowSnapshot,
+} from "./subagent-workflows";
 import type { ObservabilityEventPage, ObservabilityQuery } from "./observability-types";
 
 export type DesktopNotificationPermissionStatus =
@@ -97,6 +103,9 @@ export const desktopIpc = {
   saveAgentDefinition: "pi-gui:save-agent-definition",
   resetAgentDefinition: "pi-gui:reset-agent-definition",
   deleteAgentDefinition: "pi-gui:delete-agent-definition",
+  listSubagentWorkflows: "pi-gui:list-subagent-workflows",
+  saveSubagentWorkflow: "pi-gui:save-subagent-workflow",
+  deleteSubagentWorkflow: "pi-gui:delete-subagent-workflow",
   listSubagentRuns: "pi-gui:list-subagent-runs",
   runSubagentWorkflow: "pi-gui:run-subagent-workflow",
   cancelSubagentRun: "pi-gui:cancel-subagent-run",
@@ -467,6 +476,9 @@ export interface PiDesktopApi {
   saveAgentDefinition(workspaceId: string, input: SaveAgentDefinitionInput): Promise<AgentDefinitionsSnapshot>;
   resetAgentDefinition(workspaceId: string, input: ResetAgentDefinitionInput): Promise<AgentDefinitionsSnapshot>;
   deleteAgentDefinition(workspaceId: string, input: DeleteAgentDefinitionInput): Promise<AgentDefinitionsSnapshot>;
+  listSubagentWorkflows(workspaceId: string): Promise<SubagentWorkflowSnapshot>;
+  saveSubagentWorkflow(workspaceId: string, input: SaveSubagentWorkflowInput): Promise<SubagentWorkflowSnapshot>;
+  deleteSubagentWorkflow(workspaceId: string, input: DeleteSubagentWorkflowInput): Promise<SubagentWorkflowSnapshot>;
   listSubagentRuns(workspaceId: string): Promise<readonly SubagentRunRecord[]>;
   runSubagentWorkflow(workspaceId: string, input: RunSubagentWorkflowInput): Promise<readonly SubagentRunRecord[]>;
   cancelSubagentRun(workspaceId: string, runId: string): Promise<readonly SubagentRunRecord[]>;

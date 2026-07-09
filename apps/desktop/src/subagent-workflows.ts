@@ -2,13 +2,9 @@ import type { WorkspaceSessionTarget } from "./desktop-state";
 import type { AgentDefinitionRecord } from "./agent-definitions";
 import { canonicalRoleForAgentName } from "./agent-definitions";
 
-export type SubagentWorkflowId =
-  | "scout-then-plan"
-  | "implement-with-worker"
-  | "review-current-diff"
-  | "parallel-review"
-  | "oracle-second-opinion"
-  | "review-loop";
+export type SubagentWorkflowId = string;
+export type SubagentWorkflowScope = "global" | "project";
+export type SubagentWorkflowSource = "builtin" | SubagentWorkflowScope;
 
 export interface SubagentWorkflowTemplate {
   readonly id: SubagentWorkflowId;
@@ -16,6 +12,31 @@ export interface SubagentWorkflowTemplate {
   readonly description: string;
   readonly roles: readonly string[];
   readonly artifacts: readonly string[];
+}
+
+export interface SubagentWorkflowRecord extends SubagentWorkflowTemplate {
+  readonly source: SubagentWorkflowSource;
+  readonly scope?: SubagentWorkflowScope;
+  readonly path?: string;
+  readonly builtin: boolean;
+  readonly overridden: boolean;
+  readonly warnings: readonly string[];
+}
+
+export interface SubagentWorkflowSnapshot {
+  readonly globalWorkflowsDir: string;
+  readonly projectWorkflowsDir?: string;
+  readonly workflows: readonly SubagentWorkflowRecord[];
+}
+
+export interface SaveSubagentWorkflowInput {
+  readonly scope: SubagentWorkflowScope;
+  readonly workflow: SubagentWorkflowTemplate;
+}
+
+export interface DeleteSubagentWorkflowInput {
+  readonly scope: SubagentWorkflowScope;
+  readonly id: SubagentWorkflowId;
 }
 
 export interface SubagentWorkflowMessageMetadata {
@@ -115,6 +136,16 @@ export function workflowById(id: SubagentWorkflowId): SubagentWorkflowTemplate {
     throw new Error(`Unknown subagent workflow: ${id}`);
   }
   return workflow;
+}
+
+export function builtinSubagentWorkflowRecords(): readonly SubagentWorkflowRecord[] {
+  return BUILTIN_SUBAGENT_WORKFLOWS.map((workflow) => ({
+    ...workflow,
+    source: "builtin",
+    builtin: true,
+    overridden: false,
+    warnings: [],
+  }));
 }
 
 export function validateSubagentWorkflowRoles(

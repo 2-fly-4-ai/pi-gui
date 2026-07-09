@@ -42,7 +42,13 @@ import type {
 } from "../src/desktop-state";
 import type { AgentDefinitionsSnapshot, DeleteAgentDefinitionInput, ResetAgentDefinitionInput, SaveAgentDefinitionInput } from "../src/agent-definitions";
 import type { CreateReviewSnapshotOptions, ReviewDraftComment, ReviewSnapshot } from "../src/review/review-types";
-import type { RunSubagentWorkflowInput, SubagentRunRecord } from "../src/subagent-workflows";
+import type {
+  DeleteSubagentWorkflowInput,
+  RunSubagentWorkflowInput,
+  SaveSubagentWorkflowInput,
+  SubagentRunRecord,
+  SubagentWorkflowSnapshot,
+} from "../src/subagent-workflows";
 import type { ObservabilityEventPage, ObservabilityQuery } from "../src/observability-types";
 
 const devReloadMarkersEnabled = process.env.PI_APP_DEV_RELOAD_MARKERS === "1";
@@ -223,6 +229,12 @@ contextBridge.exposeInMainWorld("piApp", {
     ipcRenderer.invoke(desktopIpc.resetAgentDefinition, workspaceId, input) as Promise<AgentDefinitionsSnapshot>,
   deleteAgentDefinition: (workspaceId: string, input: DeleteAgentDefinitionInput) =>
     ipcRenderer.invoke(desktopIpc.deleteAgentDefinition, workspaceId, input) as Promise<AgentDefinitionsSnapshot>,
+  listSubagentWorkflows: (workspaceId: string) =>
+    ipcRenderer.invoke(desktopIpc.listSubagentWorkflows, workspaceId) as Promise<SubagentWorkflowSnapshot>,
+  saveSubagentWorkflow: (workspaceId: string, input: SaveSubagentWorkflowInput) =>
+    ipcRenderer.invoke(desktopIpc.saveSubagentWorkflow, workspaceId, input) as Promise<SubagentWorkflowSnapshot>,
+  deleteSubagentWorkflow: (workspaceId: string, input: DeleteSubagentWorkflowInput) =>
+    ipcRenderer.invoke(desktopIpc.deleteSubagentWorkflow, workspaceId, input) as Promise<SubagentWorkflowSnapshot>,
   listSubagentRuns: (workspaceId: string) =>
     ipcRenderer.invoke(desktopIpc.listSubagentRuns, workspaceId) as Promise<readonly SubagentRunRecord[]>,
   runSubagentWorkflow: (workspaceId: string, input: RunSubagentWorkflowInput) =>
