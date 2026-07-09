@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import { join } from "node:path";
 import {
   createNamedThread,
@@ -354,7 +354,24 @@ test("composer keeps narrow widths friendly by collapsing secondary controls", a
     await harness.electronApp.evaluate(({ BrowserWindow }) => {
       const browserWindow = BrowserWindow.getAllWindows()[0];
       browserWindow?.setMinimumSize(520, 640);
+      browserWindow?.setBounds({ width: 1040, height: 760 });
+    });
+
+    await expect.poll(() => readThreadResponsiveMetrics(window)).toMatchObject({
+      composerWithinMain: true,
+      mainHasNoHorizontalOverflow: true,
+      topbarWithinMain: true,
+    });
+
+    await harness.electronApp.evaluate(({ BrowserWindow }) => {
+      const browserWindow = BrowserWindow.getAllWindows()[0];
       browserWindow?.setBounds({ width: 560, height: 760 });
+    });
+
+    await expect.poll(() => readThreadResponsiveMetrics(window)).toMatchObject({
+      composerWithinMain: true,
+      mainHasNoHorizontalOverflow: true,
+      topbarWithinMain: true,
     });
 
     await expect
@@ -399,6 +416,26 @@ test("composer keeps narrow widths friendly by collapsing secondary controls", a
     await harness.close();
   }
 });
+
+async function readThreadResponsiveMetrics(window: Page) {
+  return window.evaluate(() => {
+    const main = document.querySelector<HTMLElement>(".main");
+    const topbar = document.querySelector<HTMLElement>(".topbar");
+    const composer = document.querySelector<HTMLElement>(".composer");
+    if (!main || !topbar || !composer) {
+      throw new Error("Thread shell metrics target was not rendered");
+    }
+
+    const mainBox = main.getBoundingClientRect();
+    const topbarBox = topbar.getBoundingClientRect();
+    const composerBox = composer.getBoundingClientRect();
+    return {
+      composerWithinMain: composerBox.left >= mainBox.left - 1 && composerBox.right <= mainBox.right + 1,
+      mainHasNoHorizontalOverflow: main.scrollWidth <= main.clientWidth + 1,
+      topbarWithinMain: topbarBox.left >= mainBox.left - 1 && topbarBox.right <= mainBox.right + 1,
+    };
+  });
+}
 
 test("dark mode keeps the send button visible before and after typing", async () => {
   test.setTimeout(60_000);
