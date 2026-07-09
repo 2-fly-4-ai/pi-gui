@@ -1,8 +1,20 @@
 # Repo Hygiene Audit
 
-Collected on 2026-07-08. This is an approval-prep document only; no worktrees, branches, history, logs, or secrets were removed while collecting it.
+Collected on 2026-07-08. Cleanup executed on 2026-07-09 after explicit user approval.
+
+## Cleanup Result
+
+- Removed repo-local `.env`; `.env.backup` was absent.
+- Removed root `agentlog.txt`.
+- Removed all stale `.worktrees/*` checkouts; `.worktrees` is now empty (`0B`).
+- Deleted all stale local branches listed below, including the three branches that contained `cf7bb03`.
+- Pruned stale remote-tracking refs; `git remote show origin` now reports only `main`.
+- Expired reflogs and ran `git gc --prune=now`; `git cat-file -e cf7bb03^{commit}` now fails.
+- Installed `gitleaks` locally and verified full history with `gitleaks detect --source . --log-opts="--all" --redact`; 602 commits scanned, no leaks found.
 
 ## Local Worktrees
+
+All entries below were removed on 2026-07-09.
 
 | Worktree | Branch | Size | Merge status vs `main` |
 | --- | --- | ---: | --- |
@@ -19,7 +31,7 @@ Collected on 2026-07-08. This is an approval-prep document only; no worktrees, b
 
 ## Local Branches Containing Secret Commit `cf7bb03`
 
-These need history cleanup or deletion before they are ever pushed:
+These were deleted locally on 2026-07-09, then reflogs were expired and local GC was run:
 
 - `feature/agent-observability-panel`
 - `fix/log-scope-and-thread-cwd`
@@ -27,14 +39,14 @@ These need history cleanup or deletion before they are ever pushed:
 
 ## Local Branches Already Merged Into `main`
 
-These are cleanup candidates after explicit approval because they are attached to worktrees:
+These were deleted locally on 2026-07-09 after their attached worktrees were removed:
 
 - `feature/runtime-job-visibility`
 - `feature/side-browser-panel`
 
 ## Remote Branches With No Commits Ahead Of `main`
 
-These remote refs appear to be ancestors of `main` and are deletion candidates after explicit approval:
+These remote-tracking refs were stale and were pruned by `git fetch --prune origin` on 2026-07-09:
 
 - `origin/chore/code-audit-cleanup`
 - `origin/feature/new-thread-model-selector`
@@ -47,7 +59,7 @@ These remote refs appear to be ancestors of `main` and are deletion candidates a
 
 ## Remote Branches With Branch-Only Commits
 
-These require review before deletion:
+These were also stale remote-tracking refs by the time cleanup ran and were pruned by `git fetch --prune origin` on 2026-07-09:
 
 - `origin/chore/pre-sync-main-20260324` - 3 branch-only commits
 - `origin/claude/nostalgic-wu-1fd4d8` - 9 branch-only commits

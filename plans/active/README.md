@@ -14,7 +14,7 @@ default agent loop.
 
 | Phase | Plan | Why this order | Status |
 | --- | --- | --- | --- |
-| 0 | [phase-0-secrets-and-hygiene.md](phase-0-secrets-and-hygiene.md) | Live secrets one push away from public leak; hygiene items are quick and unblock tooling | in progress |
+| 0 | [phase-0-secrets-and-hygiene.md](phase-0-secrets-and-hygiene.md) | Live secrets one push away from public leak; hygiene items are quick and unblock tooling | local cleanup complete; credential/admin actions pending |
 | 1 | [phase-1-electron-hardening.md](phase-1-electron-hardening.md) | Security gaps compound as webview surfaces grow (side browser, VS Code embed) | implemented; native focus proof blocked |
 | 2 | [phase-2-quality-infrastructure.md](phase-2-quality-infrastructure.md) | Lint + unit tests must exist BEFORE the big refactors in phases 3–4 so they act as a safety net | implemented; CI proof pending; dep upgrades gated |
 | 3 | [phase-3-renderer-decomposition.md](phase-3-renderer-decomposition.md) | App.tsx breakup; prerequisite for state-sync rework touching the same surfaces | implemented; live/visual proof pending |
@@ -27,7 +27,7 @@ default agent loop.
 
 - Good to treat as implementation-complete pending external proof: phases 1, 3, and 4. Each has strong core Electron coverage recorded; remaining proof is native focus or live-provider validation that depends on local focus/credentials.
 - Good to treat as infrastructure-complete pending remote proof: phase 2. Lint, unit, typecheck, and core lanes are green locally; remaining closeout is CI proof on a PR. Dependency upgrades are intentionally gated in `docs/runtime-deps.md`, not open-ended TODOs.
-- Not fully closeable without explicit user/admin action: phase 0. Secret rotation, history/worktree/branch pruning, and user artifact deletion are approval-gated by design.
+- Not fully closeable without external user/admin action: phase 0. Local secret files, leaked local history refs, stale worktrees/branches, and `agentlog.txt` are cleaned up; credential rotation and GitHub push-protection enablement still happen in external systems.
 - Phase 5 is mostly implementation-complete, but not fully closeable until the auto-update signed staging round-trip is run with real N/N+1 release artifacts. Local updater integration and Homebrew guidance are implemented; first-run onboarding has packaged proof; platform expansion now has a decision; crash/error reporting has zero-infra issue-draft, local native crash artifact, first-run reporting opt-in UX, and packaged forced-crash proof; website/docs are implemented.
 - Still product work: agents/subagents W1/W3/W4/W5-W7 follow-ups around audit correlation, multi-role/multi-child aggregation, full transcript side-drawer, user-defined workflows, role hygiene, and observability upgrades. Structured workflow metadata, Display Mode durable-run backfill, live artifact scanning, and active-run cancel controls for workflow runs are implemented.
 - UI polish is broadly advanced and repeatedly screenshot-verified. The final light/dark screenshot harness, follow-up update-ready accent neutralization, and focus-reset cleanup are implemented; remaining closeout is a decision on whether to archive the plan as complete or keep it open for future polish findings.

@@ -42,13 +42,13 @@ Initial harness docs added for this repo:
 ## Steps
 
 0. **Done 2026-07-08 — Agent harness baseline.** Update root `AGENTS.md` into a compact agent map; add repo-local docs for source of truth, safety, folder map, and the default agent-first workflow. Verify doc links and the `CLAUDE.md -> AGENTS.md` symlink.
-1. **In progress 2026-07-08 — Rotate credentials (user action, track only).** Assume compromise of every value in `.env`/`.env.backup`. Credential names are listed in `docs/security/credential-rotation-checklist.md`; user still needs to rotate them in the owning systems.
-2. **Pending user action — Relocate secrets.** Move `.env` and any `.env.backup` out of the repo working tree entirely (user's password manager / secrets store). Confirm nothing in this repo reads them (verified: nothing does).
-3. **[approval] Purge `cf7bb03` from local history.** For each of the three branches: if the branch's unique work is already merged to main, delete the branch; otherwise `git rebase --onto <parent-of-cf7bb03>` past the secrets commit (or `git filter-repo` scoped to those refs). Then `git reflog expire --expire=now --all && git gc --prune=now` so no dangling copy survives.
-4. **Mostly done 2026-07-08 — Secret scanning guardrails.** Added `gitleaks/gitleaks-action@v3` to CI, added `.githooks/pre-commit` with `gitleaks protect --staged --redact`, and documented local scanning + GitHub push protection in `docs/security/secret-scanning.md`. Repo-admin action still needed to enable GitHub push protection.
-5. **Audit done 2026-07-08; approval required for removal — Prune worktrees.** For each entry in `.worktrees/`: verify its branch is merged or abandoned (compare against main), then `git worktree remove` + branch delete. Anything with unmerged unique commits gets listed for the user to decide. Current audit is in `docs/security/repo-hygiene-audit.md`.
-6. **Partially done 2026-07-08 — Delete `agentlog.txt`** [approval — user artifact] and add `agentlog.txt` to `.gitignore`. Ignore rule is in place; deletion still requires approval.
-7. **Audit done 2026-07-08; approval required for deletion — Branch cleanup.** Delete merged local branches; list remote branches safe to delete for the user to confirm. Current audit is in `docs/security/repo-hygiene-audit.md`.
+1. **In progress — Rotate credentials (user action, track only).** Assume compromise of every value formerly in `.env`/`.env.backup`. Credential names are listed in `docs/security/credential-rotation-checklist.md`; user still needs to rotate them in the owning systems.
+2. **Done 2026-07-09 — Relocate/remove repo-local secrets.** `.env` and `.env.backup` are absent from the working tree. Confirmed nothing in this repo reads them.
+3. **Done 2026-07-09 — Purge `cf7bb03` from local history.** Removed the local worktrees/branches that contained the commit, expired reflogs, and ran `git gc --prune=now`; `git cat-file -e cf7bb03^{commit}` now fails and no local/ref contains it.
+4. **Mostly done 2026-07-09 — Secret scanning guardrails.** Added `gitleaks/gitleaks-action@v3` to CI, added `.githooks/pre-commit` with `gitleaks protect --staged --redact`, documented local scanning + GitHub push protection in `docs/security/secret-scanning.md`, installed local `gitleaks`, and verified full history clean. Repo-admin action still needed to enable GitHub push protection.
+5. **Done 2026-07-09 — Prune worktrees.** Removed all stale `.worktrees/*` checkouts listed in `docs/security/repo-hygiene-audit.md`; `.worktrees` is now empty.
+6. **Done 2026-07-09 — Delete `agentlog.txt`.** Removed the 19 MB root `agentlog.txt`; ignore rule remains in place.
+7. **Done 2026-07-09 — Branch cleanup.** Deleted all stale local branches listed in the hygiene audit. `git fetch --prune origin` removed stale remote-tracking refs; `git remote show origin` now reports only `main`.
 8. **Done 2026-07-08 — Consolidate `test:*` scripts.** Kept `test:e2e:runner` as the single parameterized entry; deleted one-spec `test:core:*`, `test:live:*`, `test:native:*`, and dev-reload wrappers; kept tier entries and `test:prod:*`; updated `apps/desktop/README.md`.
 9. **Done 2026-07-08 — Gitignore hardening.** Replaced the global `*.js`/`*.css`/`index.html` ignore + un-ignore pattern with targeted generated-output ignores and kept source CSS/HTML trackable.
 
@@ -78,7 +78,8 @@ Initial harness docs added for this repo:
 - 2026-07-08: `.githooks/pre-commit` shell syntax check passed; `agentlog.txt`, `.env`, and `.env.backup` are ignored.
 - 2026-07-08: `.env.backup` is absent; search across `apps/`, `packages/`, `scripts/`, `.github/`, and package manifests found no `dotenv`/`loadEnv`/env-file loader.
 - 2026-07-08: `pnpm --filter @pi-gui/desktop run typecheck` passed.
-- 2026-07-08: `gitleaks` was not installed locally, so local `gitleaks detect` could not be run.
+- 2026-07-09: Installed `gitleaks` via Homebrew and verified full history: `gitleaks detect --source . --log-opts="--all" --redact` scanned 602 commits and found no leaks.
+- 2026-07-09: Approved local cleanup removed `.env`, absent `.env.backup`, `agentlog.txt`, all stale `.worktrees/*`, all stale local branches, and stale remote-tracking refs. `git cat-file -e cf7bb03^{commit}` now fails after reflog expiry and `git gc --prune=now`.
 - 2026-07-08: Fixed the Electron test helper to strip inherited `ELECTRON_RUN_AS_NODE`; `pnpm --filter @pi-gui/desktop run test:e2e:runner -- apps/desktop/tests/core/navigation.spec.ts` passed.
 - 2026-07-08: Restored virtualized timeline marker classes (`timeline--virtualized`, `timeline__virtual-row`) and fixed native upward-scroll intent after programmatic bottom alignment.
 - 2026-07-08: `pnpm --filter @pi-gui/desktop run typecheck` and `pnpm --filter @pi-gui/desktop run build` passed after the final trimmed timeline fixes.
