@@ -7,4 +7,10 @@ if ! command -v gitleaks >/dev/null 2>&1; then
   exit 1
 fi
 
+blocked_path="$(git diff --cached --name-only | grep -E '(^|/)(\.env($|\.)|agentlog\.txt$)' | head -n 1 || true)"
+if [ -n "$blocked_path" ]; then
+  echo "Refusing to commit forbidden local artifact: $blocked_path" >&2
+  exit 1
+fi
+
 gitleaks protect --staged --redact

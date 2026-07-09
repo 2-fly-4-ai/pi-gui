@@ -24,6 +24,8 @@ The hook runs:
 gitleaks protect --staged --redact
 ```
 
+It also refuses to commit `.env`, `.env.*`, or `agentlog.txt` anywhere in the tree, even if a scanner rule does not match the contents.
+
 Install Gitleaks before enabling the hook. The hook fails closed when `gitleaks` is unavailable.
 
 ## Manual Full-History Check
