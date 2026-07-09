@@ -315,6 +315,9 @@ test("renders typed subagent lifecycle events in the transcript", async () => {
     await expect(transcript).toContainText("Elapsed: 2s");
     await expect(transcript).toContainText("Transcript: /var/folders/example/tasks/agent-call-1.output");
     await expect(transcript).toContainText("Artifacts: review.md");
+    await transcript.getByText("Full transcript", { exact: true }).click();
+    await expect(transcript.getByText("/var/folders/example/tasks/agent-call-1.output", { exact: true })).toBeVisible();
+    await expect(transcript.getByRole("button", { name: "Copy full transcript path" })).toBeVisible();
   } finally {
     await harness.close();
   }

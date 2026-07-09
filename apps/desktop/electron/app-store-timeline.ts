@@ -320,6 +320,7 @@ export function applyTimelineEvent(
         undefined,
         subagentRunOutputText(event),
         event.timestamp,
+        event.transcriptPath,
       );
       break;
     }

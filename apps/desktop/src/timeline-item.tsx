@@ -343,6 +343,7 @@ function TimelineToolCallItem({
   const agentRoleColor = agentMetadata ? resolveSubagentRoleColor(subagentRoleColorMap, agentSubagentType ?? agentMetadata.role, agentMetadata.role) : undefined;
   const hasVisibleOutput = Boolean(outputText?.trim());
   const hasFullOutputPath = Boolean(item.fullOutputPath?.trim());
+  const fullOutputLabel = isAgentTool(item.toolName) ? "Full transcript" : "Full output";
   const hasDetails = item.input !== undefined || item.output !== undefined || hasFullOutputPath;
   const running = item.status === "running";
   const diffText = isWriteTool(item.toolName) ? extractDiffFromOutput(item.output) : undefined;
@@ -483,10 +484,10 @@ function TimelineToolCallItem({
               )}
               {item.fullOutputPath ? (
                 <details className="timeline-tool__details timeline-tool__details--full-output">
-                  <summary>Full output</summary>
+                  <summary>{fullOutputLabel}</summary>
                   <div className="timeline-tool__full-output-row">
                     <code>{item.fullOutputPath}</code>
-                    <button className="icon-button timeline-tool__copy" type="button" onClick={handleCopyFullOutputPath} aria-label="Copy full output path">
+                    <button className="icon-button timeline-tool__copy" type="button" onClick={handleCopyFullOutputPath} aria-label={`Copy ${fullOutputLabel.toLowerCase()} path`}>
                       <CopyIcon />
                     </button>
                   </div>
