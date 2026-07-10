@@ -103,6 +103,7 @@ export function Topbar(props: TopbarProps) {
   const updateAction = getTopbarUpdateAction(updateStatus);
   const runtimeLabel = runtimeStatusLabel(selectedSession);
   const topbarRuntimeLabel = topbarRuntimeStatusLabel(selectedSession);
+  const topbarExtensionDock = extensionDock && !isTopbarNoisyExtensionDock(extensionDock) ? extensionDock : undefined;
 
   const handleDoubleClick = (event: ReactMouseEvent<HTMLElement>) => {
     const target = event.target;
@@ -185,9 +186,9 @@ export function Topbar(props: TopbarProps) {
                 <span>{selectedSessionRunningLabel}</span>
               </span>
             ) : null}
-            {extensionDock && onToggleExtensionDock ? (
+            {topbarExtensionDock && onToggleExtensionDock ? (
               <div className="topbar__extension-dock">
-                <ExtensionDock dock={extensionDock} expanded={extensionDockExpanded} onToggle={onToggleExtensionDock} />
+                <ExtensionDock dock={topbarExtensionDock} expanded={extensionDockExpanded} onToggle={onToggleExtensionDock} />
               </div>
             ) : null}
           </>
@@ -389,6 +390,10 @@ export function Topbar(props: TopbarProps) {
       </div>
     </header>
   );
+}
+
+function isTopbarNoisyExtensionDock(dock: ExtensionDockModel): boolean {
+  return dock.summaryText.trim().toLowerCase() === "fast";
 }
 
 function getTopbarUpdateAction(status: DesktopUpdateStatus | undefined): {

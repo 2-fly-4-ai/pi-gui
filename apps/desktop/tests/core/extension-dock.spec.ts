@@ -73,3 +73,44 @@ test("renders and clears extension dock state for the selected session", async (
     await harness.close();
   }
 });
+
+test("hides fast-only extension dock state from the topbar", async () => {
+  const userDataDir = await makeUserDataDir();
+  const workspacePath = await makeWorkspace("extension-dock-noisy-topbar");
+  const harness = await launchDesktop(userDataDir, {
+    initialWorkspaces: [workspacePath],
+    testMode: "background",
+  });
+
+  try {
+    const window = await harness.firstWindow();
+    await waitForWorkspaceByPath(window, workspacePath);
+    await createNamedThread(window, "Noisy topbar dock host");
+
+    const state = await getDesktopState(window);
+    const selectedWorkspace = state.workspaces.find((workspace) => workspace.id === state.selectedWorkspaceId);
+    const selectedSession = selectedWorkspace?.sessions.find((session) => session.id === state.selectedSessionId);
+    if (!selectedWorkspace || !selectedSession) {
+      throw new Error("Expected selected workspace and session");
+    }
+    const sessionRef = { workspaceId: selectedWorkspace.id, sessionId: selectedSession.id };
+
+    await emitTestSessionEvent(harness, {
+      type: "hostUiRequest",
+      sessionRef,
+      timestamp: new Date().toISOString(),
+      request: {
+        kind: "widget",
+        requestId: "fast-widget",
+        key: "fast",
+        lines: ["Fast"],
+        placement: "belowComposer",
+      },
+    });
+
+    await expect(window.locator(".topbar").getByTestId("extension-dock")).toHaveCount(0);
+    await expect(window.locator(".topbar")).not.toContainText("Fast");
+  } finally {
+    await harness.close();
+  }
+});
