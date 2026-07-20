@@ -42,10 +42,10 @@ Initial harness docs added for this repo:
 ## Steps
 
 0. **Done 2026-07-08 — Agent harness baseline.** Update root `AGENTS.md` into a compact agent map; add repo-local docs for source of truth, safety, folder map, and the default agent-first workflow. Verify doc links and the `CLAUDE.md -> AGENTS.md` symlink.
-1. **In progress — Rotate credentials (user action, track only).** Assume compromise of every value formerly in `.env`/`.env.backup`. Credential names are listed in `docs/security/credential-rotation-checklist.md`; user still needs to rotate them in the owning systems.
+1. **Waived 2026-07-21 — Historical credential rotation.** The user explicitly removed rotation of the unrelated product's former `.env` values from the Pi GUI roadmap. Repository cleanup, history purge, and leak-prevention guardrails remain complete.
 2. **Done 2026-07-09 — Relocate/remove repo-local secrets.** `.env` and `.env.backup` are absent from the working tree. Confirmed nothing in this repo reads them.
 3. **Done 2026-07-09 — Purge `cf7bb03` from local history.** Removed the local worktrees/branches that contained the commit, expired reflogs, and ran `git gc --prune=now`; `git cat-file -e cf7bb03^{commit}` now fails and no local/ref contains it.
-4. **Mostly done 2026-07-09 — Secret scanning guardrails.** Added `gitleaks/gitleaks-action@v3` to CI, added `.githooks/pre-commit` with `gitleaks protect --staged --redact`, documented local scanning + GitHub push protection in `docs/security/secret-scanning.md`, installed local `gitleaks`, and verified full history clean. Repo-admin action still needed to enable GitHub push protection.
+4. **Done 2026-07-20 — Secret scanning guardrails.** Added `gitleaks/gitleaks-action@v3` to CI, added `.githooks/pre-commit` with `gitleaks protect --staged --redact`, documented local scanning + GitHub push protection in `docs/security/secret-scanning.md`, installed local `gitleaks`, and verified full history clean. GitHub's repository API now reports both secret scanning and push protection enabled.
 5. **Done 2026-07-09 — Prune worktrees.** Removed all stale `.worktrees/*` checkouts listed in `docs/security/repo-hygiene-audit.md`; `.worktrees` is now empty.
 6. **Done 2026-07-09 — Delete `agentlog.txt`.** Removed the 19 MB root `agentlog.txt`; ignore rule remains in place.
 7. **Done 2026-07-09 — Branch cleanup.** Deleted all stale local branches listed in the hygiene audit. `git fetch --prune origin` removed stale remote-tracking refs; `git remote show origin` now reports only `main`.
@@ -79,6 +79,7 @@ Initial harness docs added for this repo:
 - 2026-07-08: `.env.backup` is absent; search across `apps/`, `packages/`, `scripts/`, `.github/`, and package manifests found no `dotenv`/`loadEnv`/env-file loader.
 - 2026-07-08: `pnpm --filter @pi-gui/desktop run typecheck` passed.
 - 2026-07-09: Installed `gitleaks` via Homebrew and verified full history: `gitleaks detect --source . --log-opts="--all" --redact` scanned 602 commits and found no leaks.
+- 2026-07-20: Re-audited the remote repository with `gh api repos/2-fly-4-ai/pi-gui`; `secret_scanning` and `secret_scanning_push_protection` both report `enabled`. The local clone also reports `.githooks` as `core.hooksPath` and has `gitleaks` installed.
 - 2026-07-09: Approved local cleanup removed `.env`, absent `.env.backup`, `agentlog.txt`, all stale `.worktrees/*`, all stale local branches, and stale remote-tracking refs. `git cat-file -e cf7bb03^{commit}` now fails after reflog expiry and `git gc --prune=now`.
 - 2026-07-08: Fixed the Electron test helper to strip inherited `ELECTRON_RUN_AS_NODE`; `pnpm --filter @pi-gui/desktop run test:e2e:runner -- apps/desktop/tests/core/navigation.spec.ts` passed.
 - 2026-07-08: Restored virtualized timeline marker classes (`timeline--virtualized`, `timeline__virtual-row`) and fixed native upward-scroll intent after programmatic bottom alignment.

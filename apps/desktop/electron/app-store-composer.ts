@@ -27,27 +27,30 @@ import { appendAgentActivity } from "./observability-service";
 
 export async function updateComposerDraft(
   store: AppStoreInternals,
+  target: WorkspaceSessionTarget,
   composerDraft: string,
 ): Promise<DesktopAppState> {
   await store.initialize();
-  const sessionRef = store.selectedSessionRef();
-  if (sessionRef) {
-    const key = sessionKey(sessionRef);
-    if (composerDraft) {
-      store.sessionState.composerDraftsBySession.set(key, composerDraft);
-    } else {
-      store.sessionState.composerDraftsBySession.delete(key);
-    }
+  const sessionRef = toSessionRef(target);
+  const key = sessionKey(sessionRef);
+  if (composerDraft) {
+    store.sessionState.composerDraftsBySession.set(key, composerDraft);
+  } else {
+    store.sessionState.composerDraftsBySession.delete(key);
+  }
+  store.schedulePersistUiState();
+
+  const selectedSessionRef = store.selectedSessionRef();
+  if (!selectedSessionRef || sessionKey(selectedSessionRef) !== key) {
+    return store.emit();
   }
   store.state = {
     ...store.state,
     composerDraft,
     composerDraftSyncSource: "persist",
     composerDraftSyncNonce: store.state.composerDraftSyncNonce + 1,
-    lastError: undefined,
     revision: store.state.revision + 1,
   };
-  store.schedulePersistUiState();
   return store.emit();
 }
 

@@ -3,10 +3,13 @@ import { access } from "node:fs/promises";
 import { isAbsolute, relative, resolve } from "node:path";
 import type { DesktopAppStore } from "./app-store";
 import { JsonFileStore } from "./json-file-store";
+import type { SubagentAuditLifecycleEvent } from "./subagent-audit-adapter";
 import {
   buildSubagentWorkflowMessageMetadata,
   buildSubagentWorkflowPrompt,
+  isSubagentWorkflowMessageMetadata,
   type RunSubagentWorkflowInput,
+  type SubagentChildRunRecord,
   type SubagentRunRecord,
   type SubagentWorkflowTemplate,
 } from "../src/subagent-workflows";
@@ -126,6 +129,10 @@ export class SubagentRunStore {
   }
 
   async applySessionEvent(event: SessionDriverEvent): Promise<string | undefined> {
+    if (event.type === "queuedMessageStarted") {
+      return this.applyQueuedWorkflowStarted(event);
+    }
+
     if (event.type === "runCompleted" || event.type === "runFailed") {
       return this.applyParentRunFinished(event);
     }
@@ -144,13 +151,76 @@ export class SubagentRunStore {
     }
 
     const current = runs[index];
-    if (!current) {
+    if (!current || isTerminalSubagentRun(current)) {
       return undefined;
     }
 
     runs[index] = await attachExistingArtifactPaths(applyLifecycleEventToRun(current, event));
     await this.persistWorkspace(workspaceId);
     this.refreshLiveArtifactScan(workspaceId);
+    return workspaceId;
+  }
+
+  async applyAuditEvent(event: SubagentAuditLifecycleEvent): Promise<readonly string[]> {
+    const changedWorkspaceIds: string[] = [];
+    for (const [workspaceId, runs] of this.runsByWorkspace) {
+      const index = runs.findIndex((run) => matchesAuditRun(run, event));
+      const current = runs[index];
+      if (!current || isTerminalSubagentRun(current)) continue;
+
+      const lifecycleId = event.parentToolCallId ?? event.agentId ?? event.workflowRunId;
+      if (!lifecycleId) continue;
+      const lifecycleEvent: Extract<SessionDriverEvent, { type: "subagentRunUpdated" }> = {
+        type: "subagentRunUpdated",
+        sessionRef: current.target,
+        parentSession: current.target,
+        timestamp: event.timestamp,
+        subagentRunId: lifecycleId,
+        status: event.status,
+        ...(event.parentToolCallId ? { toolCallId: event.parentToolCallId } : {}),
+        ...(event.role ? { role: event.role, agentName: event.role } : {}),
+        ...(event.description ? { description: event.description } : {}),
+        ...(event.toolUseCount !== undefined ? { toolUseCount: event.toolUseCount } : {}),
+        ...(event.elapsedMs !== undefined ? { elapsedMs: event.elapsedMs } : {}),
+        ...(event.summary ? { summary: event.summary } : {}),
+      };
+      const lifecycleNext = applyLifecycleEventToRun(current, lifecycleEvent, event.agentId);
+      if (lifecycleNext === current) continue;
+      runs[index] = await attachExistingArtifactPaths(lifecycleNext);
+      await this.persistWorkspace(workspaceId);
+      this.refreshLiveArtifactScan(workspaceId);
+      changedWorkspaceIds.push(workspaceId);
+    }
+    return changedWorkspaceIds;
+  }
+
+  private async applyQueuedWorkflowStarted(
+    event: Extract<SessionDriverEvent, { type: "queuedMessageStarted" }>,
+  ): Promise<string | undefined> {
+    const metadata = event.message.metadata;
+    if (!isSubagentWorkflowMessageMetadata(metadata) || !metadata.workflowRunId) {
+      return undefined;
+    }
+
+    const workspaceId = event.sessionRef.workspaceId;
+    await this.loadWorkspace(workspaceId);
+    const runs = this.getRuns(workspaceId);
+    const index = runs.findIndex((run) =>
+      run.workflowRunId === metadata.workflowRunId &&
+      run.target.sessionId === event.sessionRef.sessionId &&
+      run.status === "submitted",
+    );
+    const run = runs[index];
+    if (!run) {
+      return undefined;
+    }
+
+    runs[index] = {
+      ...run,
+      executionStartedAt: event.timestamp,
+      updatedAt: event.timestamp,
+    };
+    await this.persistWorkspace(workspaceId);
     return workspaceId;
   }
 
@@ -161,10 +231,16 @@ export class SubagentRunStore {
     let changed = false;
     for (let index = 0; index < runs.length; index += 1) {
       const run = runs[index];
-      if (!run || !isSubmittedDirectWorkflowRun(run, event.sessionRef)) {
+      if (!run || run.workspaceId !== event.sessionRef.workspaceId || run.target.sessionId !== event.sessionRef.sessionId) {
         continue;
       }
-      runs[index] = failRunWithoutObservedAgent(run, event);
+      if (isSubmittedDirectWorkflowRun(run, event.sessionRef)) {
+        runs[index] = failRunWithoutObservedAgent(run, event);
+      } else if (run.status === "running") {
+        runs[index] = finalizeRunningWorkflow(run, event);
+      } else {
+        continue;
+      }
       changed = true;
     }
     if (!changed) {
@@ -332,7 +408,14 @@ function isTerminalSubagentRun(run: SubagentRunRecord): boolean {
 function matchesLifecycleRun(run: SubagentRunRecord, event: Extract<SessionDriverEvent, { type: "subagentRunUpdated" }>): boolean {
   return run.workspaceId === event.parentSession.workspaceId &&
     run.target.sessionId === event.parentSession.sessionId &&
-    (run.lifecycleRunId === event.subagentRunId || run.toolCallId === event.toolCallId);
+    (
+      run.lifecycleRunId === event.subagentRunId ||
+      run.toolCallId === event.toolCallId ||
+      run.childRuns?.some((child) =>
+        child.lifecycleRunId === event.subagentRunId ||
+        (event.toolCallId !== undefined && child.toolCallId === event.toolCallId)
+      ) === true
+    );
 }
 
 function matchesPendingRun(run: SubagentRunRecord, event: Extract<SessionDriverEvent, { type: "subagentRunUpdated" }>): boolean {
@@ -346,25 +429,99 @@ function matchesPendingRun(run: SubagentRunRecord, event: Extract<SessionDriverE
   return !role || run.roles.some((runRole) => baseRole(runRole) === baseRole(role));
 }
 
+function matchesAuditRun(run: SubagentRunRecord, event: SubagentAuditLifecycleEvent): boolean {
+  return (event.workflowRunId !== undefined && run.workflowRunId === event.workflowRunId) ||
+    (event.parentToolCallId !== undefined && (
+      run.toolCallId === event.parentToolCallId || run.childRuns?.some((child) => child.toolCallId === event.parentToolCallId) === true
+    )) ||
+    (event.agentId !== undefined && run.childRuns?.some((child) => child.auditAgentId === event.agentId) === true);
+}
+
 function applyLifecycleEventToRun(
   run: SubagentRunRecord,
   event: Extract<SessionDriverEvent, { type: "subagentRunUpdated" }>,
+  auditAgentId?: string,
 ): SubagentRunRecord {
+  const children = [...(run.childRuns ?? [])];
+  const childIndex = children.findIndex((child) =>
+    child.lifecycleRunId === event.subagentRunId ||
+    (event.toolCallId !== undefined && child.toolCallId === event.toolCallId)
+  );
+  const currentChild = children[childIndex];
+  if (currentChild && isStaleOrRegressiveChildEvent(currentChild, event)) return run;
+  const nextChild = applyLifecycleEventToChild(currentChild, event, auditAgentId);
+  if (childIndex >= 0) {
+    children[childIndex] = nextChild;
+  } else {
+    children.push(nextChild);
+  }
+
+  return aggregateChildRuns({
+    ...run,
+    childRuns: children,
+    updatedAt: event.timestamp,
+    lifecycleRunId: run.lifecycleRunId ?? event.subagentRunId,
+    toolCallId: run.toolCallId ?? event.toolCallId,
+    startedAt: run.startedAt ?? (event.status === "started" ? event.timestamp : undefined),
+  });
+}
+
+function applyLifecycleEventToChild(
+  child: SubagentChildRunRecord | undefined,
+  event: Extract<SessionDriverEvent, { type: "subagentRunUpdated" }>,
+  auditAgentId?: string,
+): SubagentChildRunRecord {
   const status = statusForLifecycleEvent(event.status);
   return {
-    ...run,
+    ...(child ?? {}),
+    id: child?.id ?? event.subagentRunId,
     status,
-    updatedAt: event.timestamp,
     lifecycleRunId: event.subagentRunId,
+    updatedAt: event.timestamp,
     ...(event.toolCallId !== undefined ? { toolCallId: event.toolCallId } : {}),
-    ...(event.status === "started" && run.startedAt === undefined ? { startedAt: event.timestamp } : {}),
+    ...(auditAgentId ? { auditAgentId } : {}),
+    ...(event.role !== undefined ? { role: event.role } : {}),
+    ...(event.agentName !== undefined ? { agentName: event.agentName } : {}),
+    ...(event.description !== undefined ? { description: event.description } : {}),
+    ...(event.status === "started" && child?.startedAt === undefined ? { startedAt: event.timestamp } : {}),
     ...(status === "completed" || status === "failed" || status === "cancelled" ? { completedAt: event.timestamp } : {}),
     ...(event.toolUseCount !== undefined ? { toolUseCount: event.toolUseCount } : {}),
     ...(event.elapsedMs !== undefined ? { elapsedMs: event.elapsedMs } : {}),
     ...(event.summary !== undefined ? { summary: event.summary } : {}),
     ...(event.transcriptPath !== undefined ? { transcriptPath: event.transcriptPath } : {}),
     ...(event.artifacts !== undefined ? { artifactPaths: event.artifacts } : {}),
-    ...(status === "failed" && event.summary ? { error: event.summary } : {}),
+  };
+}
+
+function aggregateChildRuns(run: SubagentRunRecord): SubagentRunRecord {
+  const children = run.childRuns ?? [];
+  const expectedCount = Math.max(1, run.roles.length);
+  const allObservedChildrenTerminal = children.length >= expectedCount && children.every(isTerminalChildRun);
+  const status: SubagentRunRecord["status"] = !allObservedChildrenTerminal
+    ? "running"
+    : children.some((child) => child.status === "failed")
+      ? "failed"
+      : children.some((child) => child.status === "cancelled")
+        ? "cancelled"
+        : "completed";
+  const toolUseCounts = children.map((child) => child.toolUseCount).filter((value): value is number => value !== undefined);
+  const elapsedValues = children.map((child) => child.elapsedMs).filter((value): value is number => value !== undefined);
+  const summaries = uniqueStrings(children.map((child) => child.summary ?? ""));
+  const artifactPaths = uniqueStrings([
+    ...(run.artifactPaths ?? []),
+    ...children.flatMap((child) => child.artifactPaths ?? []),
+  ]);
+  const latestTranscriptPath = [...children].reverse().find((child) => child.transcriptPath)?.transcriptPath;
+  return {
+    ...run,
+    status,
+    ...(status === "completed" || status === "failed" || status === "cancelled" ? { completedAt: run.updatedAt } : {}),
+    ...(toolUseCounts.length > 0 ? { toolUseCount: toolUseCounts.reduce((total, count) => total + count, 0) } : {}),
+    ...(elapsedValues.length > 0 ? { elapsedMs: Math.max(...elapsedValues) } : {}),
+    ...(summaries.length > 0 ? { summary: summaries.join(" · ") } : {}),
+    ...(latestTranscriptPath ? { transcriptPath: latestTranscriptPath } : {}),
+    ...(artifactPaths.length > 0 ? { artifactPaths } : {}),
+    ...(status === "failed" && summaries.length > 0 ? { error: summaries.join(" · ") } : {}),
   };
 }
 
@@ -436,7 +593,7 @@ function isSubmittedDirectWorkflowRun(run: SubagentRunRecord, sessionRef: Sessio
   return run.workspaceId === sessionRef.workspaceId &&
     run.target.sessionId === sessionRef.sessionId &&
     run.status === "submitted" &&
-    !run.queuedAtSubmission;
+    (!run.queuedAtSubmission || run.executionStartedAt !== undefined);
 }
 
 function failRunWithoutObservedAgent(
@@ -455,7 +612,56 @@ function failRunWithoutObservedAgent(
   };
 }
 
-function statusForLifecycleEvent(status: Extract<SessionDriverEvent, { type: "subagentRunUpdated" }>["status"]): SubagentRunRecord["status"] {
+function finalizeRunningWorkflow(
+  run: SubagentRunRecord,
+  event: Extract<SessionDriverEvent, { type: "runCompleted" | "runFailed" }>,
+): SubagentRunRecord {
+  const children = run.childRuns ?? [];
+  const expectedCount = Math.max(1, run.roles.length);
+  if (event.type === "runFailed") {
+    return {
+      ...run,
+      status: "failed",
+      updatedAt: event.timestamp,
+      completedAt: event.timestamp,
+      error: `Workflow turn failed: ${event.error.message}`,
+    };
+  }
+  if (children.length < expectedCount) {
+    return {
+      ...run,
+      status: "failed",
+      updatedAt: event.timestamp,
+      completedAt: event.timestamp,
+      error: `Workflow finished after invoking ${children.length} of ${expectedCount} expected Agent runs.`,
+    };
+  }
+  if (!children.every(isTerminalChildRun)) {
+    return {
+      ...run,
+      status: "failed",
+      updatedAt: event.timestamp,
+      completedAt: event.timestamp,
+      error: "Workflow finished before every Agent lifecycle reached a terminal state.",
+    };
+  }
+  return aggregateChildRuns({ ...run, updatedAt: event.timestamp });
+}
+
+function isTerminalChildRun(child: SubagentChildRunRecord): boolean {
+  return child.status === "completed" || child.status === "failed" || child.status === "cancelled";
+}
+
+function isStaleOrRegressiveChildEvent(
+  child: SubagentChildRunRecord,
+  event: Extract<SessionDriverEvent, { type: "subagentRunUpdated" }>,
+): boolean {
+  if (Date.parse(event.timestamp) < Date.parse(child.updatedAt)) return true;
+  if (Date.parse(event.timestamp) === Date.parse(child.updatedAt) && child.status === statusForLifecycleEvent(event.status)) return true;
+  return isTerminalChildRun(child) && (event.status === "started" || event.status === "progress");
+}
+
+function statusForLifecycleEvent(status: Extract<SessionDriverEvent, { type: "subagentRunUpdated" }>["status"]): SubagentChildRunRecord["status"] {
   if (status === "started" || status === "progress") return "running";
   return status;
 }

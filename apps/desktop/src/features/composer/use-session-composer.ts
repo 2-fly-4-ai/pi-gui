@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type Dispatch, type RefObject, type SetStateAction } from "react";
+import { useCallback, useEffect, useRef, useState, type Dispatch, type RefObject, type SetStateAction } from "react";
 import type { ToolAccessSelection } from "@pi-gui/session-driver";
 import type { RuntimeSnapshot } from "@pi-gui/session-driver/runtime-types";
 import {
@@ -45,7 +45,18 @@ export function useSessionComposer({
   onOpenTreeModal,
   onRecordSubmittedSkillUsage,
 }: UseSessionComposerOptions) {
-  const [composerDraft, setComposerDraft] = useState("");
+  const [composerDraftState, setComposerDraftState] = useState({ dirty: false, sessionKey: "", value: "" });
+  const composerDraft = composerDraftState.value;
+  const setComposerDraft = useCallback(
+    (next: SetStateAction<string>) => {
+      setComposerDraftState((current) => ({
+        dirty: true,
+        sessionKey: selectedSessionKey,
+        value: typeof next === "function" ? next(current.value) : next,
+      }));
+    },
+    [selectedSessionKey],
+  );
   const [attachmentsClearedOnSubmit, setAttachmentsClearedOnSubmit] = useState(false);
   const hydratedComposerSessionKeyRef = useRef("");
   const handledComposerSyncNonceRef = useRef(0);
@@ -70,7 +81,7 @@ export function useSessionComposer({
     if (hydratedComposerSessionKeyRef.current !== selectedSessionKey) {
       hydratedComposerSessionKeyRef.current = selectedSessionKey;
       handledComposerSyncNonceRef.current = snapshot.composerDraftSyncNonce;
-      setComposerDraft(snapshot.composerDraft);
+      setComposerDraftState({ dirty: false, sessionKey: selectedSessionKey, value: snapshot.composerDraft });
       return;
     }
 
@@ -83,17 +94,24 @@ export function useSessionComposer({
       return;
     }
 
-    setComposerDraft(snapshot.composerDraft);
+    setComposerDraftState({ dirty: false, sessionKey: selectedSessionKey, value: snapshot.composerDraft });
   }, [selectedSessionKey, snapshot]);
 
   useEffect(() => {
-    if (!api || composerDraft === persistedComposerDraft) {
+    if (
+      !api ||
+      !selectedWorkspace ||
+      !selectedSession ||
+      !composerDraftState.dirty ||
+      composerDraftState.sessionKey !== selectedSessionKey ||
+      composerDraft === persistedComposerDraft
+    ) {
       return undefined;
     }
 
-    void api.updateComposerDraft(composerDraft);
+    void api.updateComposerDraft({ workspaceId: selectedWorkspace.id, sessionId: selectedSession.id }, composerDraft);
     return undefined;
-  }, [api, composerDraft, persistedComposerDraft]);
+  }, [api, composerDraft, composerDraftState, persistedComposerDraft, selectedSession, selectedSessionKey, selectedWorkspace]);
 
   const submitComposerDraft = (options: { readonly deliverAs?: "steer" | "followUp" } = {}) => {
     if (!api || !selectedSession) {
@@ -132,7 +150,7 @@ export function useSessionComposer({
 
     const previousDraft = composerDraft;
     onRecordSubmittedSkillUsage(previousDraft, selectedRuntime);
-    setComposerDraft("");
+    setComposerDraftState({ dirty: false, sessionKey: selectedSessionKey, value: "" });
     setAttachmentsClearedOnSubmit(true);
     void (async () => {
       await api.submitComposer(
@@ -141,7 +159,14 @@ export function useSessionComposer({
       );
       const nextState = await api.getState();
       setSnapshot(nextState);
-      setComposerDraft(nextState.composerDraft);
+      setComposerDraftState({
+        dirty: false,
+        sessionKey:
+          nextState.selectedWorkspaceId && nextState.selectedSessionId
+            ? `${nextState.selectedWorkspaceId}:${nextState.selectedSessionId}`
+            : "",
+        value: nextState.composerDraft,
+      });
       setAttachmentsClearedOnSubmit(false);
     })().catch(() => {
       setComposerDraft(previousDraft);

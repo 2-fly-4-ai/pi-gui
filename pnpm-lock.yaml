@@ -63,8 +63,8 @@ importers:
         specifier: ^0.74.0
         version: 0.74.0(ws@8.20.0)(zod@4.3.6)
       '@legendapp/list':
-        specifier: 3.0.0-beta.44
-        version: 3.0.0-beta.44(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+        specifier: 3.3.3
+        version: 3.3.3(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
       '@pi-gui/pi-sdk-driver':
         specifier: workspace:*
         version: link:../../packages/pi-sdk-driver
@@ -1158,8 +1158,8 @@ packages:
   '@jridgewell/trace-mapping@0.3.31':
     resolution: {integrity: sha512-zzNR+SdQSDJzc8joaeP8QQoCQr8NuYx2dIIytl1QeBEZHJ9uW6hebsrYgbz8hJwUQao3TWCMtmfV8Nu1twOLAw==}
 
-  '@legendapp/list@3.0.0-beta.44':
-    resolution: {integrity: sha512-loGRve78NuZ5k8Z54ZSDNOtv3dVBM1SeBCRtm1EYtZiDIZ8SyMVcYpUGgFpGuNKk71+9/NuM9hvScrgf7+4E+A==}
+  '@legendapp/list@3.3.3':
+    resolution: {integrity: sha512-p3g4xG6f//s4XQKhuus2189GCQgOHEIbJXHePqeDxj+6UQQQyij4YBjyArNSCgqoP0c03sxDPSOuCFB128Ql6g==}
     peerDependencies:
       react: '*'
       react-dom: '*'
@@ -5881,7 +5881,7 @@ snapshots:
       '@jridgewell/resolve-uri': 3.1.2
       '@jridgewell/sourcemap-codec': 1.5.5
 
-  '@legendapp/list@3.0.0-beta.44(react-dom@19.2.4(react@19.2.4))(react@19.2.4)':
+  '@legendapp/list@3.3.3(react-dom@19.2.4(react@19.2.4))(react@19.2.4)':
     dependencies:
       react: 19.2.4
       use-sync-external-store: 1.6.0(react@19.2.4)

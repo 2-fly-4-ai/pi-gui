@@ -170,6 +170,18 @@ export function SettingsAgentsSection({
                       </div>
                     </div>
                     <div className="agent-definition-row__actions">
+                      <button
+                        className="button button--secondary button--small"
+                        disabled={pending || subagentRunsPending || !workspaceId || !selectedSessionId || !agent.config.enabled}
+                        title={!agent.config.enabled ? "Enable this role before dry-running it." : "Run a bounded read-only definition check in the selected thread."}
+                        type="button"
+                        onClick={() => workspaceId && selectedSessionId ? onRunWorkflow({
+                          workflowId: `dry-run:${agent.name}`,
+                          target: { workspaceId, sessionId: selectedSessionId },
+                        }) : undefined}
+                      >
+                        Dry run
+                      </button>
                       <button className="button button--secondary button--small" disabled={pending} type="button" onClick={() => setEditor({ mode: "edit", record: agent })}>Edit</button>
                       <button className="button button--secondary button--small" disabled={pending} type="button" onClick={() => openDuplicate(agent)}>Duplicate</button>
                       {agent.source !== "builtin" && agent.scope ? (
@@ -304,12 +316,23 @@ export function SettingsAgentsSection({
                   </div>
                   <div className="agent-definition-row__meta">
                     <span>{run.roles.join(" → ")}</span>
+                    {run.childRuns ? <span>Agent runs: {run.childRuns.length}/{run.roles.length}</span> : null}
                     <span>Artifacts: {run.artifacts.join(", ")}</span>
                     {run.toolUseCount !== undefined ? <span>Tool uses: {run.toolUseCount}</span> : null}
                     {run.elapsedMs !== undefined ? <span>Elapsed: {formatRunElapsed(run.elapsedMs)}</span> : null}
                     {run.transcriptPath ? <span title={run.transcriptPath}>Transcript: {run.transcriptPath}</span> : null}
                     <span>{new Date(run.submittedAt).toLocaleString()}</span>
                   </div>
+                  {run.childRuns?.length ? (
+                    <div className="agent-definition-row__meta" aria-label="Agent run statuses">
+                      {run.childRuns.map((child) => (
+                        <span key={child.id}>
+                          {child.role ?? child.agentName ?? "Agent"}: {child.status}
+                          {child.toolUseCount !== undefined ? ` · ${child.toolUseCount} tools` : ""}
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
                   {run.artifactPaths?.length ? (
                     <div className="agent-definition-row__meta" aria-label="Produced artifacts">
                       <span>Produced artifacts:</span>

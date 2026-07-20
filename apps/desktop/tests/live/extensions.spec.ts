@@ -369,6 +369,7 @@ test("keeps a single subscription path when an extension creates a child session
         return nextState.selectedSessionId;
       })
       .not.toBe(beforeSelectedSessionId);
+    await expect.poll(async () => (await getDesktopState(window)).composerDraft).toBe("Child draft");
     await expect(composer).toHaveValue("Child draft");
     await expect(window.getByText("Resumed session", { exact: true })).toHaveCount(resumedCountBefore);
   } finally {

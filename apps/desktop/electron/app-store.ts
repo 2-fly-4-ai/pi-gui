@@ -698,8 +698,8 @@ export class DesktopAppStore implements AppStoreInternals {
 
   /* ── Composer methods (delegated) ──────────────────────── */
 
-  async updateComposerDraft(composerDraft: string): Promise<DesktopAppState> {
-    return composer.updateComposerDraft(this, composerDraft);
+  async updateComposerDraft(target: WorkspaceSessionTarget, composerDraft: string): Promise<DesktopAppState> {
+    return composer.updateComposerDraft(this, target, composerDraft);
   }
 
   async addComposerAttachments(attachments: readonly ComposerAttachment[]): Promise<DesktopAppState> {

@@ -1,5 +1,5 @@
 import type { SessionTranscriptMessage } from "@pi-gui/pi-sdk-driver";
-import type { SubagentWorkflowMessageMetadata } from "./subagent-workflows";
+import { isSubagentWorkflowMessageMetadata } from "./subagent-workflows";
 
 export interface SubagentTimelineCardModel {
   readonly workflowRunId?: string;
@@ -39,18 +39,6 @@ function subagentWorkflowCardFromMetadata(metadata: unknown): SubagentTimelineCa
     roles: metadata.roles,
     artifacts: metadata.artifacts,
   };
-}
-
-function isSubagentWorkflowMessageMetadata(metadata: unknown): metadata is SubagentWorkflowMessageMetadata {
-  if (!metadata || typeof metadata !== "object") return false;
-  const candidate = metadata as Partial<SubagentWorkflowMessageMetadata>;
-  return candidate.kind === "subagent-workflow" &&
-    typeof candidate.workflow === "string" &&
-    Array.isArray(candidate.roles) &&
-    candidate.roles.every((role) => typeof role === "string") &&
-    Array.isArray(candidate.artifacts) &&
-    candidate.artifacts.every((artifact) => typeof artifact === "string") &&
-    (candidate.workflowRunId === undefined || typeof candidate.workflowRunId === "string");
 }
 
 function normalizeMarkerLines(text: string): readonly string[] {

@@ -404,6 +404,7 @@ function TimelineToolCallItem({
   return (
     <article
       className={`timeline-tool timeline-tool--${item.status}${agentShinobi ? " timeline-tool--agent" : ""}`}
+      data-tool-call-id={item.callId}
       style={agentRoleColor ? { "--role-accent": agentRoleColor } as CSSProperties : undefined}
     >
       <div className="timeline-tool__header-row">

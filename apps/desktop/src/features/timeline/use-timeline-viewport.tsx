@@ -217,7 +217,7 @@ export function useTimelineViewport({
     if (pane && savedScrollTop !== undefined && savedScrollTop !== null && Math.abs(pane.scrollTop - savedScrollTop) > 1) {
       manualTimelineScrollRestoreRef.current = true;
       lastProgrammaticTimelineScrollAtRef.current = performance.now();
-      pane.scrollTop = savedScrollTop;
+      setVirtualTimelineScrollTop(pane, savedScrollTop);
       window.requestAnimationFrame(() => {
         manualTimelineScrollRestoreRef.current = false;
       });
@@ -452,7 +452,7 @@ export function useTimelineViewport({
     }
 
     lastProgrammaticTimelineScrollAtRef.current = performance.now();
-    node.scrollTop = savedScrollTop;
+    setVirtualTimelineScrollTop(node, savedScrollTop);
     pinnedToBottomRef.current = false;
     followingLatestRef.current = false;
     manualTimelineScrollTopRef.current = savedScrollTop;
@@ -1045,6 +1045,11 @@ function resolveLatestFollowRow(transcript: SelectedTranscriptRecord["transcript
   }
   const fallback = transcript.at(-1);
   return fallback ? { id: fallback.id, index: transcript.length - 1 } : null;
+}
+
+function setVirtualTimelineScrollTop(pane: TimelinePaneElement, scrollTop: number): void {
+  pane.scrollTop = scrollTop;
+  void pane.__legendListRef?.scrollToOffset?.({ offset: scrollTop, animated: false });
 }
 
 function reprocessBlankVirtualizedViewport(pane: TimelinePaneElement, transcriptLength: number): boolean {

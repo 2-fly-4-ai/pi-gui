@@ -69,6 +69,8 @@ export interface ObservabilityQuery {
   readonly workspaceId?: string;
   readonly workspacePath?: string;
   readonly sessionId?: string;
+  readonly runId?: string;
+  readonly role?: string;
   readonly includeGlobal?: boolean;
   readonly severity?: readonly ObservabilitySeverity[];
   readonly category?: readonly ObservabilityCategory[];

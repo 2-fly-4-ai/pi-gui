@@ -514,7 +514,9 @@ export function AppReady({
 
   const fillComposerFromReview = (prompt: string) => {
     sessionComposer.setComposerDraft(prompt);
-    void api.updateComposerDraft(prompt);
+    if (selectedWorkspace && selectedSession) {
+      void api.updateComposerDraft({ workspaceId: selectedWorkspace.id, sessionId: selectedSession.id }, prompt);
+    }
   };
 
   const handleTrySkill = (command: string) => {

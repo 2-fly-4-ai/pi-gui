@@ -2,7 +2,6 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test } from "@playwright/test";
 import {
-  assertExists,
   commitAllInGitRepo,
   createNamedThread,
   getDesktopState,
@@ -88,7 +87,7 @@ export default function functionWidgetExtension(pi) {
 }
 `;
 
-test("renders a single collapsed dock inside the composer surface and expands to one text body", async () => {
+test("renders a single collapsed dock in the compact topbar and expands to one text body", async () => {
   test.setTimeout(60_000);
   const userDataDir = await makeUserDataDir();
   const workspacePath = await makeWorkspace("extension-dock-workspace");
@@ -110,25 +109,15 @@ test("renders a single collapsed dock inside the composer surface and expands to
     const dock = window.getByTestId("extension-dock");
     const dockSummary = window.getByTestId("extension-dock-summary");
     const dockToggle = window.getByTestId("extension-dock-toggle");
-    const dockInComposerSurface = window.locator(".composer__surface [data-testid='extension-dock']");
-    const composerSurface = window.locator(".composer__surface");
+    const dockInTopbar = window.locator(".topbar__extension-dock [data-testid='extension-dock']");
     const composer = window.getByTestId("composer");
 
     await expect(dock).toBeVisible();
-    await expect(dockInComposerSurface).toBeVisible();
+    await expect(dockInTopbar).toBeVisible();
     await expect(dockSummary).toHaveText(/Ready|Queued/);
     await expect(window.getByTestId("extension-dock-body")).toHaveCount(0);
     await expect(window.getByTestId("extension-status-strip")).toHaveCount(0);
     await expect(window.getByTestId("extension-widget-rail")).toHaveCount(0);
-
-    const surfaceBox = await composerSurface.boundingBox();
-    const dockBox = await dock.boundingBox();
-    const composerBox = await composer.boundingBox();
-    assertExists(surfaceBox, "Expected composer surface box");
-    assertExists(dockBox, "Expected dock box");
-    assertExists(composerBox, "Expected composer box");
-    expect(dockBox.y).toBeGreaterThanOrEqual(surfaceBox.y);
-    expect(dockBox.y + dockBox.height).toBeLessThanOrEqual(composerBox.y);
 
     await dockToggle.focus();
     await window.keyboard.press("Enter");
@@ -149,18 +138,10 @@ test("renders a single collapsed dock inside the composer surface and expands to
     await composer.fill("/");
     const slashMenu = window.getByTestId("slash-menu");
     await expect(slashMenu).toBeVisible();
-    const slashMenuBox = await slashMenu.boundingBox();
-    assertExists(slashMenuBox, "Expected slash menu box");
-    expect(slashMenuBox.y + slashMenuBox.height).toBeLessThanOrEqual(composerBox.y + 16);
-    expect(slashMenuBox.y + slashMenuBox.height).toBeGreaterThanOrEqual(dockBox.y + dockBox.height - 4);
 
     await composer.fill("@");
     const mentionMenu = window.getByTestId("mention-menu");
     await expect(mentionMenu).toBeVisible();
-    const mentionMenuBox = await mentionMenu.boundingBox();
-    assertExists(mentionMenuBox, "Expected mention menu box");
-    expect(mentionMenuBox.y + mentionMenuBox.height).toBeLessThanOrEqual(composerBox.y + 16);
-    expect(mentionMenuBox.y + mentionMenuBox.height).toBeGreaterThanOrEqual(dockBox.y + dockBox.height - 4);
   } finally {
     await harness.close();
   }

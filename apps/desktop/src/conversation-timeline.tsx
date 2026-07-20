@@ -22,16 +22,6 @@ function isCommandTool(item: TranscriptMessage): item is Extract<TranscriptMessa
   return typeof item.input === "object" && item.input !== null && typeof (item.input as Record<string, unknown>).command === "string";
 }
 
-function hasSearchableCommand(item: TranscriptMessage): boolean {
-  if (isCommandTool(item)) {
-    return true;
-  }
-  if (item.kind === "runtime-job") {
-    return Boolean(item.job.command);
-  }
-  return false;
-}
-
 interface ThreadSearchModel {
   readonly isOpen: boolean;
   readonly query: string;
@@ -393,7 +383,6 @@ function LegendTranscriptList({
       keyExtractor={(item) => item.id}
       renderItem={renderItem}
       estimatedItemSize={90}
-      getEstimatedItemSize={estimateLegendTimelineItemHeightForRow}
       drawDistance={2_400}
       initialScrollAtEnd
       maintainScrollAtEnd
@@ -497,35 +486,4 @@ function areMeasuredTimelineItemPropsEqual(
     previous.expandedToolCallIds.has(previous.item.callId) ===
     next.expandedToolCallIds.has(previous.item.callId)
   );
-}
-
-
-function estimateLegendTimelineItemHeightForRow(item: TranscriptMessage): number {
-  return estimateLegendTimelineItemHeight(item);
-}
-
-function estimateLegendTimelineItemHeight(item: TranscriptMessage): number {
-  if (item.kind === "message") {
-    const attachmentHeight = item.attachments?.some((attachment) => attachment.kind === "image")
-      ? 120
-      : item.attachments?.length
-        ? 56
-        : 0;
-    const textLength = Math.max(item.text.length, 1);
-    return 48 + attachmentHeight + Math.min(240, Math.ceil(textLength / 90) * 20);
-  }
-  if (item.kind === "thinking") {
-    const textLength = Math.max(item.text.length, 1);
-    return 52 + Math.min(220, Math.ceil(textLength / 100) * 20);
-  }
-  if (item.kind === "tool") {
-    return 52;
-  }
-  if (item.kind === "runtime-job") {
-    return hasSearchableCommand(item) ? 180 : 132;
-  }
-  if (item.kind === "summary") {
-    return item.presentation === "divider" ? 44 : 38;
-  }
-  return 38;
 }

@@ -38,7 +38,7 @@ export function buildExtensionDockModel(uiState?: SessionExtensionUiStateRecord)
     .filter((status) => status.text.trim().length > 0);
   const primaryBlocks = buildWidgetBlocks(uiState?.widgets ?? [], "aboveComposer");
   const secondaryBlocks = buildWidgetBlocks(uiState?.widgets ?? [], "belowComposer");
-  if (primaryBlocks.length === 0 && secondaryBlocks.length === 0) {
+  if (statuses.length === 0 && primaryBlocks.length === 0 && secondaryBlocks.length === 0) {
     return undefined;
   }
   const summaryText = resolveDockSummaryText(statuses, primaryBlocks, secondaryBlocks);

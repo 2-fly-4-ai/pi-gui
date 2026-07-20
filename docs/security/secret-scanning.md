@@ -8,7 +8,7 @@ This repo uses Gitleaks in CI and can use the same scanner locally before commit
 
 ## GitHub Push Protection
 
-Enable GitHub secret scanning and push protection in the repository settings when you have admin access. CI catches leaked secrets after a push or pull request; push protection blocks many leaks before they land on the remote.
+GitHub secret scanning and push protection are enabled for the public repository. This was verified through the GitHub repository API on 2026-07-20. CI catches leaked secrets after a push or pull request; push protection blocks many leaks before they land on the remote.
 
 ## Local Hook
 

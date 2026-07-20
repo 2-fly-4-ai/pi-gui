@@ -17,12 +17,12 @@ The desktop app packages the upstream `pi` runtime inside Electron. Some package
 - `@aws-sdk/token-providers`, `@smithy/*`: provider/runtime auth dependencies used by the bundled `pi` provider stack.
 - `proxy-agent`, `retry`, `data-uri-to-buffer`, `mime-types`, `strip-ansi`, `ansi-regex`, `chalk`, `cli-highlight` transitive family packages: imported by the runtime/provider stack and packaging-sensitive under pnpm hoisting.
 - `glob`, `minimatch`, `brace-expansion`, `balanced-match`, `hosted-git-info`, `lru-cache`: filesystem/package-resolution dependencies needed by the runtime resource and package loaders.
-- `parse5`, `parse5-htmlparser2-tree-adapter`, `yargs`: legacy runtime/parser/CLI dependencies kept explicit until packaged-runtime verification proves newer majors are safe.
+- `parse5`, `parse5-htmlparser2-tree-adapter`, `yargs`: runtime/parser/CLI compatibility dependencies matching the versions required by the bundled `cli-highlight` path. Do not independently replace them with incompatible majors; upgrade them with the upstream runtime dependency chain.
 
 ## Current Follow-Ups
 
-- `@legendapp/list` is pinned to `3.0.0-beta.44`; npm reported `3.3.2` on 2026-07-09. It is imported directly by `apps/desktop/src/conversation-timeline.tsx`, so upgrade it only with long-transcript, native-scroll, thread-return, and Display Mode Electron coverage.
-- `parse5` currently has a newer major (`8.0.1`) and `yargs` currently has a newer major (`18.0.0`) as of 2026-07-09. They are explicit packaged-runtime dependencies and are not imported directly by repo source. Upgrade only with `verify:packaged-runtime-deps`, packaged smoke coverage, and a check that the bundled `pi` runtime still imports its parser/CLI paths correctly.
+- `@legendapp/list` was upgraded from `3.0.0-beta.44` to stable `3.3.3` on 2026-07-21. The removed per-row estimate API was replaced by stable-list sizing, and explicit `scrollToOffset` restoration preserves off-bottom session switching. Long-transcript/native-scroll/thread-return/Display Mode Electron coverage, packaged smoke, packaged runtime verification, and release-zip smoke passed.
+- `parse5` and `yargs` have newer majors, but the bundled `pi` runtime reaches the current compatibility versions through `cli-highlight@2.1.11`. They are not imported by repo source, and upgrading the app-level compatibility copies alone would not upgrade that upstream path. Re-evaluate when `@earendil-works/pi-coding-agent` upgrades the parser/CLI dependency chain.
 - `@dnd-kit/*` is used by runtime renderer code (`sidebar.tsx`, `display-mode-view.tsx`) and therefore belongs in `dependencies`, not `devDependencies`.
 
 ## Upgrade Gates

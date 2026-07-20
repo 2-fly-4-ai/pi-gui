@@ -3,6 +3,7 @@ import type { SelectedTranscriptRecord } from "../../desktop-state";
 export type TimelinePaneElement = HTMLDivElement & {
   __legendListRef?: {
     scrollToEnd: (options?: { animated?: boolean }) => Promise<void> | void;
+    scrollToOffset?: (params: { offset: number; animated?: boolean }) => Promise<void> | void;
     scrollToIndex?: (params: {
       animated?: boolean;
       index: number;
