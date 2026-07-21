@@ -45,6 +45,8 @@ Put the missing safety net in place BEFORE the phase 3–4 refactors: linting, a
 
 ## Verification Notes
 
+- 2026-07-21: Full GitHub Actions pipeline passed on PR #1 at commit `78914a4`: gitleaks, lint, typecheck, unit, 155/155 macOS Electron core tests, and Linux AppImage packaging. This closes the remote CI proof and confirms the Ubuntu unit lane no longer couples pure tests to `node-pty`.
+
 - 2026-07-08: Started Phase 2 with the low-risk e2e iteration split. Added `test:e2e:core:run`, `test:e2e:live:run`, and `test:e2e:native:run`; public tier scripts still rebuild first and delegate to the run halves. Updated `apps/desktop/README.md`.
 - 2026-07-08: Added `docs/architecture.md` covering main/preload/renderer boundaries, current full-snapshot state flow, driver stack, and test tiers; linked it from `docs/README.md`.
 - 2026-07-08: Verified script parsing and docs links: package JSON parse check passed; `rg` confirmed the new run-half scripts and `docs/architecture.md` links are discoverable.
