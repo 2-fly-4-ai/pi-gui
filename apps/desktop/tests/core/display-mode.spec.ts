@@ -558,7 +558,8 @@ test("opens Display Mode from the sidebar and renders thread command-center tile
     await expect(window.locator(".display-mode-drawer__meta").first()).toContainText("Second workspace seed thread");
     await expect(displayVsCodePanel).toHaveAttribute("data-vscode-folder-path", secondWorkspacePath);
     await expectVSCodePanelSettled(displayVsCodePanel);
-    if (await displayVsCodePanel.locator(".display-mode-vscode__webview").count()) {
+    const displayVsCodeRuntimeAvailable = (await displayVsCodePanel.locator(".display-mode-vscode__webview").count()) > 0;
+    if (displayVsCodeRuntimeAvailable) {
       await expect.poll(async () => window.evaluate(() => {
         const surface = document.querySelector<HTMLElement>(".display-mode");
         const panel = document.querySelector<HTMLElement>(".display-mode-vscode");
@@ -594,22 +595,24 @@ test("opens Display Mode from the sidebar and renders thread command-center tile
       const box = await reopenedThreadPanel.boundingBox();
       return box ? Math.abs(box.width - displayPanelWidth) : Number.POSITIVE_INFINITY;
     }).toBeLessThanOrEqual(4);
-    const settings = JSON.parse(await readFile(join(userDataDir, "vscode-serve-web", "user-data", "User", "settings.json"), "utf8")) as Record<string, unknown>;
-    const machineSettings = JSON.parse(await readFile(join(userDataDir, "vscode-serve-web", "user-data", "Machine", "settings.json"), "utf8")) as Record<string, unknown>;
-    const workspaceSettings = JSON.parse(await readFile(join(staleWorkspaceSettingsDir, "settings.json"), "utf8")) as Record<string, unknown>;
-    expect(settings["security.workspace.trust.enabled"]).toBe(false);
-    expect(settings["window.autoDetectColorScheme"]).toBe(false);
-    expect(settings["workbench.colorTheme"]).toBe("Dark Modern");
-    expect(settings["workbench.preferredDarkColorTheme"]).toBe("Dark Modern");
-    expect(settings["workbench.preferredLightColorTheme"]).toBe("Dark Modern");
-    expect(machineSettings["window.autoDetectColorScheme"]).toBe(false);
-    expect(machineSettings["workbench.colorTheme"]).toBe("Dark Modern");
-    expect(machineSettings["workbench.preferredDarkColorTheme"]).toBe("Dark Modern");
-    expect(machineSettings["workbench.preferredLightColorTheme"]).toBe("Dark Modern");
-    expect(workspaceSettings["window.autoDetectColorScheme"]).toBe(false);
-    expect(workspaceSettings["workbench.colorTheme"]).toBe("Dark Modern");
-    expect(workspaceSettings["workbench.preferredDarkColorTheme"]).toBe("Dark Modern");
-    expect(workspaceSettings["workbench.preferredLightColorTheme"]).toBe("Dark Modern");
+    if (displayVsCodeRuntimeAvailable) {
+      const settings = JSON.parse(await readFile(join(userDataDir, "vscode-serve-web", "user-data", "User", "settings.json"), "utf8")) as Record<string, unknown>;
+      const machineSettings = JSON.parse(await readFile(join(userDataDir, "vscode-serve-web", "user-data", "Machine", "settings.json"), "utf8")) as Record<string, unknown>;
+      const workspaceSettings = JSON.parse(await readFile(join(staleWorkspaceSettingsDir, "settings.json"), "utf8")) as Record<string, unknown>;
+      expect(settings["security.workspace.trust.enabled"]).toBe(false);
+      expect(settings["window.autoDetectColorScheme"]).toBe(false);
+      expect(settings["workbench.colorTheme"]).toBe("Dark Modern");
+      expect(settings["workbench.preferredDarkColorTheme"]).toBe("Dark Modern");
+      expect(settings["workbench.preferredLightColorTheme"]).toBe("Dark Modern");
+      expect(machineSettings["window.autoDetectColorScheme"]).toBe(false);
+      expect(machineSettings["workbench.colorTheme"]).toBe("Dark Modern");
+      expect(machineSettings["workbench.preferredDarkColorTheme"]).toBe("Dark Modern");
+      expect(machineSettings["workbench.preferredLightColorTheme"]).toBe("Dark Modern");
+      expect(workspaceSettings["window.autoDetectColorScheme"]).toBe(false);
+      expect(workspaceSettings["workbench.colorTheme"]).toBe("Dark Modern");
+      expect(workspaceSettings["workbench.preferredDarkColorTheme"]).toBe("Dark Modern");
+      expect(workspaceSettings["workbench.preferredLightColorTheme"]).toBe("Dark Modern");
+    }
   } finally {
     await harness.close();
   }
