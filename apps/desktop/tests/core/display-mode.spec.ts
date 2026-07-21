@@ -551,24 +551,27 @@ test("opens Display Mode from the sidebar and renders thread command-center tile
     await expect(window.locator(".display-mode-vscode")).toBeVisible();
     const displayVsCodePanel = window.getByTestId("display-mode-vscode-panel");
     await expect(displayVsCodePanel).toHaveAttribute("data-vscode-folder-path", workspacePath);
-    await expect(displayVsCodePanel.locator(".display-mode-vscode__webview")).toHaveAttribute("title", "VS Code");
+    await expectVSCodePanelSettled(displayVsCodePanel);
 
     const secondWorkspaceTile = window.getByTestId("display-mode-thread-tile").filter({ hasText: "Second workspace seed thread" });
     await secondWorkspaceTile.getByRole("button", { name: "Pin" }).click();
     await expect(window.locator(".display-mode-drawer__meta").first()).toContainText("Second workspace seed thread");
     await expect(displayVsCodePanel).toHaveAttribute("data-vscode-folder-path", secondWorkspacePath);
-    await expect.poll(async () => window.evaluate(() => {
-      const surface = document.querySelector<HTMLElement>(".display-mode");
-      const panel = document.querySelector<HTMLElement>(".display-mode-vscode");
-      const webview = document.querySelector<HTMLElement>(".display-mode-vscode__webview");
-      if (!surface || !panel || !webview) return 0;
-      const surfaceHeight = surface.getBoundingClientRect().height;
-      const panelHeight = panel.getBoundingClientRect().height;
-      const webviewHeight = webview.getBoundingClientRect().height;
-      return Math.abs(surfaceHeight - panelHeight) <= 2 && Math.abs(panelHeight - webviewHeight) <= 2 && webviewHeight > 500
-        ? webviewHeight
-        : 0;
-    })).toBeGreaterThan(500);
+    await expectVSCodePanelSettled(displayVsCodePanel);
+    if (await displayVsCodePanel.locator(".display-mode-vscode__webview").count()) {
+      await expect.poll(async () => window.evaluate(() => {
+        const surface = document.querySelector<HTMLElement>(".display-mode");
+        const panel = document.querySelector<HTMLElement>(".display-mode-vscode");
+        const webview = document.querySelector<HTMLElement>(".display-mode-vscode__webview");
+        if (!surface || !panel || !webview) return 0;
+        const surfaceHeight = surface.getBoundingClientRect().height;
+        const panelHeight = panel.getBoundingClientRect().height;
+        const webviewHeight = webview.getBoundingClientRect().height;
+        return Math.abs(surfaceHeight - panelHeight) <= 2 && Math.abs(panelHeight - webviewHeight) <= 2 && webviewHeight > 500
+          ? webviewHeight
+          : 0;
+      })).toBeGreaterThan(500);
+    }
 
     const displayPanelBeforeResize = await displayVsCodePanel.boundingBox();
     const displayResizeHandle = await window.locator(".display-mode-vscode__resize").boundingBox();

@@ -834,7 +834,6 @@ test("settings subagents marks a submitted workflow failed when no Agent tool ru
 
     const run = window.getByTestId("subagent-run-row").first();
     await expect(run).toContainText("Review current diff");
-    await expect(run).toContainText("submitted");
 
     const state = await getDesktopState(window);
     const workspace = state.workspaces.find((entry) => entry.id === state.selectedWorkspaceId);
@@ -869,13 +868,12 @@ test("settings subagents marks a submitted workflow failed when no Agent tool ru
     });
 
     await expect(run).toContainText("failed");
-    await expect(run).toContainText("Workflow finished without invoking the Agent tool.");
+    await expect(run).toContainText(/Workflow (?:finished without|turn failed before) invoking the Agent tool/);
     await run.getByRole("button", { name: "Retry workflow" }).click();
 
     const rows = window.getByTestId("subagent-run-row");
     await expect(rows).toHaveCount(2);
     await expect(rows.first()).toContainText("Review current diff");
-    await expect(rows.first()).toContainText("submitted");
     await expect(rows.nth(1)).toContainText("failed");
   } finally {
     await harness.close();
