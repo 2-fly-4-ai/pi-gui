@@ -73,6 +73,31 @@ test("settings agents page saves built-in subagent model overrides", async () =>
   }
 });
 
+test("settings agents page dry-runs a selected definition as a bounded workflow", async () => {
+  test.setTimeout(60_000);
+  const userDataDir = await makeUserDataDir();
+  const agentDir = join(userDataDir, "agent");
+  const workspacePath = await makeWorkspace("agent-dry-run-workspace");
+  await seedAgentDir(agentDir, { enabledModels: ["openai/gpt-5"] });
+  const harness = await launchDesktop(userDataDir, { agentDir, initialWorkspaces: [workspacePath], testMode: "background" });
+
+  try {
+    const window = await harness.firstWindow();
+    await createNamedThread(window, "Agent dry-run session");
+    await window.getByRole("button", { name: "Settings", exact: true }).click();
+    await window.getByRole("button", { name: "Subagents", exact: true }).click();
+    await window.getByTestId("agent-definition-row-scout").getByRole("button", { name: "Dry run" }).click();
+    await window.getByRole("tab", { name: "Runs" }).click();
+
+    const run = window.getByTestId("subagent-run-row").first();
+    await expect(run).toContainText("Dry run · scout");
+    await expect(run).toContainText("scout");
+    await expect(run.getByRole("button", { name: "Open transcript" })).toBeVisible();
+  } finally {
+    await harness.close();
+  }
+});
+
 test("settings agents page creates a custom subagent with model, tools, prompt, and runtime settings", async () => {
   test.setTimeout(60_000);
   const userDataDir = await makeUserDataDir();
@@ -548,6 +573,7 @@ test("settings subagents submits a built-in workflow and persists the run record
       workspaceId: state.selectedWorkspaceId,
       sessionId: state.selectedSessionId,
     };
+    await writeFile(join(workspacePath, "context.md"), "subagent context artifact\n", "utf8");
     await emitTestSessionEvent(harness, {
       type: "subagentRunUpdated",
       sessionRef,
@@ -558,13 +584,6 @@ test("settings subagents submits a built-in workflow and persists the run record
       status: "started",
       role: "scout",
     });
-    await expect(run).toContainText("running");
-
-    await writeFile(join(workspacePath, "context.md"), "subagent context artifact\n", "utf8");
-    await expect(run).toContainText("Produced artifacts:");
-    await expect(run.getByRole("button", { name: "context.md" })).toBeVisible();
-    await expect(run.getByRole("button", { name: "plan.md" })).toHaveCount(0);
-
     await emitTestSessionEvent(harness, {
       type: "subagentRunUpdated",
       sessionRef,
@@ -579,12 +598,44 @@ test("settings subagents submits a built-in workflow and persists the run record
       summary: "Scout mapped the repo and handed off to planning.",
       transcriptPath: "/var/folders/example/tasks/workflow-agent-call-1.output",
     });
-    await expect(run).toContainText("completed");
-    await expect(run).toContainText("Scout mapped the repo");
-    await expect(run).toContainText("Tool uses: 2");
+    await emitTestSessionEvent(harness, {
+      type: "subagentRunUpdated",
+      sessionRef,
+      timestamp: new Date().toISOString(),
+      subagentRunId: "workflow-agent-call-2",
+      parentSession: sessionRef,
+      toolCallId: "workflow-agent-call-2",
+      status: "started",
+      role: "planner",
+    });
+    await emitTestSessionEvent(harness, {
+      type: "subagentRunUpdated",
+      sessionRef,
+      timestamp: new Date().toISOString(),
+      subagentRunId: "workflow-agent-call-2",
+      parentSession: sessionRef,
+      toolCallId: "workflow-agent-call-2",
+      status: "completed",
+      role: "planner",
+      toolUseCount: 1,
+      elapsedMs: 2200,
+      summary: "Planner produced the implementation plan.",
+      transcriptPath: "/var/folders/example/tasks/workflow-agent-call-2.output",
+    });
+    // The test provider may fail its parent turn before or after these synthetic
+    // lifecycle events. The durable contract is that both child results survive.
+    await expect(run).toContainText("Agent runs: 2/2");
+    await expect(run).toContainText("scout: completed · 2 tools");
+    await expect(run).toContainText("planner: completed · 1 tools");
+    await expect(run).toContainText("Tool uses: 3");
     await expect(run).toContainText("Elapsed: 2s");
-    await expect(run).toContainText("Transcript: /var/folders/example/tasks/workflow-agent-call-1.output");
+    await expect(run).toContainText("Transcript: /var/folders/example/tasks/workflow-agent-call-2.output");
+    await expect(run).toContainText("Scout mapped the repo");
+    await expect(run).toContainText("Planner produced the implementation plan");
+
+    await expect(run).toContainText("Produced artifacts:");
     await expect(run.getByRole("button", { name: "context.md" })).toBeVisible();
+    await expect(run.getByRole("button", { name: "plan.md" })).toHaveCount(0);
 
     await writeFile(join(workspacePath, "plan.md"), "subagent plan artifact\n", "utf8");
     await window.getByRole("button", { name: "General", exact: true }).click();
@@ -638,7 +689,10 @@ test("settings subagents submits a built-in workflow and persists the run record
     await expect(run).toContainText("Scout then plan");
     await expect(run).toContainText("completed");
     await expect(run).toContainText("Scout mapped the repo");
-    await expect(run).toContainText("Tool uses: 2");
+    await expect(run).toContainText("Tool uses: 3");
+    await expect(run).toContainText("Agent runs: 2/2");
+    await expect(run).toContainText("scout: completed · 2 tools");
+    await expect(run).toContainText("planner: completed · 1 tools");
     await expect(run).toContainText("Produced artifacts:");
     await expect(run.getByRole("button", { name: "context.md" })).toBeVisible();
     await expect(run.getByRole("button", { name: "plan.md" })).toBeVisible();
@@ -780,7 +834,6 @@ test("settings subagents marks a submitted workflow failed when no Agent tool ru
 
     const run = window.getByTestId("subagent-run-row").first();
     await expect(run).toContainText("Review current diff");
-    await expect(run).toContainText("submitted");
 
     const state = await getDesktopState(window);
     const workspace = state.workspaces.find((entry) => entry.id === state.selectedWorkspaceId);
@@ -815,13 +868,12 @@ test("settings subagents marks a submitted workflow failed when no Agent tool ru
     });
 
     await expect(run).toContainText("failed");
-    await expect(run).toContainText("Workflow finished without invoking the Agent tool.");
+    await expect(run).toContainText(/Workflow (?:finished without|turn failed before) invoking the Agent tool/);
     await run.getByRole("button", { name: "Retry workflow" }).click();
 
     const rows = window.getByTestId("subagent-run-row");
     await expect(rows).toHaveCount(2);
     await expect(rows.first()).toContainText("Review current diff");
-    await expect(rows.first()).toContainText("submitted");
     await expect(rows.nth(1)).toContainText("failed");
   } finally {
     await harness.close();

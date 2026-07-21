@@ -320,8 +320,8 @@ contextBridge.exposeInMainWorld("piApp", {
     ipcRenderer.invoke(desktopIpc.removeQueuedComposerMessage, messageId) as Promise<void>,
   steerQueuedComposerMessage: (messageId: string) =>
     ipcRenderer.invoke(desktopIpc.steerQueuedComposerMessage, messageId) as Promise<void>,
-  updateComposerDraft: (composerDraft: string) =>
-    ipcRenderer.invoke(desktopIpc.updateComposerDraft, composerDraft) as Promise<void>,
+  updateComposerDraft: (target: WorkspaceSessionTarget, composerDraft: string) =>
+    ipcRenderer.invoke(desktopIpc.updateComposerDraft, target, composerDraft) as Promise<void>,
   submitComposer: (text: string, options?: { readonly deliverAs?: "steer" | "followUp"; readonly messageMetadata?: unknown }) =>
     ipcRenderer.invoke(desktopIpc.submitComposer, text, options) as Promise<void>,
   submitComposerToSession: (target: WorkspaceSessionTarget, text: string, options?: { readonly deliverAs?: "steer" | "followUp"; readonly messageMetadata?: unknown }) =>

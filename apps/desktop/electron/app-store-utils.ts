@@ -1,6 +1,5 @@
 import { randomUUID } from "node:crypto";
 import type { SessionCatalogEntry, WorkspaceCatalogEntry, WorktreeCatalogEntry } from "@pi-gui/catalogs";
-import { sessionKey } from "@pi-gui/pi-sdk-driver";
 import type {
   RuntimeSummarySnapshot,
   SessionAttachment,
@@ -214,7 +213,7 @@ function buildSessionRecord(
   lastViewedAtBySession: Map<string, string>,
   runtimeSummaryBySession?: ReadonlyMap<string, RuntimeSummarySnapshot | undefined>,
 ): SessionRecord {
-  const key = sessionKey(session.sessionRef);
+  const key = sessionCacheKey(session.sessionRef);
   const transcript = transcriptCache.get(key) ?? [];
   const preview = previewFromTranscript(transcript) ?? session.previewSnippet ?? session.title;
   const lastViewedAt = lastViewedAtBySession.get(key);
@@ -231,6 +230,10 @@ function buildSessionRecord(
     config: sessionConfigBySession.get(key),
     runtimeSummary: runtimeSummaryBySession?.get(key),
   };
+}
+
+function sessionCacheKey(sessionRef: SessionRef): string {
+  return `${sessionRef.workspaceId}:${sessionRef.sessionId}`;
 }
 
 export function hasUnseenSessionUpdate(

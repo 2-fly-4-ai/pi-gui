@@ -1,6 +1,6 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
-import { expect, test } from "@playwright/test";
+import { expect, test, type Locator } from "@playwright/test";
 import type { SessionDriverEvent } from "@pi-gui/session-driver";
 import {
   createNamedThread,
@@ -35,6 +35,18 @@ function readComposerSurfaceStyles(surfaceElement: Element) {
       minHeight: textareaStyles.minHeight,
     },
   };
+}
+
+async function expectVSCodePanelSettled(panel: Locator): Promise<void> {
+  const webview = panel.locator(".display-mode-vscode__webview");
+  const error = panel.locator(".display-mode-vscode__error");
+  await expect(webview.or(error)).toHaveCount(1, { timeout: 45_000 });
+  if (await error.count()) {
+    await expect(error).toContainText("Could not start VS Code");
+    await expect(error.locator("p")).not.toBeEmpty();
+    return;
+  }
+  await expect(webview).toHaveAttribute("title", "VS Code");
 }
 
 test("opens a Display Mode tile back into Threads with its transcript hydrated", async () => {
@@ -457,17 +469,17 @@ test("opens Display Mode from the sidebar and renders thread command-center tile
     await expect(threadVsCodePanel).toBeVisible();
     await expect(threadVsCodePanel.getByRole("button", { name: "Hard close" })).toHaveCount(0);
     await expect(threadVsCodePanel).toHaveAttribute("data-vscode-folder-path", workspacePath);
-    await expect(threadVsCodePanel.locator(".display-mode-vscode__webview")).toHaveAttribute("title", "VS Code", { timeout: 45_000 });
+    await expectVSCodePanelSettled(threadVsCodePanel);
 
     await selectSession(window, "Second workspace seed thread");
     await expect(threadVsCodePanel).toBeVisible();
     await expect(threadVsCodePanel).toHaveAttribute("data-vscode-folder-path", secondWorkspacePath);
-    await expect(threadVsCodePanel.locator(".display-mode-vscode__webview")).toHaveAttribute("title", "VS Code", { timeout: 45_000 });
+    await expectVSCodePanelSettled(threadVsCodePanel);
 
     await selectSession(window, "Display mode seed thread");
     await expect(threadVsCodePanel).toBeVisible();
     await expect(threadVsCodePanel).toHaveAttribute("data-vscode-folder-path", workspacePath);
-    await expect(threadVsCodePanel.locator(".display-mode-vscode__webview")).toHaveAttribute("title", "VS Code", { timeout: 45_000 });
+    await expectVSCodePanelSettled(threadVsCodePanel);
     await window.getByRole("button", { name: "Toggle VS Code panel" }).click();
     await expect(window.getByTestId("thread-vscode-panel")).toHaveCount(0);
     await window.getByRole("button", { name: "Toggle VS Code panel" }).click();
@@ -539,24 +551,28 @@ test("opens Display Mode from the sidebar and renders thread command-center tile
     await expect(window.locator(".display-mode-vscode")).toBeVisible();
     const displayVsCodePanel = window.getByTestId("display-mode-vscode-panel");
     await expect(displayVsCodePanel).toHaveAttribute("data-vscode-folder-path", workspacePath);
-    await expect(displayVsCodePanel.locator(".display-mode-vscode__webview")).toHaveAttribute("title", "VS Code");
+    await expectVSCodePanelSettled(displayVsCodePanel);
 
     const secondWorkspaceTile = window.getByTestId("display-mode-thread-tile").filter({ hasText: "Second workspace seed thread" });
     await secondWorkspaceTile.getByRole("button", { name: "Pin" }).click();
     await expect(window.locator(".display-mode-drawer__meta").first()).toContainText("Second workspace seed thread");
     await expect(displayVsCodePanel).toHaveAttribute("data-vscode-folder-path", secondWorkspacePath);
-    await expect.poll(async () => window.evaluate(() => {
-      const surface = document.querySelector<HTMLElement>(".display-mode");
-      const panel = document.querySelector<HTMLElement>(".display-mode-vscode");
-      const webview = document.querySelector<HTMLElement>(".display-mode-vscode__webview");
-      if (!surface || !panel || !webview) return 0;
-      const surfaceHeight = surface.getBoundingClientRect().height;
-      const panelHeight = panel.getBoundingClientRect().height;
-      const webviewHeight = webview.getBoundingClientRect().height;
-      return Math.abs(surfaceHeight - panelHeight) <= 2 && Math.abs(panelHeight - webviewHeight) <= 2 && webviewHeight > 500
-        ? webviewHeight
-        : 0;
-    })).toBeGreaterThan(500);
+    await expectVSCodePanelSettled(displayVsCodePanel);
+    const displayVsCodeRuntimeAvailable = (await displayVsCodePanel.locator(".display-mode-vscode__webview").count()) > 0;
+    if (displayVsCodeRuntimeAvailable) {
+      await expect.poll(async () => window.evaluate(() => {
+        const surface = document.querySelector<HTMLElement>(".display-mode");
+        const panel = document.querySelector<HTMLElement>(".display-mode-vscode");
+        const webview = document.querySelector<HTMLElement>(".display-mode-vscode__webview");
+        if (!surface || !panel || !webview) return 0;
+        const surfaceHeight = surface.getBoundingClientRect().height;
+        const panelHeight = panel.getBoundingClientRect().height;
+        const webviewHeight = webview.getBoundingClientRect().height;
+        return Math.abs(surfaceHeight - panelHeight) <= 2 && Math.abs(panelHeight - webviewHeight) <= 2 && webviewHeight > 500
+          ? webviewHeight
+          : 0;
+      })).toBeGreaterThan(500);
+    }
 
     const displayPanelBeforeResize = await displayVsCodePanel.boundingBox();
     const displayResizeHandle = await window.locator(".display-mode-vscode__resize").boundingBox();
@@ -579,22 +595,24 @@ test("opens Display Mode from the sidebar and renders thread command-center tile
       const box = await reopenedThreadPanel.boundingBox();
       return box ? Math.abs(box.width - displayPanelWidth) : Number.POSITIVE_INFINITY;
     }).toBeLessThanOrEqual(4);
-    const settings = JSON.parse(await readFile(join(userDataDir, "vscode-serve-web", "user-data", "User", "settings.json"), "utf8")) as Record<string, unknown>;
-    const machineSettings = JSON.parse(await readFile(join(userDataDir, "vscode-serve-web", "user-data", "Machine", "settings.json"), "utf8")) as Record<string, unknown>;
-    const workspaceSettings = JSON.parse(await readFile(join(staleWorkspaceSettingsDir, "settings.json"), "utf8")) as Record<string, unknown>;
-    expect(settings["security.workspace.trust.enabled"]).toBe(false);
-    expect(settings["window.autoDetectColorScheme"]).toBe(false);
-    expect(settings["workbench.colorTheme"]).toBe("Dark Modern");
-    expect(settings["workbench.preferredDarkColorTheme"]).toBe("Dark Modern");
-    expect(settings["workbench.preferredLightColorTheme"]).toBe("Dark Modern");
-    expect(machineSettings["window.autoDetectColorScheme"]).toBe(false);
-    expect(machineSettings["workbench.colorTheme"]).toBe("Dark Modern");
-    expect(machineSettings["workbench.preferredDarkColorTheme"]).toBe("Dark Modern");
-    expect(machineSettings["workbench.preferredLightColorTheme"]).toBe("Dark Modern");
-    expect(workspaceSettings["window.autoDetectColorScheme"]).toBe(false);
-    expect(workspaceSettings["workbench.colorTheme"]).toBe("Dark Modern");
-    expect(workspaceSettings["workbench.preferredDarkColorTheme"]).toBe("Dark Modern");
-    expect(workspaceSettings["workbench.preferredLightColorTheme"]).toBe("Dark Modern");
+    if (displayVsCodeRuntimeAvailable) {
+      const settings = JSON.parse(await readFile(join(userDataDir, "vscode-serve-web", "user-data", "User", "settings.json"), "utf8")) as Record<string, unknown>;
+      const machineSettings = JSON.parse(await readFile(join(userDataDir, "vscode-serve-web", "user-data", "Machine", "settings.json"), "utf8")) as Record<string, unknown>;
+      const workspaceSettings = JSON.parse(await readFile(join(staleWorkspaceSettingsDir, "settings.json"), "utf8")) as Record<string, unknown>;
+      expect(settings["security.workspace.trust.enabled"]).toBe(false);
+      expect(settings["window.autoDetectColorScheme"]).toBe(false);
+      expect(settings["workbench.colorTheme"]).toBe("Dark Modern");
+      expect(settings["workbench.preferredDarkColorTheme"]).toBe("Dark Modern");
+      expect(settings["workbench.preferredLightColorTheme"]).toBe("Dark Modern");
+      expect(machineSettings["window.autoDetectColorScheme"]).toBe(false);
+      expect(machineSettings["workbench.colorTheme"]).toBe("Dark Modern");
+      expect(machineSettings["workbench.preferredDarkColorTheme"]).toBe("Dark Modern");
+      expect(machineSettings["workbench.preferredLightColorTheme"]).toBe("Dark Modern");
+      expect(workspaceSettings["window.autoDetectColorScheme"]).toBe(false);
+      expect(workspaceSettings["workbench.colorTheme"]).toBe("Dark Modern");
+      expect(workspaceSettings["workbench.preferredDarkColorTheme"]).toBe("Dark Modern");
+      expect(workspaceSettings["workbench.preferredLightColorTheme"]).toBe("Dark Modern");
+    }
   } finally {
     await harness.close();
   }

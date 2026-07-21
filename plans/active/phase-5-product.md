@@ -48,7 +48,7 @@ Close the gaps between "works for us" and a Codex-class beta product: users stay
 ### 5e. Website & docs
 - Either build a minimal real landing page in `apps/website` (screenshots, install instructions, link to releases) or remove the package until it's wanted.
 - Add `plans/README.md` index marking active vs archived; keep `docs/architecture.md` (phase 2) current.
-- Implemented 2026-07-09: added `plans/README.md` with active-plan links and standalone/archived plan status. Remaining 5e work: decide whether `apps/website` becomes an install/docs surface or is removed/deferred.
+- Implemented 2026-07-09: added `plans/README.md` with active-plan links and standalone/archived plan status. The website decision below is complete; this earlier decision point is retained only as sequencing history.
 - Implemented 2026-07-09: kept `apps/website` as the product install/docs surface. It is now a static-export Next site with metadata, sitemap/robots, GitHub Releases install path, Homebrew/macOS/Linux setup notes, architecture links, and demo media. Verified with `pnpm --filter @pi-gui/website run build` (static export passed; Next emitted only the existing ESLint-plugin notice).
 
 ## Success Criteria

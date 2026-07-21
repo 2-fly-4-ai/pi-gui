@@ -26,3 +26,6 @@ tmp-sample-design.png
 # Vite hashed build output
 *-[A-Za-z0-9][A-Za-z0-9][A-Za-z0-9][A-Za-z0-9][A-Za-z0-9][A-Za-z0-9][A-Za-z0-9][A-Za-z0-9].js
 *-[A-Za-z0-9][A-Za-z0-9][A-Za-z0-9][A-Za-z0-9][A-Za-z0-9][A-Za-z0-9][A-Za-z0-9][A-Za-z0-9].css
+
+# Source styles may legitimately end in an eight-character word (for example, app-surfaces.css).
+!apps/desktop/src/styles/*.css

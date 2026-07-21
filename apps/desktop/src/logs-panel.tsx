@@ -56,6 +56,8 @@ export function LogsPanel({
   });
   const [query, setQuery] = useState(() => readLocal("logs:query") || "");
   const [includeGlobal, setIncludeGlobal] = useState(() => readLocal("logs:scope") === "global");
+  const [runId, setRunId] = useState("");
+  const [role, setRole] = useState("");
   const [selectedId, setSelectedId] = useState<string>("");
   const [issueDraftStatus, setIssueDraftStatus] = useState<"idle" | "opening" | "opened" | "failed">("idle");
   const selectedWorkspaceId = selectedWorkspace?.id;
@@ -95,6 +97,8 @@ export function LogsPanel({
         workspaceId: selectedWorkspaceId,
         workspacePath: selectedWorkspacePath,
         sessionId: tab === "app" ? undefined : selectedSessionId,
+        runId: tab === "task" ? runId : undefined,
+        role: tab === "task" ? role : undefined,
       });
       setPage(next);
       setSelectedId((current) => current && next.events.some((event) => event.id === current) ? current : next.events[0]?.id ?? "");
@@ -103,9 +107,12 @@ export function LogsPanel({
     } finally {
       setLoading(false);
     }
-  }, [api, category, includeGlobal, query, selectedSessionId, selectedWorkspaceId, selectedWorkspacePath, severity, tab]);
+  }, [api, category, includeGlobal, query, role, runId, selectedSessionId, selectedWorkspaceId, selectedWorkspacePath, severity, tab]);
 
   useEffect(() => { void refresh(); }, [refresh]);
+  useEffect(() => api.onSubagentRunsChanged((workspaceId) => {
+    if (tab === "task" && (!selectedWorkspaceId || workspaceId === selectedWorkspaceId)) void refresh();
+  }), [api, refresh, selectedWorkspaceId, tab]);
   useEffect(() => { writeLocal("logs:severity", severity); }, [severity]);
   useEffect(() => { writeLocal("logs:category", category); }, [category]);
   useEffect(() => { writeLocal("logs:query", query); }, [query]);
@@ -180,10 +187,10 @@ export function LogsPanel({
               {SEVERITIES.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
             </select>
             {tab === "task" ? (
-              <div className="logs-panel__fixed-filter" aria-label="Log category">
-                <span className="logs-panel__fixed-filter-label">Log category</span>
-                <strong>Tools</strong>
-              </div>
+              <>
+                <input aria-label="Filter by run" className="logs-panel__search" placeholder="Run ID" value={runId} onChange={(event) => setRunId(event.target.value)} />
+                <input aria-label="Filter by role" className="logs-panel__search" placeholder="Role" value={role} onChange={(event) => setRole(event.target.value)} />
+              </>
             ) : tab === "app" ? (
               <div className="logs-panel__fixed-filter" aria-label="Log category">
                 <span className="logs-panel__fixed-filter-label">Log category</span>
@@ -220,6 +227,7 @@ export function LogsPanel({
             selected={selected}
             selectedId={selectedId}
             onSelect={setSelectedId}
+            onJumpToTimeline={jumpToTimeline}
           />
         </>
       )}
@@ -293,12 +301,14 @@ function EventBrowser({
   selected,
   selectedId,
   onSelect,
+  onJumpToTimeline,
 }: {
   readonly emptyMessage: string;
   readonly events: readonly ObservabilityEvent[];
   readonly selected: ObservabilityEvent | undefined;
   readonly selectedId: string;
   readonly onSelect: (id: string) => void;
+  readonly onJumpToTimeline: (event: ObservabilityEvent) => void;
 }) {
   return (
     <div className="logs-panel__body">
@@ -318,16 +328,19 @@ function EventBrowser({
           </button>
         ))}
       </div>
-      <EventDetails event={selected} />
+      <EventDetails event={selected} onJumpToTimeline={onJumpToTimeline} />
     </div>
   );
 }
 
-function EventDetails({ event }: { readonly event: ObservabilityEvent | undefined }) {
+function EventDetails({ event, onJumpToTimeline }: { readonly event: ObservabilityEvent | undefined; readonly onJumpToTimeline: (event: ObservabilityEvent) => void }) {
   if (!event) return <div className="logs-panel__details logs-panel__details--empty">Select an event to inspect raw details.</div>;
   return (
     <section className="logs-panel__details" aria-label="Log event details">
       <h3>{event.title}</h3>
+      {event.correlation?.parentToolCallId || event.correlation?.toolCallId ? (
+        <button className="secondary-button" type="button" onClick={() => onJumpToTimeline(event)}>Jump to timeline</button>
+      ) : null}
       <dl>
         <dt>Severity</dt><dd>{event.severity}</dd>
         <dt>Category</dt><dd>{event.category}</dd>
@@ -340,6 +353,14 @@ function EventDetails({ event }: { readonly event: ObservabilityEvent | undefine
       <pre>{JSON.stringify(event.raw ?? event, null, 2)}</pre>
     </section>
   );
+}
+
+function jumpToTimeline(event: ObservabilityEvent): void {
+  const callId = event.correlation?.parentToolCallId ?? event.correlation?.toolCallId;
+  if (!callId) return;
+  const target = document.querySelector<HTMLElement>(`[data-tool-call-id="${CSS.escape(callId)}"]`);
+  target?.scrollIntoView({ behavior: "smooth", block: "center" });
+  target?.querySelector<HTMLButtonElement>(".timeline-tool__header")?.click();
 }
 
 function buildCategoryFilter(tab: LogsTab, category: ObservabilityCategory | "all"): readonly ObservabilityCategory[] | undefined {

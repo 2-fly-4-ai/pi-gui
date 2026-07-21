@@ -29,11 +29,13 @@ test("ignores stale persisted draft acknowledgements while typing", async () => 
     await composer.press("Backspace");
     await expect(composer).toHaveValue(expectedDraft);
 
-    await window.evaluate(({ stale }) => {
+    const state = await getDesktopState(window);
+    const target = { workspaceId: state.selectedWorkspaceId, sessionId: state.selectedSessionId };
+    await window.evaluate(({ stale, target }) => {
       window.setTimeout(() => {
-        void window.piApp.updateComposerDraft(stale);
+        void window.piApp.updateComposerDraft(target, stale);
       }, 50);
-    }, { stale: staleDraft });
+    }, { stale: staleDraft, target });
 
     const sampledValues = await window.evaluate(async () => {
       const composer = document.querySelector<HTMLTextAreaElement>("[data-testid='composer']");

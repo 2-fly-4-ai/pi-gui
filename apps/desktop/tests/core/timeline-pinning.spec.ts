@@ -678,12 +678,14 @@ test("native timeline scroll away from bottom disables follow-latest during stre
     await window.evaluate(() => {
       const pane = document.querySelector<HTMLDivElement>("[data-testid='timeline-pane']");
       if (!pane) throw new Error("timeline pane missing");
+      pane.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, pointerId: 1 }));
       pane.scrollTop = Math.max(0, pane.scrollTop - 900);
       pane.dispatchEvent(new Event("scroll", { bubbles: true }));
+      pane.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, pointerId: 1 }));
     });
 
+    await expect.poll(async () => (await getTimelineScrollMetrics(window)).remainingFromBottom).toBeGreaterThan(500);
     const awayMetrics = await getTimelineScrollMetrics(window);
-    expect(awayMetrics.remainingFromBottom).toBeGreaterThan(500);
     const beforeStreamScrollTop = awayMetrics.scrollTop;
 
     await streamAssistantDeltas(harness, window, [

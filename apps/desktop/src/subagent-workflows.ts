@@ -53,6 +53,25 @@ export interface SubagentWorkflowRoleValidation {
 
 export type SubagentRunStatus = "submitted" | "running" | "completed" | "failed" | "cancelled";
 
+export interface SubagentChildRunRecord {
+  readonly id: string;
+  readonly status: Exclude<SubagentRunStatus, "submitted">;
+  readonly lifecycleRunId: string;
+  readonly toolCallId?: string;
+  readonly auditAgentId?: string;
+  readonly role?: string;
+  readonly agentName?: string;
+  readonly description?: string;
+  readonly startedAt?: string;
+  readonly updatedAt: string;
+  readonly completedAt?: string;
+  readonly toolUseCount?: number;
+  readonly elapsedMs?: number;
+  readonly summary?: string;
+  readonly transcriptPath?: string;
+  readonly artifactPaths?: readonly string[];
+}
+
 export interface SubagentRunRecord {
   readonly id: string;
   readonly workflowRunId?: string;
@@ -66,6 +85,7 @@ export interface SubagentRunRecord {
   readonly artifacts: readonly string[];
   readonly submittedAt: string;
   readonly queuedAtSubmission?: boolean;
+  readonly executionStartedAt?: string;
   readonly updatedAt?: string;
   readonly startedAt?: string;
   readonly completedAt?: string;
@@ -76,7 +96,20 @@ export interface SubagentRunRecord {
   readonly summary?: string;
   readonly transcriptPath?: string;
   readonly artifactPaths?: readonly string[];
+  readonly childRuns?: readonly SubagentChildRunRecord[];
   readonly error?: string;
+}
+
+export function isSubagentWorkflowMessageMetadata(metadata: unknown): metadata is SubagentWorkflowMessageMetadata {
+  if (!metadata || typeof metadata !== "object") return false;
+  const candidate = metadata as Partial<SubagentWorkflowMessageMetadata>;
+  return candidate.kind === "subagent-workflow" &&
+    typeof candidate.workflow === "string" &&
+    Array.isArray(candidate.roles) &&
+    candidate.roles.every((role) => typeof role === "string") &&
+    Array.isArray(candidate.artifacts) &&
+    candidate.artifacts.every((artifact) => typeof artifact === "string") &&
+    (candidate.workflowRunId === undefined || typeof candidate.workflowRunId === "string");
 }
 
 export interface RunSubagentWorkflowInput {
@@ -138,6 +171,22 @@ export function workflowById(id: SubagentWorkflowId): SubagentWorkflowTemplate {
   return workflow;
 }
 
+export function dryRunSubagentWorkflow(role: string): SubagentWorkflowTemplate {
+  const normalizedRole = role.trim();
+  if (!/^[A-Za-z0-9][A-Za-z0-9._/-]*$/.test(normalizedRole)) throw new Error("Invalid dry-run agent role.");
+  return {
+    id: `dry-run:${normalizedRole}`,
+    title: `Dry run · ${normalizedRole}`,
+    description: "A bounded definition check launched from Settings.",
+    roles: [normalizedRole],
+    artifacts: [],
+  };
+}
+
+export function roleFromDryRunWorkflowId(id: string): string | undefined {
+  return id.startsWith("dry-run:") ? id.slice("dry-run:".length).trim() || undefined : undefined;
+}
+
 export function builtinSubagentWorkflowRecords(): readonly SubagentWorkflowRecord[] {
   return BUILTIN_SUBAGENT_WORKFLOWS.map((workflow) => ({
     ...workflow,
@@ -177,8 +226,9 @@ export function buildSubagentWorkflowPrompt(
     `roles: ${workflow.roles.join(" -> ")}`,
     `artifacts: ${workflow.artifacts.join(", ")}`,
     "",
-    "Run this Nico-lite subagent workflow using the available Agent(...) subagent tool when appropriate.",
+    "Run this Nico-lite subagent workflow by invoking the available Agent(...) subagent tool exactly once for each listed role, in order.",
     "Keep child-agent prompts bounded. Return a concise summary and link or paste any artifacts you create.",
+    ...(workflowRunId ? [`Begin every Agent prompt with exactly: workflow_run_id: ${workflowRunId}`] : []),
     "",
     `User instruction: ${instruction}`,
   ].join("\n");

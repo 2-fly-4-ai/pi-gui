@@ -256,8 +256,10 @@ test("native timeline scrollbar movement down is treated as user scroll intent",
     await window.evaluate(() => {
       const pane = document.querySelector<HTMLDivElement>("[data-testid='timeline-pane']");
       if (!pane) throw new Error("timeline pane missing");
+      pane.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, pointerId: 1 }));
       pane.scrollTop = Math.max(0, pane.scrollTop - 1_200);
       pane.dispatchEvent(new Event("scroll", { bubbles: true }));
+      pane.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, pointerId: 1 }));
     });
     await expect.poll(async () => (await getTimelineScrollMetrics(window)).remainingFromBottom).toBeGreaterThan(900);
 

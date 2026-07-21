@@ -231,7 +231,7 @@ test("opens and runs actions from the command palette", async () => {
 
     await window.keyboard.press(desktopShortcut("K"));
     await expect(palette).toBeVisible();
-    await window.keyboard.press("Escape");
+    await window.getByPlaceholder("Search commands…").press("Escape");
     await expect(palette).toHaveCount(0);
   } finally {
     await harness.close();

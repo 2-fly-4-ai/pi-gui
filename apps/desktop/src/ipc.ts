@@ -547,7 +547,7 @@ export interface PiDesktopApi {
   cancelQueuedComposerEdit(): Promise<void>;
   removeQueuedComposerMessage(messageId: string): Promise<void>;
   steerQueuedComposerMessage(messageId: string): Promise<void>;
-  updateComposerDraft(composerDraft: string): Promise<void>;
+  updateComposerDraft(target: WorkspaceSessionTarget, composerDraft: string): Promise<void>;
   submitComposer(text: string, options?: { readonly deliverAs?: "steer" | "followUp"; readonly messageMetadata?: unknown }): Promise<void>;
   submitComposerToSession(
     target: WorkspaceSessionTarget,

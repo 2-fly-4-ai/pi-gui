@@ -353,7 +353,15 @@ function normalizeLedger(source: RawLogLine, raw: Record<string, unknown>): Obse
       sessionId: typeof raw.sessionId === "string" ? raw.sessionId : undefined,
       toolCallId: typeof raw.toolCallId === "string" ? raw.toolCallId : undefined,
       subagentId: typeof raw.subagentId === "string" ? raw.subagentId : undefined,
+      parentToolCallId: typeof raw.parentToolCallId === "string" ? raw.parentToolCallId : undefined,
+      runId: typeof raw.runId === "string" ? raw.runId : undefined,
     },
+    agent: typeof raw.role === "string" || typeof raw.status === "string" ? {
+      kind: "subagent",
+      type: typeof raw.role === "string" ? raw.role : undefined,
+      status: typeof raw.status === "string" ? raw.status : undefined,
+    } : undefined,
+    durationMs: typeof raw.elapsedMs === "number" ? raw.elapsedMs : undefined,
     raw,
   };
 }
@@ -516,10 +524,14 @@ function realpathIfExists(value: string): string {
 
 function filterEvents(events: readonly ObservabilityEvent[], input: ObservabilityQuery): ObservabilityEvent[] {
   const query = input.query?.trim().toLowerCase();
+  const runId = input.runId?.trim().toLowerCase();
+  const role = input.role?.trim().toLowerCase();
   const sinceMs = input.since ? Date.parse(input.since) : undefined;
   return events.filter((event) => {
     if (input.severity?.length && !input.severity.includes(event.severity)) return false;
     if (input.category?.length && !input.category.includes(event.category)) return false;
+    if (runId && event.correlation?.runId?.toLowerCase() !== runId && event.correlation?.subagentId?.toLowerCase() !== runId) return false;
+    if (role && event.agent?.type?.toLowerCase() !== role) return false;
     if (sinceMs && Date.parse(event.timestamp) < sinceMs) return false;
     if (query) {
       const haystack = `${event.title} ${event.message ?? ""} ${event.event} ${event.category} ${event.agent?.type ?? ""} ${event.tool?.name ?? ""}`.toLowerCase();

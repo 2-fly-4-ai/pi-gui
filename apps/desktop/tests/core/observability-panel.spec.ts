@@ -2,7 +2,7 @@ import { appendFile, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promise
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { expect, test } from "@playwright/test";
-import { createSessionViaIpc, desktopShortcut, type DesktopHarness, getDesktopState, launchDesktop } from "../helpers/electron-app";
+import { createSessionViaIpc, desktopShortcut, emitTestSessionEvent, type DesktopHarness, getDesktopState, launchDesktop } from "../helpers/electron-app";
 
 interface CatalogSessionRecord {
   readonly sessionRef?: {
@@ -136,6 +136,28 @@ test("logs panel opens on threads and splits task/app seeded failures", async ()
     await expect(page.locator(".logs-panel__event-message", { hasText: "Other repo failure" })).toHaveCount(0);
     await expect(page.locator(".logs-panel__warning", { hasText: "agent-activity.jsonl" })).toHaveCount(0);
     await expect(page.getByTestId("logs-failure-count")).toContainText("2 failures");
+    await expect(page.getByLabel("Filter by run")).toBeVisible();
+    await expect(page.getByLabel("Filter by role")).toBeVisible();
+
+    const state = await getDesktopState(page);
+    const sessionRef = { workspaceId: state.selectedWorkspaceId, sessionId: state.selectedSessionId };
+    await emitTestSessionEvent(app, {
+      type: "subagentRunUpdated",
+      sessionRef,
+      parentSession: sessionRef,
+      timestamp: new Date().toISOString(),
+      subagentRunId: "live-observability-agent",
+      toolCallId: "live-observability-tool-call",
+      role: "planner",
+      status: "progress",
+      summary: "Live typed lifecycle proof",
+    });
+    await page.getByLabel("Log severity").selectOption("all");
+    await expect(page.locator(".logs-panel__event-title", { hasText: "planner progress" })).toBeVisible();
+    await page.getByLabel("Filter by role").fill("planner");
+    await page.getByLabel("Filter by run").fill("live-observability-agent");
+    await expect(page.locator(".logs-panel__event-title", { hasText: "planner progress" })).toBeVisible();
+    await expect(page.locator(".logs-panel__event-title", { hasText: "Tool blocked: bash" })).toHaveCount(0);
 
     await page.getByRole("tab", { name: "App logs" }).click();
     await expect(page.locator(".logs-panel__event-title", { hasText: "Main process unhandled rejection" })).toBeVisible();

@@ -32,6 +32,7 @@ import {
 } from "./subagent-workflow-definitions";
 import { buildAgentPreReviewPrompt, parseAgentPreReviewComments } from "./review/agent-pre-review";
 import { SubagentRunStore } from "./subagent-runs";
+import { SubagentAuditAdapter } from "./subagent-audit-adapter";
 import { createReviewSnapshot } from "./review/review-snapshot";
 import type { DeleteAgentDefinitionInput, ResetAgentDefinitionInput, SaveAgentDefinitionInput } from "../src/agent-definitions";
 import type { CreateReviewSnapshotOptions, ReviewSnapshot } from "../src/review/review-types";
@@ -40,6 +41,7 @@ import type {
   RunSubagentWorkflowInput,
   SaveSubagentWorkflowInput,
 } from "../src/subagent-workflows";
+import { dryRunSubagentWorkflow, roleFromDryRunWorkflowId } from "../src/subagent-workflows";
 import { listWorkspaceFiles } from "./app-store-files";
 import { ensureVSCodeServer, killAllVSCodeServers, killVSCodeServer } from "./vscode-server-manager";
 import { MAIN_DEV_RELOAD_MARKER } from "./dev-reload-main-probe";
@@ -58,7 +60,7 @@ import {
 import { ThemeManager } from "./theme-manager";
 import { TerminalService } from "./terminal-service";
 import { startMemoryMonitor } from "./memory-monitor";
-import { listObservabilityEvents } from "./observability-service";
+import { appendAgentActivity, listObservabilityEvents } from "./observability-service";
 import {
   attachWindowDiagnostics,
   configureDesktopDiagnostics,
@@ -117,6 +119,7 @@ let notificationManager: NotificationManager | undefined;
 let notificationPermissionService: NotificationPermissionService | undefined;
 let terminalService: TerminalService | undefined;
 let subagentRunsStore: SubagentRunStore | undefined;
+let subagentAuditAdapter: SubagentAuditAdapter | undefined;
 let integratedTerminalShell = "";
 let stopPublishingStatePatches: (() => void) | undefined;
 let stopPublishingTranscriptEvents: (() => void) | undefined;
@@ -775,8 +778,15 @@ void app.whenReady().then(async () => {
     userDataDir: configuredUserDataDir,
     initialWorkspacePaths: resolveInitialWorkspacePaths(),
     getWindow: () => mainWindow,
-    listSubagentRunsForDisplayMode: async (workspaceId) =>
-      subagentRunsStore?.listRuns(workspaceId, store.getWorkspacePath(workspaceId)) ?? [],
+    listSubagentRunsForDisplayMode: async (workspaceId) => {
+      if (!subagentRunsStore) return [];
+      await subagentRunsStore.listRuns(workspaceId, store.getWorkspacePath(workspaceId));
+      await subagentAuditAdapter?.replay(async (event) => {
+        const changedWorkspaceIds = await subagentRunsStore?.applyAuditEvent(event) ?? [];
+        for (const changedWorkspaceId of changedWorkspaceIds) publishSubagentRunsChanged(changedWorkspaceId);
+      });
+      return subagentRunsStore.listRuns(workspaceId, store.getWorkspacePath(workspaceId));
+    },
     generateThreadTitleOverride: async (workspace, options) => generateThreadTitleOverride?.(workspace, options),
   });
   const publishSubagentRunsChanged = (workspaceId: string) => {
@@ -792,7 +802,49 @@ void app.whenReady().then(async () => {
     if (changedWorkspaceId) {
       publishSubagentRunsChanged(changedWorkspaceId);
     }
+    if (event.type === "subagentRunUpdated") {
+      await appendAgentActivity({
+        event: `subagent_lifecycle_${event.status}`,
+        category: "subagent",
+        title: `${event.role ?? event.agentName ?? "Subagent"} ${event.status}`,
+        workspaceId: event.parentSession.workspaceId,
+        sessionId: event.parentSession.sessionId,
+        runId: event.subagentRunId,
+        subagentId: event.subagentRunId,
+        parentToolCallId: event.toolCallId,
+        role: event.role ?? event.agentName,
+        status: event.status,
+        elapsedMs: event.elapsedMs,
+        message: event.summary,
+        transcriptPath: event.transcriptPath,
+      });
+      if (changedWorkspaceId !== event.parentSession.workspaceId) {
+        publishSubagentRunsChanged(event.parentSession.workspaceId);
+      }
+    }
   });
+  subagentAuditAdapter = new SubagentAuditAdapter({
+    onEvent: async (event) => {
+      const changedWorkspaceIds = await subagentRuns.applyAuditEvent(event);
+      for (const workspaceId of changedWorkspaceIds) {
+        await appendAgentActivity({
+          event: `subagent_audit_${event.status}`,
+          category: "subagent",
+          title: `${event.role ?? "Subagent"} ${event.status}`,
+          workspaceId,
+          runId: event.workflowRunId ?? event.agentId ?? event.parentToolCallId,
+          subagentId: event.agentId,
+          parentToolCallId: event.parentToolCallId,
+          role: event.role,
+          status: event.status,
+          elapsedMs: event.elapsedMs,
+          message: event.summary,
+        });
+        publishSubagentRunsChanged(workspaceId);
+      }
+    },
+  });
+  subagentAuditAdapter.start();
   integratedTerminalShell = (await store.getState()).integratedTerminalShell;
   stopPruningTerminals = store.subscribe((state) => {
     integratedTerminalShell = state.integratedTerminalShell;
@@ -1168,8 +1220,8 @@ void app.whenReady().then(async () => {
   handleMainFrameIpc(desktopIpc.steerQueuedComposerMessage, async (_event, messageId: string) => {
     await store.steerQueuedComposerMessage(messageId);
   });
-  handleMainFrameIpc(desktopIpc.updateComposerDraft, async (_event, composerDraft: string) => {
-    await store.updateComposerDraft(composerDraft);
+  handleMainFrameIpc(desktopIpc.updateComposerDraft, async (_event, target: WorkspaceSessionTarget, composerDraft: string) => {
+    await store.updateComposerDraft(target, composerDraft);
   });
   handleMainFrameIpc(
     desktopIpc.submitComposer,
@@ -1245,11 +1297,26 @@ void app.whenReady().then(async () => {
     return deleteSubagentWorkflow(store.getWorkspacePath(workspaceId), input);
   });
   handleMainFrameIpc(desktopIpc.listSubagentRuns, async (_event, workspaceId: string) => {
+    await subagentRuns.listRuns(workspaceId, store.getWorkspacePath(workspaceId));
+    await subagentAuditAdapter?.replay(async (event) => {
+      const changedWorkspaceIds = await subagentRuns.applyAuditEvent(event);
+      for (const changedWorkspaceId of changedWorkspaceIds) publishSubagentRunsChanged(changedWorkspaceId);
+    });
     return subagentRuns.listRuns(workspaceId, store.getWorkspacePath(workspaceId));
   });
   handleMainFrameIpc(desktopIpc.runSubagentWorkflow, async (_event, workspaceId: string, input: RunSubagentWorkflowInput) => {
     if (input.target.workspaceId !== workspaceId) {
       throw new Error("Subagent workflow target workspace does not match the active settings workspace.");
+    }
+    const dryRunRole = roleFromDryRunWorkflowId(input.workflowId);
+    if (dryRunRole) {
+      const definitions = await listAgentDefinitions(store.getWorkspacePath(workspaceId));
+      const definition = definitions.agents.find((agent) => agent.name === dryRunRole && agent.config.enabled);
+      if (!definition) throw new Error(`Enabled agent role not found: ${dryRunRole}`);
+      return subagentRuns.runWorkflow(store, {
+        ...input,
+        userInstruction: "Perform a read-only definition check. Reply with one short sentence confirming the role is usable. Do not edit files or run shell commands.",
+      }, dryRunSubagentWorkflow(dryRunRole));
     }
     const workflow = await resolveSubagentWorkflow(store.getWorkspacePath(workspaceId), input.workflowId);
     return subagentRuns.runWorkflow(store, input, workflow);
@@ -1364,6 +1431,8 @@ app.on("window-all-closed", () => {
     stopMemoryMonitor = undefined;
     subagentRunsStore?.dispose();
     subagentRunsStore = undefined;
+    subagentAuditAdapter?.dispose();
+    subagentAuditAdapter = undefined;
     terminalService?.dispose();
     terminalService = undefined;
     app.quit();
@@ -1387,6 +1456,8 @@ app.on("before-quit", (event) => {
   stopMemoryMonitor = undefined;
   subagentRunsStore?.dispose();
   subagentRunsStore = undefined;
+  subagentAuditAdapter?.dispose();
+  subagentAuditAdapter = undefined;
   terminalService?.dispose();
   terminalService = undefined;
   if (quittingAfterStoreFlush || !store) {
