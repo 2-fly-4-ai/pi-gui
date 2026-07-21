@@ -105,6 +105,28 @@ describe("SubagentRunStore multi-child aggregation", () => {
     expect(cancelled?.childRuns?.[0]?.status).toBe("running");
     runStore.dispose();
   });
+
+  it("backfills late child completion details without hiding a parent turn failure", async () => {
+    const { runStore, target } = await createSubmittedWorkflow();
+    await runStore.applySessionEvent(subagentEvent(target, "scout-call", "scout", "started"));
+    await runStore.applySessionEvent(subagentEvent(target, "planner-call", "planner", "started"));
+    await runStore.applySessionEvent({
+      type: "runFailed",
+      sessionRef: target,
+      timestamp: "2026-07-20T00:00:03.000Z",
+      runId: "parent-run",
+      error: { message: "Provider unavailable", code: "provider_unavailable" },
+    });
+    await runStore.applySessionEvent(subagentEvent(target, "scout-call", "scout", "completed", 2));
+    await runStore.applySessionEvent(subagentEvent(target, "planner-call", "planner", "completed", 3));
+
+    const [run] = await runStore.listRuns(target.workspaceId);
+    expect(run?.status).toBe("failed");
+    expect(run?.error).toContain("Provider unavailable");
+    expect(run?.toolUseCount).toBe(5);
+    expect(run?.childRuns?.map((child) => child.status)).toEqual(["completed", "completed"]);
+    runStore.dispose();
+  });
 });
 
 describe("SubagentRunStore durable audit correlation", () => {

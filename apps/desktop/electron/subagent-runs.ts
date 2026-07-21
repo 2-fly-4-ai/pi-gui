@@ -151,7 +151,7 @@ export class SubagentRunStore {
     }
 
     const current = runs[index];
-    if (!current || isTerminalSubagentRun(current)) {
+    if (!current || current.status === "completed" || current.status === "cancelled") {
       return undefined;
     }
 
@@ -166,7 +166,7 @@ export class SubagentRunStore {
     for (const [workspaceId, runs] of this.runsByWorkspace) {
       const index = runs.findIndex((run) => matchesAuditRun(run, event));
       const current = runs[index];
-      if (!current || isTerminalSubagentRun(current)) continue;
+      if (!current || current.status === "completed" || current.status === "cancelled") continue;
 
       const lifecycleId = event.parentToolCallId ?? event.agentId ?? event.workflowRunId;
       if (!lifecycleId) continue;
@@ -497,13 +497,16 @@ function aggregateChildRuns(run: SubagentRunRecord): SubagentRunRecord {
   const children = run.childRuns ?? [];
   const expectedCount = Math.max(1, run.roles.length);
   const allObservedChildrenTerminal = children.length >= expectedCount && children.every(isTerminalChildRun);
-  const status: SubagentRunRecord["status"] = !allObservedChildrenTerminal
+  const aggregatedStatus: SubagentRunRecord["status"] = !allObservedChildrenTerminal
     ? "running"
     : children.some((child) => child.status === "failed")
       ? "failed"
       : children.some((child) => child.status === "cancelled")
         ? "cancelled"
         : "completed";
+  const parentFailure = run.status === "failed" && run.completedAt !== undefined &&
+    (run.error?.startsWith("Workflow turn failed") ?? false);
+  const status: SubagentRunRecord["status"] = parentFailure ? "failed" : aggregatedStatus;
   const toolUseCounts = children.map((child) => child.toolUseCount).filter((value): value is number => value !== undefined);
   const elapsedValues = children.map((child) => child.elapsedMs).filter((value): value is number => value !== undefined);
   const summaries = uniqueStrings(children.map((child) => child.summary ?? ""));
@@ -521,7 +524,7 @@ function aggregateChildRuns(run: SubagentRunRecord): SubagentRunRecord {
     ...(summaries.length > 0 ? { summary: summaries.join(" · ") } : {}),
     ...(latestTranscriptPath ? { transcriptPath: latestTranscriptPath } : {}),
     ...(artifactPaths.length > 0 ? { artifactPaths } : {}),
-    ...(status === "failed" && summaries.length > 0 ? { error: summaries.join(" · ") } : {}),
+    ...(status === "failed" && summaries.length > 0 && !parentFailure ? { error: summaries.join(" · ") } : {}),
   };
 }
 

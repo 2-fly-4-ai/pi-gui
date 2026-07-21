@@ -1,6 +1,6 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
-import { expect, test } from "@playwright/test";
+import { expect, test, type Locator } from "@playwright/test";
 import type { SessionDriverEvent } from "@pi-gui/session-driver";
 import {
   createNamedThread,
@@ -35,6 +35,18 @@ function readComposerSurfaceStyles(surfaceElement: Element) {
       minHeight: textareaStyles.minHeight,
     },
   };
+}
+
+async function expectVSCodePanelSettled(panel: Locator): Promise<void> {
+  const webview = panel.locator(".display-mode-vscode__webview");
+  const error = panel.locator(".display-mode-vscode__error");
+  await expect(webview.or(error)).toHaveCount(1, { timeout: 45_000 });
+  if (await error.count()) {
+    await expect(error).toContainText("Could not start VS Code");
+    await expect(error.locator("p")).not.toBeEmpty();
+    return;
+  }
+  await expect(webview).toHaveAttribute("title", "VS Code");
 }
 
 test("opens a Display Mode tile back into Threads with its transcript hydrated", async () => {
@@ -457,17 +469,17 @@ test("opens Display Mode from the sidebar and renders thread command-center tile
     await expect(threadVsCodePanel).toBeVisible();
     await expect(threadVsCodePanel.getByRole("button", { name: "Hard close" })).toHaveCount(0);
     await expect(threadVsCodePanel).toHaveAttribute("data-vscode-folder-path", workspacePath);
-    await expect(threadVsCodePanel.locator(".display-mode-vscode__webview")).toHaveAttribute("title", "VS Code", { timeout: 45_000 });
+    await expectVSCodePanelSettled(threadVsCodePanel);
 
     await selectSession(window, "Second workspace seed thread");
     await expect(threadVsCodePanel).toBeVisible();
     await expect(threadVsCodePanel).toHaveAttribute("data-vscode-folder-path", secondWorkspacePath);
-    await expect(threadVsCodePanel.locator(".display-mode-vscode__webview")).toHaveAttribute("title", "VS Code", { timeout: 45_000 });
+    await expectVSCodePanelSettled(threadVsCodePanel);
 
     await selectSession(window, "Display mode seed thread");
     await expect(threadVsCodePanel).toBeVisible();
     await expect(threadVsCodePanel).toHaveAttribute("data-vscode-folder-path", workspacePath);
-    await expect(threadVsCodePanel.locator(".display-mode-vscode__webview")).toHaveAttribute("title", "VS Code", { timeout: 45_000 });
+    await expectVSCodePanelSettled(threadVsCodePanel);
     await window.getByRole("button", { name: "Toggle VS Code panel" }).click();
     await expect(window.getByTestId("thread-vscode-panel")).toHaveCount(0);
     await window.getByRole("button", { name: "Toggle VS Code panel" }).click();

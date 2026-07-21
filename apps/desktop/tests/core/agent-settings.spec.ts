@@ -622,7 +622,8 @@ test("settings subagents submits a built-in workflow and persists the run record
       summary: "Planner produced the implementation plan.",
       transcriptPath: "/var/folders/example/tasks/workflow-agent-call-2.output",
     });
-    await expect(run).toContainText("completed");
+    // The test provider may fail its parent turn before or after these synthetic
+    // lifecycle events. The durable contract is that both child results survive.
     await expect(run).toContainText("Agent runs: 2/2");
     await expect(run).toContainText("scout: completed · 2 tools");
     await expect(run).toContainText("planner: completed · 1 tools");
