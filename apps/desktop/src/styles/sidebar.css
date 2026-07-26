@@ -33,8 +33,34 @@
   display: grid;
   grid-template-rows: auto 1fr auto;
   overflow: hidden;
+  position: relative;
   background: #f6f7fa;
   border-right: 1px solid var(--line);
+}
+
+.sidebar__resize {
+  position: absolute;
+  z-index: var(--z-panel-resize);
+  top: 48px;
+  right: -3px;
+  bottom: 0;
+  width: 7px;
+  cursor: col-resize;
+  outline: 0;
+}
+
+.sidebar__resize::after {
+  content: "";
+  position: absolute;
+  inset: 0 2px;
+  border-radius: var(--radius-full);
+  background: transparent;
+  transition: background var(--transition-fast);
+}
+
+.sidebar__resize:hover::after,
+.sidebar__resize:focus-visible::after {
+  background: color-mix(in srgb, var(--accent) 55%, transparent);
 }
 
 .sidebar__top,
@@ -299,6 +325,13 @@
   white-space: nowrap;
 }
 
+.session-row__pin {
+  flex: 0 0 auto;
+  color: var(--accent);
+  font-size: 10px;
+  line-height: 1;
+}
+
 .workspace-row__name {
   font-size: var(--font-size-base);
   font-weight: 470;
@@ -434,6 +467,133 @@
   gap: 2px;
 }
 
+.thread-organizer {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px;
+  padding: 0 10px 10px;
+}
+
+.thread-organizer__search {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 6px;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+
+.thread-organizer__search svg {
+  width: 13px;
+  height: 13px;
+  color: var(--muted);
+}
+
+.thread-organizer__search input {
+  width: 100%;
+  min-width: 0;
+  height: 30px;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text-strong);
+  font: inherit;
+  font-size: var(--font-size-sm);
+}
+
+.thread-organizer__filters {
+  position: relative;
+}
+
+.thread-organizer__filters summary {
+  height: 32px;
+  display: grid;
+  place-items: center;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  color: var(--muted-strong);
+  cursor: pointer;
+  font-size: var(--font-size-xs);
+  list-style: none;
+}
+
+.thread-organizer__filter-menu {
+  position: absolute;
+  z-index: 12;
+  top: calc(100% + 5px);
+  right: 0;
+  display: grid;
+  min-width: 165px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-lg);
+}
+
+.thread-organizer__filter-menu label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 4px;
+  color: var(--text);
+  font-size: var(--font-size-sm);
+}
+
+.thread-organizer__filter-menu button,
+.thread-organizer__empty button {
+  margin-top: 5px;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  cursor: pointer;
+  font: inherit;
+  font-size: var(--font-size-sm);
+}
+
+.thread-organizer__filter-menu button:disabled {
+  color: var(--muted);
+  cursor: default;
+}
+
+.thread-organizer__result-count {
+  grid-column: 1 / -1;
+  color: var(--muted);
+  font-size: var(--font-size-xs);
+}
+
+.thread-organizer__empty {
+  display: grid;
+  gap: 6px;
+  margin: 4px 10px;
+  padding: 12px;
+  border: 1px dashed var(--line);
+  border-radius: var(--radius-lg);
+  color: var(--muted);
+  font-size: var(--font-size-sm);
+}
+
+.thread-organizer__empty strong {
+  color: var(--text-strong);
+}
+
+.thread-date-section {
+  display: grid;
+}
+
+.thread-date-section__label {
+  padding: 6px 12px 3px 28px;
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 650;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
 .session-list--nested {
   padding-left: 16px;
 }
@@ -498,6 +658,19 @@
   height: 8px;
   border-radius: var(--radius-full);
   background: #4657cf;
+}
+
+.session-row__status--failed {
+  width: 12px;
+  height: 12px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-full);
+  background: var(--error);
+  color: #fff;
+  font-size: 9px;
+  font-weight: 800;
+  line-height: 1;
 }
 
 .session-row__body {
@@ -747,17 +920,13 @@
 
 @media (max-width: 1180px) {
   .shell {
-    grid-template-columns: 272px minmax(0, 1fr);
+    grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
   }
 }
 
 @media (max-width: 980px) {
   .shell {
-    grid-template-columns: 1fr;
-  }
-
-  .sidebar {
-    min-height: 360px;
+    grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
   }
 }
 

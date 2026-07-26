@@ -156,9 +156,13 @@ test("logs a failure notification and blue dot for a focused different session",
 
     await expect.poll(() => readOptionalLog(notificationLogPath), { timeout: 30_000 }).toContain("Failed Session A");
     await expect.poll(() => readOptionalLog(notificationLogPath), { timeout: 30_000 }).toContain("The run failed");
+    await expect.poll(async () => {
+      const state = await getDesktopState(window);
+      return state.workspaces[0]?.sessions.find((entry) => entry.title === "Failed Session A")?.hasUnseenUpdate;
+    }).toBe(true);
     await expect(window.locator(".session-row", { hasText: "Failed Session A" })).toHaveAttribute(
       "data-sidebar-indicator",
-      "unseen",
+      "failed",
     );
   } finally {
     await harness.close();
@@ -236,7 +240,16 @@ test("clears a selected session blue dot when the window regains focus", async (
 
     await expect(row).toHaveAttribute("data-sidebar-indicator", "unseen");
 
-    await harness.focusWindow();
+    // Background Electron lanes cannot reliably acquire native macOS focus. Simulate
+    // the active visibility state, then invoke the same store activation path used by
+    // the window focus/show/restore hooks.
+    await setSessionVisibilityOverride(harness, "active");
+    await harness.electronApp.evaluate(() => {
+      const hooks = (globalThis as {
+        __PI_APP_TEST_HOOKS?: { activateWindow?: () => void };
+      }).__PI_APP_TEST_HOOKS;
+      hooks?.activateWindow?.();
+    });
 
     await expect(row).toHaveAttribute("data-sidebar-indicator", "none");
   } finally {

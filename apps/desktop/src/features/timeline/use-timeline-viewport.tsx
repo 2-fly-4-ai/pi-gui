@@ -54,6 +54,7 @@ export function useTimelineViewport({
   const userTimelineScrollIntentRef = useRef(false);
   const lastUserTimelineScrollIntentAtRef = useRef(0);
   const lastExplicitTimelineScrollIntentAtRef = useRef(0);
+  const lastExplicitTimelineWheelDeltaYRef = useRef(0);
   const timelineScrollbarDragActiveRef = useRef(false);
   const lastTimelineScrollbarDragAtRef = useRef(0);
   const sessionsWithExplicitTimelineScrollRef = useRef(new Set<string>());
@@ -107,14 +108,24 @@ export function useTimelineViewport({
 
   const scrollLatestTimelineRowIntoView = useCallback((pane: TimelinePaneElement, animated: boolean) => {
     const targetRow = latestFollowRowRef.current;
-    if (targetRow) {
-      void pane.__legendListRef?.scrollToIndex?.({
+    const scrollToEnd = () => {
+      const result = pane.__legendListRef?.scrollToEnd({ animated });
+      void Promise.resolve(result).then(() => {
+        if (timelinePaneRef.current === pane && followingLatestRef.current) {
+          pane.scrollTop = pane.scrollHeight;
+        }
+      });
+    };
+    if (!targetRow) {
+      scrollToEnd();
+      return;
+    }
+    const result = pane.__legendListRef?.scrollToIndex?.({
         animated,
         index: targetRow.index,
         viewPosition: 1,
       });
-    }
-    void pane.__legendListRef?.scrollToEnd({ animated });
+    void Promise.resolve(result).then(scrollToEnd);
   }, []);
 
   const isLatestTimelineRowVisible = useCallback((pane: TimelinePaneElement) => {
@@ -135,6 +146,9 @@ export function useTimelineViewport({
     const pane = timelinePaneRef.current as TimelinePaneElement | null;
     const sessionKey = selectedSessionKeyRef.current;
     if (!pane || pane.dataset.timelineSessionKey !== sessionKey) {
+      return;
+    }
+    if (sessionsWithExplicitTimelineScrollRef.current.has(sessionKey)) {
       return;
     }
     const isVirtualizedFollowHydration =
@@ -458,6 +472,7 @@ export function useTimelineViewport({
     manualTimelineScrollTopRef.current = savedScrollTop;
     userTimelineScrollIntentRef.current = false;
     lastExplicitTimelineScrollIntentAtRef.current = 0;
+    lastExplicitTimelineWheelDeltaYRef.current = 0;
     resetExactBottomRestoreState();
     lastTimelinePinnedBySessionRef.current.set(selectedSessionKey, false);
     window.requestAnimationFrame(() => {
@@ -507,7 +522,9 @@ export function useTimelineViewport({
   useLayoutEffect(() => {
     const savedPinned = lastTimelinePinnedBySessionRef.current.get(selectedSessionKey);
     const savedScrollTop = lastTimelineScrollTopBySessionRef.current.get(selectedSessionKey);
-    const shouldFollowLatest = savedPinned ?? true;
+    const shouldFollowLatest = sessionsWithExplicitTimelineScrollRef.current.has(selectedSessionKey)
+      ? false
+      : (savedPinned ?? true);
 
     setShowJumpToLatest(false);
     lastTranscriptMarkerRef.current = "";
@@ -583,6 +600,7 @@ export function useTimelineViewport({
     composerResizeBottomLockUntilRef,
     followingLatestRef,
     lastProgrammaticTimelineScrollAtRef,
+    lastTimelinePinnedBySessionRef,
     lastTimelineScrollTopBySessionRef,
     manualTimelineScrollRestoreRef,
     manualTimelineScrollTopRef,
@@ -601,10 +619,33 @@ export function useTimelineViewport({
       if (!pane || pane.dataset.timelineSessionKey !== sessionKey) {
         return;
       }
+      const pinned = isNearBottom(pane);
       lastTimelineScrollTopBySessionRef.current.set(sessionKey, pane.scrollTop);
-      lastTimelinePinnedBySessionRef.current.set(sessionKey, isNearBottom(pane));
+      lastTimelinePinnedBySessionRef.current.set(sessionKey, pinned);
+      if (!pinned) sessionsWithExplicitTimelineScrollRef.current.add(sessionKey);
     });
   }, []);
+  const handleTimelineNavigate = useCallback(() => {
+    const sessionKey = selectedSessionKeyRef.current;
+    const pane = timelinePaneRef.current;
+    const now = performance.now();
+    lastExplicitTimelineScrollIntentAtRef.current = now;
+    lastUserTimelineScrollIntentAtRef.current = now;
+    userTimelineScrollIntentRef.current = true;
+    sessionsWithExplicitTimelineScrollRef.current.add(sessionKey);
+    followingLatestRef.current = false;
+    pinnedToBottomRef.current = false;
+    preserveBottomOnNextPaneResizeRef.current = false;
+    suppressVirtualizedHydrationScrollIntentUntilRef.current = 0;
+    manualTimelineScrollTopRef.current = null;
+    manualTimelineAnchorRef.current = null;
+    lastTimelinePinnedBySessionRef.current.set(sessionKey, false);
+    if (pane?.dataset.timelineSessionKey === sessionKey) {
+      lastTimelineScrollTopBySessionRef.current.set(sessionKey, pane.scrollTop);
+    }
+    resetExactBottomRestoreState();
+    setShowJumpToLatest(true);
+  }, [resetExactBottomRestoreState]);
   const handleScrollbarDragStart = useCallback(() => {
     followingLatestRef.current = false;
     pinnedToBottomRef.current = false;
@@ -618,6 +659,7 @@ export function useTimelineViewport({
     autoAligningTimelineRef,
     hasSelectedSession,
     lastExplicitTimelineScrollIntentAtRef,
+    lastExplicitTimelineWheelDeltaYRef,
     lastTimelineScrollbarDragAtRef,
     lastUserTimelineScrollIntentAtRef,
     onExplicitTimelineScrollIntent: snapshotExplicitTimelineScrollPosition,
@@ -649,6 +691,7 @@ export function useTimelineViewport({
   useTimelinePaneResize({
     activeView,
     followingLatestRef,
+    lastTimelinePinnedBySessionRef,
     pinnedToBottomRef,
     preserveBottomOnNextPaneResizeRef,
     previousTimelinePaneSizeRef,
@@ -673,6 +716,18 @@ export function useTimelineViewport({
     lastTranscriptChangeAtRef.current = performance.now();
 
     suppressNativeTimelineScrollIntentUntilRef.current = performance.now() + 250;
+
+    if (sessionsWithExplicitTimelineScrollRef.current.has(selectedSessionKey)) {
+      const savedScrollTop = lastTimelineScrollTopBySessionRef.current.get(selectedSessionKey);
+      pinnedToBottomRef.current = false;
+      followingLatestRef.current = false;
+      suppressVirtualizedHydrationScrollIntentUntilRef.current = 0;
+      manualTimelineScrollTopRef.current = savedScrollTop ?? manualTimelineScrollTopRef.current;
+      lastTimelinePinnedBySessionRef.current.set(selectedSessionKey, false);
+      restoreManualTimelinePositionAcrossFrames(30);
+      setShowJumpToLatest(true);
+      return;
+    }
 
     const shouldForceInitialHydrationBottom =
       transcript.length > VIRTUALIZATION_THRESHOLD &&
@@ -707,6 +762,8 @@ export function useTimelineViewport({
       window.setTimeout(forceInitialBottomAlignment, 1_000);
       window.setTimeout(forceInitialBottomAlignment, 1_750);
       window.setTimeout(forceInitialBottomAlignment, 2_500);
+      window.setTimeout(forceInitialBottomAlignment, 4_000);
+      window.setTimeout(forceInitialBottomAlignment, 6_000);
     }
 
     if (
@@ -721,9 +778,25 @@ export function useTimelineViewport({
 
     if (followingLatestRef.current) {
       if (transcript.length > VIRTUALIZATION_THRESHOLD) {
-        suppressVirtualizedHydrationScrollIntentUntilRef.current = performance.now() + 4_000;
+        suppressVirtualizedHydrationScrollIntentUntilRef.current = performance.now() + 8_000;
       }
+      setShowJumpToLatest(false);
       requestPinnedBottomAlignment("auto");
+      const realignLateFollowingLayout = () => {
+        if (
+          selectedSessionKeyRef.current !== selectedSessionKey
+          || !followingLatestRef.current
+          || !pinnedToBottomRef.current
+          || sessionsWithExplicitTimelineScrollRef.current.has(selectedSessionKey)
+        ) {
+          return;
+        }
+        lastTimelinePinnedBySessionRef.current.set(selectedSessionKey, true);
+        requestPinnedBottomAlignment("auto");
+      };
+      for (const delay of [100, 250, 500, 1_000, 2_000, 4_000]) {
+        window.setTimeout(realignLateFollowingLayout, delay);
+      }
       return;
     }
 
@@ -791,6 +864,7 @@ export function useTimelineViewport({
       return;
     }
 
+    setShowJumpToLatest(false);
     window.requestAnimationFrame(() => {
       if (!followingLatestRef.current || (!pinnedToBottomRef.current && !preserveBottomOnNextPaneResizeRef.current)) {
         return;
@@ -836,9 +910,11 @@ export function useTimelineViewport({
     const recentScrollbarDragIntent =
       timelineScrollbarDragActiveRef.current ||
       now - lastTimelineScrollbarDragAtRef.current < 600;
-    const explicitUserScrollIntent =
+    const immediateExplicitUserScrollIntent =
       recentScrollbarDragIntent ||
-      (userTimelineScrollIntentRef.current && recentExplicitUserScrollIntent) ||
+      (userTimelineScrollIntentRef.current && recentExplicitUserScrollIntent);
+    const explicitUserScrollIntent =
+      immediateExplicitUserScrollIntent ||
       recentExplicitUserScrollIntent;
     const recentProgrammaticScroll = now - lastProgrammaticTimelineScrollAtRef.current < 180;
     const suppressNativeScrollIntent = now < suppressNativeTimelineScrollIntentUntilRef.current;
@@ -865,7 +941,14 @@ export function useTimelineViewport({
       !virtualizedFollowRestorePending &&
       previousScrollTop !== null &&
       Math.abs(nextScrollTop - previousScrollTop) > 120;
+    const smallLayoutGapWhileFollowing =
+      followingLatestRef.current &&
+      pinnedToBottomRef.current &&
+      !explicitUserScrollIntent &&
+      maxScrollTop - nextScrollTop <= 160 &&
+      (previousScrollTop === null || Math.abs(nextScrollTop - previousScrollTop) <= 160);
     const inferredNativeScrollIntent =
+      !smallLayoutGapWhileFollowing &&
       !transcriptRecentlyChanged &&
       !virtualizedFollowRestorePending &&
       !autoAligningTimelineRef.current &&
@@ -898,6 +981,25 @@ export function useTimelineViewport({
       manualRestorePending &&
       savedManualScrollTop !== null &&
       maxScrollTop < savedManualScrollTop - 2;
+    const resumesManualFollowing =
+      immediateExplicitUserScrollIntent
+      && (recentScrollbarDragIntent || lastExplicitTimelineWheelDeltaYRef.current > 0);
+    if (
+      pinned
+      && sessionsWithExplicitTimelineScrollRef.current.has(sessionKey)
+      && !resumesManualFollowing
+    ) {
+      const savedScrollTop = lastTimelineScrollTopBySessionRef.current.get(sessionKey);
+      pinnedToBottomRef.current = false;
+      followingLatestRef.current = false;
+      manualTimelineScrollTopRef.current = savedScrollTop ?? manualTimelineScrollTopRef.current;
+      lastTimelinePinnedBySessionRef.current.set(sessionKey, false);
+      previousTimelineScrollTopRef.current = nextScrollTop;
+      userTimelineScrollIntentRef.current = false;
+      restoreManualTimelinePositionAcrossFrames(30);
+      setShowJumpToLatest(true);
+      return;
+    }
     const shouldCacheObservedPosition =
       !manualRestoreClampedByContent && (pinned || explicitUserScrollIntent || observedStableOffBottomPosition);
     if (sessionKey && shouldCacheObservedPosition) {
@@ -978,7 +1080,10 @@ export function useTimelineViewport({
       return;
     }
 
-    if ((manualRestoreClampedByContent || !explicitUserScrollIntent) && manualTimelineScrollTopRef.current !== null) {
+    if (
+      (manualRestoreClampedByContent || !immediateExplicitUserScrollIntent)
+      && manualTimelineScrollTopRef.current !== null
+    ) {
       restoreManualTimelinePositionAcrossFrames(30);
       setShowJumpToLatest(true);
       return;
@@ -989,6 +1094,12 @@ export function useTimelineViewport({
     suppressVirtualizedHydrationScrollIntentUntilRef.current = 0;
     manualTimelineScrollTopRef.current = null;
     manualTimelineAnchorRef.current = null;
+    if (
+      resumesManualFollowing
+    ) {
+      sessionsWithExplicitTimelineScrollRef.current.delete(sessionKey);
+      lastExplicitTimelineWheelDeltaYRef.current = 0;
+    }
     lastTimelineScrollTopBySessionRef.current.set(sessionKey, pane.scrollTop);
     lastTimelinePinnedBySessionRef.current.set(sessionKey, true);
     setShowJumpToLatest(false);
@@ -1010,6 +1121,14 @@ export function useTimelineViewport({
     suppressVirtualizedHydrationScrollIntentUntilRef.current = 0;
     manualTimelineScrollTopRef.current = null;
     manualTimelineAnchorRef.current = null;
+    userTimelineScrollIntentRef.current = false;
+    lastUserTimelineScrollIntentAtRef.current = 0;
+    lastExplicitTimelineScrollIntentAtRef.current = 0;
+    lastExplicitTimelineWheelDeltaYRef.current = 0;
+    lastTimelineScrollbarDragAtRef.current = 0;
+    timelineScrollbarDragActiveRef.current = false;
+    setShowJumpToLatest(false);
+    sessionsWithExplicitTimelineScrollRef.current.delete(selectedSessionKey);
     lastTimelinePinnedBySessionRef.current.set(selectedSessionKey, true);
     if (pane?.dataset.timelineSessionKey === selectedSessionKey) {
       lastProgrammaticTimelineScrollAtRef.current = performance.now();
@@ -1017,12 +1136,13 @@ export function useTimelineViewport({
       pane.scrollTop = pane.scrollHeight;
       lastTimelineScrollTopBySessionRef.current.set(selectedSessionKey, pane.scrollHeight);
     }
-    requestPinnedBottomAlignment("smooth");
+    requestPinnedBottomAlignment("auto");
   }, [requestPinnedBottomAlignment, scrollLatestTimelineRowIntoView, selectedSessionKey]);
 
   return {
     finalizeTimelineVirtualizationDisable,
     handleTimelineContentHeightChange,
+    handleTimelineNavigate,
     handleTimelineScroll,
     jumpToLatest,
     preserveTimelineBottomForLayoutChange,

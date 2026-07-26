@@ -9,6 +9,7 @@ import {
   launchDesktop,
   makeUserDataDir,
   makeWorkspace,
+  runTopbarTool,
   stubNextOpenDialog,
   stubNextOpenDialogResult,
   triggerApplicationMenuItem,
@@ -145,7 +146,7 @@ test("opens a folder from the topbar add-folder icon and goes straight to new th
     await harness.focusWindow();
 
     await stubNextOpenDialog(harness, [openedWorkspacePath]);
-    await window.getByRole("button", { name: "Add folder" }).click();
+    await runTopbarTool(window, "Add folder");
 
     await expect
       .poll(async () => {

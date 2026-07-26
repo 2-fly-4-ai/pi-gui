@@ -61,6 +61,12 @@ export async function snapshotProcessTree(rootPid: number | undefined): Promise<
   return result;
 }
 
+export async function inspectProcess(pid: number | undefined): Promise<ProcessInfo | undefined> {
+  if (pid === undefined || pid <= 0 || platform() === "win32") return undefined;
+  const processes = await listProcesses();
+  return processes.find((process) => process.pid === pid);
+}
+
 async function listProcesses(): Promise<readonly ProcessInfo[]> {
   try {
     const { stdout } = await execFileAsync("ps", ["-axo", "pid=,ppid=,pgid=,command="], {

@@ -17,12 +17,18 @@ import {
   getMinVsCodeSidePanelWidth,
   storeVsCodeSidePanelWidth,
 } from "../../vscode-panel-width";
+import {
+  readWorkspacePanelLayout,
+  resetWorkspacePanelLayout,
+  updateWorkspacePanelLayout,
+} from "../../product-experience/workspace-layout";
 
 interface PanelLayoutOptions {
   readonly activeView: AppView | undefined;
   readonly sidebarCollapsed: boolean;
   readonly workspaceCount: number;
   readonly selectedSessionKey: string;
+  readonly selectedWorkspaceId: string;
   readonly mainRef: React.MutableRefObject<HTMLElement | null>;
 }
 
@@ -31,14 +37,15 @@ export function usePanelLayout({
   sidebarCollapsed,
   workspaceCount,
   selectedSessionKey,
+  selectedWorkspaceId,
   mainRef,
 }: PanelLayoutOptions) {
   const [dmDrawerOpen, setDmDrawerOpen] = useState(() => {
     try {
-      return localStorage.getItem("dm:drawerOpen") !== "false";
+      return localStorage.getItem("dm:drawerOpen") === "true";
     } catch (error) {
       logIgnoredError("app.dmDrawerOpen.readLocalStorage", error);
-      return true;
+      return false;
     }
   });
   const [logsOpen, setLogsOpen] = useState(() => {
@@ -64,6 +71,25 @@ export function usePanelLayout({
   const [terminalHeight, setTerminalHeight] = useState(340);
   const threadVsCodeWidthRef = useRef(threadVsCodeWidth);
   const browserPanelWidthRef = useRef(browserPanelWidth);
+  const restoredWorkspaceIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (restoredWorkspaceIdRef.current === selectedWorkspaceId) {
+      return;
+    }
+    restoredWorkspaceIdRef.current = selectedWorkspaceId;
+    const layout = readWorkspacePanelLayout(selectedWorkspaceId);
+    setLogsOpen(layout.logsOpen);
+    setDmDrawerOpen(layout.drawerOpen);
+    setSideBrowserOpen(layout.browserOpen);
+    setVsCodeOpen(layout.vsCodeOpen);
+    setBrowserPanelWidth(layout.browserWidth);
+    setThreadVsCodeWidth(layout.vsCodeWidth);
+    setTerminalHeight(layout.terminalHeight);
+    setOpenTerminalSessionKeys(layout.terminalOpen && selectedSessionKey
+      ? new Set([selectedSessionKey])
+      : new Set());
+  }, [selectedSessionKey, selectedWorkspaceId]);
 
   const setThreadVsCodeCssWidth = useCallback((width: number) => {
     mainRef.current?.style.setProperty("--thread-vscode-width", `${width}px`);
@@ -111,9 +137,10 @@ export function usePanelLayout({
       } catch (error) {
         logIgnoredError("app.dmDrawerOpen.writeLocalStorage", error);
       }
+      updateWorkspacePanelLayout(selectedWorkspaceId, { drawerOpen: next });
       return next;
     });
-  }, []);
+  }, [selectedWorkspaceId]);
 
   const setLogsPanelOpen = useCallback((open: boolean) => {
     try {
@@ -122,7 +149,8 @@ export function usePanelLayout({
       logIgnoredError("app.logsOpen.writeLocalStorage", error);
     }
     setLogsOpen(open);
-  }, []);
+    updateWorkspacePanelLayout(selectedWorkspaceId, { logsOpen: open });
+  }, [selectedWorkspaceId]);
 
   const toggleLogsPanel = useCallback(() => {
     setLogsOpen((open) => {
@@ -132,15 +160,21 @@ export function usePanelLayout({
       } catch (error) {
         logIgnoredError("app.logsOpen.toggleLocalStorage", error);
       }
+      updateWorkspacePanelLayout(selectedWorkspaceId, { logsOpen: next });
       return next;
     });
-  }, []);
+  }, [selectedWorkspaceId]);
 
-  const toggleVsCode = useCallback(() => setVsCodeOpen((open) => !open), []);
+  const toggleVsCode = useCallback(() => setVsCodeOpen((open) => {
+    const next = !open;
+    updateWorkspacePanelLayout(selectedWorkspaceId, { vsCodeOpen: next });
+    return next;
+  }), [selectedWorkspaceId]);
   const openVsCodeForWorkspace = useCallback((workspaceId: string, folderPath: string) => {
     setVsCodeWorkspaceId(workspaceId);
     setVsCodeFolderPath(folderPath);
     setVsCodeOpen(true);
+    updateWorkspacePanelLayout(workspaceId, { vsCodeOpen: true });
   }, []);
 
   const updateVsCodeTarget = useCallback((workspace: WorkspaceRecord) => {
@@ -158,9 +192,19 @@ export function usePanelLayout({
     setVsCodeFolderPath(workspace.path);
     setVsCodeOpen((open) => {
       const alreadyTargetingSelected = vsCodeWorkspaceId === workspace.id && vsCodeFolderPath === workspace.path;
-      return alreadyTargetingSelected ? !open : true;
+      const next = alreadyTargetingSelected ? !open : true;
+      updateWorkspacePanelLayout(workspace.id, { vsCodeOpen: next });
+      return next;
     });
   }, [vsCodeFolderPath, vsCodeWorkspaceId]);
+
+  const setSideBrowserOpenPersisted: React.Dispatch<React.SetStateAction<boolean>> = useCallback((value) => {
+    setSideBrowserOpen((current) => {
+      const next = typeof value === "function" ? value(current) : value;
+      updateWorkspacePanelLayout(selectedWorkspaceId, { browserOpen: next });
+      return next;
+    });
+  }, [selectedWorkspaceId]);
 
   const toggleSideBrowser = useCallback(() => {
     setSideBrowserOpen((open) => {
@@ -168,15 +212,17 @@ export function usePanelLayout({
       if (nextOpen) {
         setVsCodeOpen(false);
       }
+      updateWorkspacePanelLayout(selectedWorkspaceId, { browserOpen: nextOpen, ...(nextOpen ? { vsCodeOpen: false } : {}) });
       return nextOpen;
     });
-  }, []);
+  }, [selectedWorkspaceId]);
 
   const openSideBrowserUrl = useCallback((url: string) => {
     setSideBrowserUrl(url);
     setSideBrowserOpen(true);
     setVsCodeOpen(false);
-  }, []);
+    updateWorkspacePanelLayout(selectedWorkspaceId, { browserOpen: true, vsCodeOpen: false });
+  }, [selectedWorkspaceId]);
 
   const startThreadVsCodeResize = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
     event.preventDefault();
@@ -285,13 +331,15 @@ export function usePanelLayout({
           nextTakeover.delete(selectedSessionKey);
           return nextTakeover;
         });
+        updateWorkspacePanelLayout(selectedWorkspaceId, { terminalOpen: false });
         return next;
       }
       next.add(selectedSessionKey);
       setActiveTerminalSessionKey(selectedSessionKey);
+      updateWorkspacePanelLayout(selectedWorkspaceId, { terminalOpen: true });
       return next;
     });
-  }, [selectedSessionKey]);
+  }, [selectedSessionKey, selectedWorkspaceId]);
 
   const openTerminalForSession = useCallback((sessionKey: string) => {
     setOpenTerminalSessionKeys((current) => {
@@ -300,7 +348,8 @@ export function usePanelLayout({
       return next;
     });
     setActiveTerminalSessionKey(sessionKey);
-  }, []);
+    updateWorkspacePanelLayout(selectedWorkspaceId, { terminalOpen: true });
+  }, [selectedWorkspaceId]);
 
   const closeTerminal = useCallback((sessionKey: string) => {
     setOpenTerminalSessionKeys((current) => {
@@ -316,7 +365,10 @@ export function usePanelLayout({
       next.delete(sessionKey);
       return next;
     });
-  }, [activeTerminalSessionKey]);
+    if (sessionKey === selectedSessionKey) {
+      updateWorkspacePanelLayout(selectedWorkspaceId, { terminalOpen: false });
+    }
+  }, [activeTerminalSessionKey, selectedSessionKey, selectedWorkspaceId]);
 
   const removeTerminalTakeover = useCallback((sessionKey: string) => {
     setTakeoverTerminalSessionKeys((current) => {
@@ -355,13 +407,32 @@ export function usePanelLayout({
     threadVsCodeWidthRef.current = threadVsCodeWidth;
     setThreadVsCodeCssWidth(threadVsCodeWidth);
     storeVsCodeSidePanelWidth(threadVsCodeWidth);
-  }, [setThreadVsCodeCssWidth, threadVsCodeWidth]);
+    updateWorkspacePanelLayout(selectedWorkspaceId, { vsCodeWidth: threadVsCodeWidth });
+  }, [selectedWorkspaceId, setThreadVsCodeCssWidth, threadVsCodeWidth]);
 
   useEffect(() => {
     browserPanelWidthRef.current = browserPanelWidth;
     setBrowserPanelCssWidth(browserPanelWidth);
     storeBrowserSidePanelWidth(browserPanelWidth);
-  }, [browserPanelWidth, setBrowserPanelCssWidth]);
+    updateWorkspacePanelLayout(selectedWorkspaceId, { browserWidth: browserPanelWidth });
+  }, [browserPanelWidth, selectedWorkspaceId, setBrowserPanelCssWidth]);
+
+  useEffect(() => {
+    updateWorkspacePanelLayout(selectedWorkspaceId, { terminalHeight });
+  }, [selectedWorkspaceId, terminalHeight]);
+
+  const resetWorkspaceLayout = useCallback(() => {
+    const layout = resetWorkspacePanelLayout(selectedWorkspaceId);
+    setLogsOpen(layout.logsOpen);
+    setDmDrawerOpen(layout.drawerOpen);
+    setSideBrowserOpen(layout.browserOpen);
+    setVsCodeOpen(layout.vsCodeOpen);
+    setBrowserPanelWidth(layout.browserWidth);
+    setThreadVsCodeWidth(layout.vsCodeWidth);
+    setTerminalHeight(layout.terminalHeight);
+    setOpenTerminalSessionKeys(new Set());
+    setTakeoverTerminalSessionKeys(new Set());
+  }, [selectedWorkspaceId]);
 
   useLayoutEffect(() => {
     if (!vsCodeOpen || !vsCodeSlotElement) {
@@ -439,12 +510,13 @@ export function usePanelLayout({
     openTerminalSessionKeys,
     openVsCodeForWorkspace,
     removeTerminalTakeover,
+    resetWorkspaceLayout,
     setActiveTerminalSessionKey,
     setBrowserPanelWidth,
     setBrowserPanelWidthFromInteraction: setBrowserPanelWidth,
     setLogsPanelOpen,
     setSharedVsCodeWidth,
-    setSideBrowserOpen,
+    setSideBrowserOpen: setSideBrowserOpenPersisted,
     setSideBrowserUrl,
     setTerminalHeight,
     setThreadVsCodeWidth,
@@ -488,6 +560,7 @@ export function usePanelLayout({
     readonly openTerminalSessionKeys: ReadonlySet<string>;
     readonly openVsCodeForWorkspace: (workspaceId: string, folderPath: string) => void;
     readonly removeTerminalTakeover: (sessionKey: string) => void;
+    readonly resetWorkspaceLayout: () => void;
     readonly setActiveTerminalSessionKey: React.Dispatch<React.SetStateAction<string>>;
     readonly setBrowserPanelWidth: React.Dispatch<React.SetStateAction<number>>;
     readonly setBrowserPanelWidthFromInteraction: React.Dispatch<React.SetStateAction<number>>;

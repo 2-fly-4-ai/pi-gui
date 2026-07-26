@@ -5,6 +5,7 @@ import type { TimelinePaneSize } from "./timeline-viewport-utils";
 interface UseTimelinePaneResizeOptions {
   readonly activeView: AppView | undefined;
   readonly followingLatestRef: RefObject<boolean>;
+  readonly lastTimelinePinnedBySessionRef: RefObject<Map<string, boolean>>;
   readonly pinnedToBottomRef: RefObject<boolean>;
   readonly preserveBottomOnNextPaneResizeRef: RefObject<boolean>;
   readonly previousTimelinePaneSizeRef: RefObject<TimelinePaneSize | null>;
@@ -18,6 +19,7 @@ interface UseTimelinePaneResizeOptions {
 export function useTimelinePaneResize({
   activeView,
   followingLatestRef,
+  lastTimelinePinnedBySessionRef,
   pinnedToBottomRef,
   preserveBottomOnNextPaneResizeRef,
   previousTimelinePaneSizeRef,
@@ -51,7 +53,9 @@ export function useTimelinePaneResize({
     const updateMeasuredSize = (nextSize: TimelinePaneSize) => {
       const previousSize = previousTimelinePaneSizeRef.current;
       previousTimelinePaneSizeRef.current = nextSize;
-      const shouldStickToBottom = preserveBottomOnNextPaneResizeRef.current || pinnedToBottomRef.current;
+      const shouldStickToBottom =
+        lastTimelinePinnedBySessionRef.current.get(selectedSessionKey) !== false
+        && (preserveBottomOnNextPaneResizeRef.current || pinnedToBottomRef.current);
       const widthChanged = previousSize ? Math.abs(nextSize.width - previousSize.width) >= 1 : false;
       const heightChanged = previousSize ? Math.abs(nextSize.height - previousSize.height) >= 1 : false;
       if (!previousSize || (!widthChanged && !heightChanged) || !shouldStickToBottom) {
@@ -80,6 +84,7 @@ export function useTimelinePaneResize({
   }, [
     activeView,
     followingLatestRef,
+    lastTimelinePinnedBySessionRef,
     pinnedToBottomRef,
     preserveBottomOnNextPaneResizeRef,
     previousTimelinePaneSizeRef,

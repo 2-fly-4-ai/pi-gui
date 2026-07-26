@@ -18,8 +18,18 @@ import { ToolAccessSelector } from "./tool-access-selector";
 import { ContextWindowIndicator } from "./context-window-indicator";
 import { FastModeSelector, type FastModeSelection } from "./fast-mode-selector";
 import { ThinkingTraceToggle } from "./thinking-trace-toggle";
+import type { PiDesktopApi } from "./ipc";
+import { TaskEvidenceSurface } from "./features/evidence/task-evidence-surface";
+import { TaskErrorRecovery } from "./features/evidence/task-error-recovery";
+import { ContextInspector } from "./features/evidence/context-inspector";
+import { ExecutionBoundaryControl } from "./features/evidence/execution-boundary-control";
 
 interface ComposerPanelProps {
+  readonly api: PiDesktopApi;
+  readonly workspaceId: string;
+  readonly sessionId: string;
+  readonly onOpenLogs: () => void;
+  readonly onOpenErrorSettings: () => void;
   readonly sessionStatus: SessionRecord["status"];
   readonly runtimeStatusText: string;
   readonly lastError?: string;
@@ -37,6 +47,7 @@ interface ComposerPanelProps {
   readonly thinkingLevel: string | undefined;
   readonly showThinking: boolean;
   readonly thinkingActive: boolean;
+  readonly codexUsageStatus?: string;
   readonly slashSections: readonly ComposerSlashCommandSection[];
   readonly slashOptions: readonly ComposerSlashOption[];
   readonly sessionCommands: readonly RuntimeCommandRecord[];
@@ -57,6 +68,9 @@ interface ComposerPanelProps {
   readonly onCancelQueuedEdit: () => void;
   readonly onRemoveQueuedMessage: (messageId: string) => void;
   readonly onSteerQueuedMessage: (messageId: string) => void;
+  readonly onQueueQueuedMessage: (messageId: string) => void;
+  readonly onMoveQueuedMessage: (messageId: string, direction: "up" | "down") => void;
+  readonly onSendNextQueuedMessage: (messageId: string) => void;
   readonly onSelectSlashCommand: (command: ComposerSlashCommand) => void;
   readonly onSelectSlashOption: (option: ComposerSlashOption) => void;
   readonly onSetModel: (provider: string, modelId: string) => void;
@@ -74,9 +88,16 @@ interface ComposerPanelProps {
   readonly selectedMentionIndex: number;
   readonly onSelectMention: (filePath: string) => void;
   readonly checkoutSelector?: ReactNode;
+  readonly onReviewChanges: (path: string) => void;
+  readonly onCommit: () => void;
 }
 
 export const ComposerPanel = memo(function ComposerPanel({
+  api,
+  workspaceId,
+  sessionId,
+  onOpenLogs,
+  onOpenErrorSettings,
   sessionStatus,
   runtimeStatusText,
   lastError,
@@ -94,6 +115,7 @@ export const ComposerPanel = memo(function ComposerPanel({
   thinkingLevel,
   showThinking,
   thinkingActive,
+  codexUsageStatus,
   slashSections,
   slashOptions,
   fastMode,
@@ -113,6 +135,9 @@ export const ComposerPanel = memo(function ComposerPanel({
   onCancelQueuedEdit,
   onRemoveQueuedMessage,
   onSteerQueuedMessage,
+  onQueueQueuedMessage,
+  onMoveQueuedMessage,
+  onSendNextQueuedMessage,
   onSelectSlashCommand,
   onSelectSlashOption,
   onSetModel,
@@ -130,6 +155,8 @@ export const ComposerPanel = memo(function ComposerPanel({
   selectedMentionIndex,
   onSelectMention,
   checkoutSelector,
+  onReviewChanges,
+  onCommit,
 }: ComposerPanelProps) {
   const hasComposerInput = composerDraft.trim().length > 0 || attachments.length > 0;
   const primaryActionIsStop = sessionStatus === "running" && !hasComposerInput;
@@ -141,14 +168,52 @@ export const ComposerPanel = memo(function ComposerPanel({
       <div className="conversation conversation--composer">
         <div className="composer-status-strip" aria-label="Composer status">
           {checkoutSelector}
+          <ContextInspector
+            api={api}
+            workspaceId={workspaceId}
+            sessionId={sessionId}
+            provider={provider}
+            model={modelId}
+            composerDraft={composerDraft}
+            setComposerDraft={setComposerDraft}
+            attachments={attachments}
+            onRemoveAttachment={onRemoveAttachment}
+          />
+          <ExecutionBoundaryControl
+            api={api}
+            workspaceId={workspaceId}
+            sessionId={sessionId}
+            toolAccess={toolAccess}
+            onSetToolAccess={onSetToolAccess}
+          />
           {showRuntimeStatus ? (
             <span className="composer-runtime-status" data-testid="composer-runtime-status">
               {runtimeStatusText}
             </span>
           ) : null}
         </div>
+        <TaskEvidenceSurface
+          api={api}
+          workspaceId={workspaceId}
+          sessionId={sessionId}
+          sessionStatus={sessionStatus}
+          onOpenLogs={onOpenLogs}
+          onOpenSettings={onOpenErrorSettings}
+          onRetry={setComposerDraft}
+          onReviewChanges={onReviewChanges}
+          onCommit={onCommit}
+        />
+        {lastError ? (
+          <TaskErrorRecovery
+            api={api}
+            message={lastError}
+            onOpenLogs={onOpenLogs}
+            onOpenSettings={onOpenErrorSettings}
+            onRetry={setComposerDraft}
+          />
+        ) : null}
         <ComposerSurface
-          lastError={lastError}
+          lastError={undefined}
           activeSlashCommand={activeSlashCommand}
           activeSlashCommandMeta={activeSlashCommandMeta}
           topNotice={(
@@ -176,6 +241,9 @@ export const ComposerPanel = memo(function ComposerPanel({
           onCancelQueuedEdit={onCancelQueuedEdit}
           onRemoveQueuedMessage={onRemoveQueuedMessage}
           onSteerQueuedMessage={onSteerQueuedMessage}
+          onQueueQueuedMessage={onQueueQueuedMessage}
+          onMoveQueuedMessage={onMoveQueuedMessage}
+          onSendNextQueuedMessage={onSendNextQueuedMessage}
           onSelectSlashCommand={onSelectSlashCommand}
           onSelectSlashOption={onSelectSlashOption}
           showMentionMenu={showMentionMenu}
@@ -222,7 +290,12 @@ export const ComposerPanel = memo(function ComposerPanel({
                     onChange={onSetToolAccess}
                   />
                 )}
-                contextControl={<ContextWindowIndicator compactionEnabled />}
+                contextControl={(
+                  <ContextWindowIndicator
+                    codexUsageStatus={codexUsageStatus}
+                    compactionEnabled
+                  />
+                )}
                 thinkingTraceControl={(
                   <ThinkingTraceToggle
                     showThinking={showThinking}

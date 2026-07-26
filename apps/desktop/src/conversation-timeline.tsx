@@ -1,9 +1,16 @@
 import { LegendList, type LegendListRef } from "@legendapp/list/react";
-import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type MutableRefObject, type RefCallback, type RefObject } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type MutableRefObject, type RefCallback, type RefObject } from "react";
 import type { TranscriptMessage } from "./desktop-state";
+import { readAppearancePreferences, type TimelineCompressionMode } from "./appearance-preferences";
 import { ThreadSearchBar } from "./thread-search";
 import { TimelineItem } from "./timeline-item";
 import { useStableTranscriptRows } from "./conversation-timeline-rows";
+import { compressTimelineRows, type TimelineDisplayRow } from "./semantic-timeline-compression";
+import type { PiDesktopApi } from "./ipc";
+import { useTaskEvidence } from "./features/evidence/use-task-evidence";
+import { deriveAttentionMarkers, type AttentionMarker } from "./attention-markers";
+import { buildTimelineMinimap, type TimelineMinimapSegment } from "./timeline-minimap";
+import { LoadingState } from "./loading-state";
 
 export const VIRTUALIZATION_THRESHOLD = 80;
 
@@ -34,6 +41,9 @@ interface ThreadSearchModel {
 }
 
 interface ConversationTimelineProps {
+  readonly api: PiDesktopApi;
+  readonly workspaceId: string;
+  readonly sessionId: string;
   readonly timelineSessionKey: string;
   readonly transcript: readonly TranscriptMessage[];
   readonly isTranscriptLoading: boolean;
@@ -42,15 +52,20 @@ interface ConversationTimelineProps {
   readonly disableVirtualization?: boolean;
   readonly onDisableVirtualizationReady?: () => void;
   readonly onTimelineScroll: () => void;
+  readonly onTimelineNavigate: () => void;
   readonly threadSearch: ThreadSearchModel;
   readonly showJumpToLatest: boolean;
   readonly onJumpToLatest: () => void;
   readonly onContentHeightChange: () => void;
   readonly onViewFileInDiff?: (path: string) => void;
   readonly onOpenUrl?: (url: string) => void;
+  readonly onBranchFromMessage?: (messageId: string, role: "user" | "assistant", text: string) => Promise<void>;
 }
 
 export function ConversationTimeline({
+  api,
+  workspaceId,
+  sessionId,
   timelineSessionKey,
   transcript,
   isTranscriptLoading,
@@ -59,14 +74,69 @@ export function ConversationTimeline({
   disableVirtualization = false,
   onDisableVirtualizationReady,
   onTimelineScroll,
+  onTimelineNavigate,
   threadSearch,
   showJumpToLatest,
   onJumpToLatest,
   onContentHeightChange,
   onViewFileInDiff,
   onOpenUrl,
+  onBranchFromMessage,
 }: ConversationTimelineProps) {
   const stableTranscript = useStableTranscriptRows(transcript);
+  const { records: taskEvidence } = useTaskEvidence(api, workspaceId, sessionId);
+  const [compressionMode, setCompressionMode] = useState<TimelineCompressionMode>(
+    () => readAppearancePreferences().timelineCompression,
+  );
+  const [minimapEnabled, setMinimapEnabled] = useState(() => readAppearancePreferences().timelineMinimap);
+  useEffect(() => {
+    const handleAppearanceChange = (event: Event) => {
+      const detail = (event as CustomEvent<{
+        readonly timelineCompression?: TimelineCompressionMode;
+        readonly timelineMinimap?: boolean;
+      }>).detail;
+      if (detail?.timelineCompression) setCompressionMode(detail.timelineCompression);
+      if (detail?.timelineMinimap !== undefined) setMinimapEnabled(detail.timelineMinimap);
+    };
+    window.addEventListener("pi-gui:appearance-preferences-changed", handleAppearanceChange);
+    return () => window.removeEventListener("pi-gui:appearance-preferences-changed", handleAppearanceChange);
+  }, []);
+  const displayRows = useMemo(
+    () => compressTimelineRows(stableTranscript, threadSearch.isOpen ? "expanded" : compressionMode),
+    [compressionMode, stableTranscript, threadSearch.isOpen],
+  );
+  const attentionMarkers = useMemo(() => {
+    const rawMarkers = deriveAttentionMarkers(stableTranscript, taskEvidence);
+    const displayRowByRawId = new Map<string, string>();
+    for (const row of displayRows) {
+      if (row.kind === "semantic-group") {
+        for (const item of row.items) displayRowByRawId.set(item.id, row.id);
+      } else {
+        displayRowByRawId.set(row.id, row.id);
+      }
+    }
+    return rawMarkers.map((marker) => ({
+      ...marker,
+      rowId: displayRowByRawId.get(marker.rowId) ?? marker.rowId,
+    }));
+  }, [displayRows, stableTranscript, taskEvidence]);
+  const markersByRow = useMemo(() => {
+    const result = new Map<string, AttentionMarker[]>();
+    for (const marker of attentionMarkers) {
+      const existing = result.get(marker.rowId);
+      if (existing) existing.push(marker);
+      else result.set(marker.rowId, [marker]);
+    }
+    return result;
+  }, [attentionMarkers]);
+  const [activeMarkerIndex, setActiveMarkerIndex] = useState(0);
+  useEffect(() => {
+    setActiveMarkerIndex((current) => Math.min(current, Math.max(0, attentionMarkers.length - 1)));
+  }, [attentionMarkers.length]);
+  const minimapSegments = useMemo(
+    () => minimapEnabled ? buildTimelineMinimap(stableTranscript, displayRows, attentionMarkers) : [],
+    [attentionMarkers, displayRows, minimapEnabled, stableTranscript],
+  );
   // Long transcripts must never fall back to full DOM rendering. The parent may
   // temporarily request disabled virtualization while restoring scroll position,
   // but rendering thousands of historical rows is what makes the renderer memory
@@ -153,7 +223,7 @@ export function ConversationTimeline({
   }, [stableTranscript]);
 
   useLayoutEffect(() => {
-    const knownIds = new Set(stableTranscript.map((item) => item.id));
+    const knownIds = new Set(displayRows.map((item) => item.id));
     let removedAny = false;
     for (const id of measuredHeightsRef.current.keys()) {
       if (knownIds.has(id)) {
@@ -165,24 +235,24 @@ export function ConversationTimeline({
     if (removedAny) {
       scheduleMeasurementVersionUpdate();
     }
-  }, [scheduleMeasurementVersionUpdate, stableTranscript]);
+  }, [displayRows, scheduleMeasurementVersionUpdate]);
 
   useLayoutEffect(() => {
-    if (!disableVirtualization || isTranscriptLoading || stableTranscript.length === 0) {
+    if (!disableVirtualization || isTranscriptLoading || displayRows.length === 0) {
       return;
     }
-    const measuredCount = stableTranscript.reduce(
+    const measuredCount = displayRows.reduce(
       (count, item) => count + (measuredHeightsRef.current.has(item.id) ? 1 : 0),
       0,
     );
-    const allRowsMeasured = measuredCount === stableTranscript.length;
+    const allRowsMeasured = measuredCount === displayRows.length;
     const enoughRowsMeasuredForVirtualRestore =
-      stableTranscript.length > VIRTUALIZATION_THRESHOLD && measuredCount >= VIRTUALIZATION_THRESHOLD;
+      displayRows.length > VIRTUALIZATION_THRESHOLD && measuredCount >= VIRTUALIZATION_THRESHOLD;
     if (!allRowsMeasured && !enoughRowsMeasuredForVirtualRestore) {
       return;
     }
     onDisableVirtualizationReady?.();
-  }, [disableVirtualization, isTranscriptLoading, measurementVersion, onDisableVirtualizationReady, stableTranscript]);
+  }, [disableVirtualization, displayRows, isTranscriptLoading, measurementVersion, onDisableVirtualizationReady]);
 
   const toggleToolCall = useCallback((callId: string) => {
     setExpandedToolCallIds((current) => {
@@ -243,12 +313,83 @@ export function ConversationTimeline({
     onOpenUrl(anchor.href);
   }, [onOpenUrl]);
 
+  const navigateToRow = useCallback((rowId: string) => {
+    const rowIndex = displayRows.findIndex((row) => row.id === rowId);
+    const pane = timelinePaneRef.current as TimelinePaneElement | null;
+    if (!pane || rowIndex < 0) return;
+    onTimelineNavigate();
+    const approximateOffset = displayRows.length > 1
+      ? rowIndex / (displayRows.length - 1) * Math.max(0, pane.scrollHeight - pane.clientHeight)
+      : 0;
+    const positionTarget = () => {
+      pane.scrollTop = approximateOffset;
+      void pane.__legendListRef?.scrollToOffset?.({ offset: approximateOffset, animated: false });
+      return pane.__legendListRef?.scrollToIndex?.({
+        index: rowIndex,
+        animated: false,
+        viewPosition: 0.5,
+      });
+    };
+    const highlight = (attempt = 0) => {
+      pane.querySelectorAll(".timeline-attention-target").forEach((row) => row.classList.remove("timeline-attention-target"));
+      const target = pane.querySelector<HTMLElement>(`[data-timeline-row-id="${CSS.escape(rowId)}"]`);
+      if (target) {
+        target.classList.add("timeline-attention-target");
+        target.scrollIntoView({ block: "center", behavior: "smooth" });
+      } else if (attempt < 80) {
+        void positionTarget();
+        window.setTimeout(() => highlight(attempt + 1), 50);
+      }
+    };
+    if (pane.__legendListRef?.scrollToIndex) {
+      const result = positionTarget();
+      void Promise.resolve(result).then(() => {
+        onTimelineNavigate();
+        highlight();
+      });
+      window.setTimeout(() => highlight(), 50);
+    } else {
+      highlight();
+    }
+  }, [displayRows, onTimelineNavigate, timelinePaneRef]);
+
+  const navigateToMarker = useCallback((requestedIndex: number) => {
+    if (attentionMarkers.length === 0) return;
+    const index = (requestedIndex + attentionMarkers.length) % attentionMarkers.length;
+    const marker = attentionMarkers[index];
+    if (!marker) return;
+    setActiveMarkerIndex(index);
+    navigateToRow(marker.rowId);
+  }, [attentionMarkers, navigateToRow]);
+
+  useEffect(() => {
+    const handleAttentionShortcut = (event: KeyboardEvent) => {
+      if (!event.altKey || (event.key !== "ArrowUp" && event.key !== "ArrowDown")) return;
+      if (attentionMarkers.length === 0) return;
+      event.preventDefault();
+      navigateToMarker(activeMarkerIndex + (event.key === "ArrowDown" ? 1 : -1));
+    };
+    document.addEventListener("keydown", handleAttentionShortcut);
+    return () => document.removeEventListener("keydown", handleAttentionShortcut);
+  }, [activeMarkerIndex, attentionMarkers.length, navigateToMarker]);
+
+  const attentionNavigation = attentionMarkers.length ? (
+    <TimelineAttentionNavigation
+      markers={attentionMarkers}
+      activeIndex={activeMarkerIndex}
+      onNavigate={navigateToMarker}
+    />
+  ) : null;
+  const timelineMinimap = minimapSegments.length ? (
+    <TimelineMinimap segments={minimapSegments} onNavigate={navigateToRow} />
+  ) : null;
+
   if (shouldVirtualize && !isTranscriptLoading && stableTranscript.length > 0) {
     return (
       <div className="timeline-pane-frame timeline-pane-frame--thread" data-testid="transcript" onClickCapture={handleTimelineClickCapture}>
         <LegendTranscriptList
           timelineSessionKey={timelineSessionKey}
-          transcript={stableTranscript}
+          transcript={displayRows}
           assignTimelinePaneRef={assignTimelinePaneRef}
           onTimelineScroll={onTimelineScroll}
           expandedToolCallIds={expandedToolCallIds}
@@ -256,7 +397,11 @@ export function ConversationTimeline({
           onViewFileInDiff={onViewFileInDiff}
           onContentHeightChange={onContentHeightChange}
           onOpenUrl={onOpenUrl}
+          onBranchFromMessage={onBranchFromMessage}
+          markersByRow={markersByRow}
         />
+        {attentionNavigation}
+        {timelineMinimap}
         <div className="timeline-scrollbar-hit-area" aria-hidden="true" />
         {showJumpToLatest ? (
           <button
@@ -294,17 +439,19 @@ export function ConversationTimeline({
           onClose={threadSearch.close}
         />
       ) : null}
+      {attentionNavigation}
+      {timelineMinimap}
       {isTranscriptLoading ? (
         <div className="timeline" data-testid="transcript">
-          <div className="timeline-empty">Loading transcript…</div>
+          <LoadingState compact label="Loading transcript" detail="Restoring the latest session events…" />
         </div>
-      ) : stableTranscript.length === 0 ? (
+      ) : displayRows.length === 0 ? (
         <div className="timeline" data-testid="transcript">
           <div className="timeline-empty">Send a prompt to start the session.</div>
         </div>
       ) : (
         <div className="timeline" data-testid="transcript">
-          {stableTranscript.map((item) => (
+          {displayRows.map((item) => (
             <MeasuredTimelineItem
               item={item}
               key={item.id}
@@ -313,6 +460,8 @@ export function ConversationTimeline({
               onToggleToolCall={toggleToolCall}
               onViewFileInDiff={onViewFileInDiff}
               onOpenUrl={onOpenUrl}
+              onBranchFromMessage={onBranchFromMessage}
+              markers={markersByRow.get(item.id)}
             />
           ))}
         </div>
@@ -326,6 +475,67 @@ export function ConversationTimeline({
   );
 }
 
+function TimelineAttentionNavigation({
+  markers,
+  activeIndex,
+  onNavigate,
+}: {
+  readonly markers: readonly AttentionMarker[];
+  readonly activeIndex: number;
+  readonly onNavigate: (index: number) => void;
+}) {
+  const marker = markers[activeIndex] ?? markers[0];
+  if (!marker) return null;
+  return (
+    <nav className="timeline-attention-nav" data-testid="timeline-attention-nav" aria-label="Attention markers">
+      <button type="button" aria-label="Previous attention marker" onClick={() => onNavigate(activeIndex - 1)}>↑</button>
+      <button
+        className="timeline-attention-nav__current"
+        type="button"
+        aria-label={`Current attention marker: ${marker.label}`}
+        onClick={() => onNavigate(activeIndex)}
+      >
+        <span>{activeIndex + 1} of {markers.length}</span>
+        <strong>{attentionTypeLabel(marker.type)}</strong>
+      </button>
+      <button type="button" aria-label="Next attention marker" onClick={() => onNavigate(activeIndex + 1)}>↓</button>
+      <span className="sr-only">Option+Up and Option+Down navigate markers.</span>
+    </nav>
+  );
+}
+
+function attentionTypeLabel(type: AttentionMarker["type"]): string {
+  if (type === "input-required") return "Input required";
+  if (type === "direction-change") return "Direction";
+  return type.charAt(0).toUpperCase() + type.slice(1);
+}
+
+function TimelineMinimap({
+  segments,
+  onNavigate,
+}: {
+  readonly segments: readonly TimelineMinimapSegment[];
+  readonly onNavigate: (rowId: string) => void;
+}) {
+  return (
+    <nav className="timeline-minimap" data-testid="timeline-minimap" aria-label="Timeline minimap">
+      {segments.map((segment) => (
+        <button
+          key={segment.id}
+          type="button"
+          className="timeline-minimap__segment"
+          data-signal-types={segment.types.join(" ")}
+          data-timeline-target-row-id={segment.rowId}
+          style={{ top: `${segment.position * 100}%` }}
+          aria-label={`${segment.label}. ${segment.count} event${segment.count === 1 ? "" : "s"}.`}
+          title={segment.label}
+          onClick={() => onNavigate(segment.rowId)}
+        />
+      ))}
+    </nav>
+  );
+}
+
 function LegendTranscriptList({
   timelineSessionKey,
   transcript,
@@ -336,9 +546,11 @@ function LegendTranscriptList({
   onViewFileInDiff,
   onContentHeightChange,
   onOpenUrl,
+  onBranchFromMessage,
+  markersByRow,
 }: {
   readonly timelineSessionKey: string;
-  readonly transcript: readonly TranscriptMessage[];
+  readonly transcript: readonly TimelineDisplayRow[];
   readonly assignTimelinePaneRef: RefCallback<HTMLDivElement>;
   readonly onTimelineScroll: () => void;
   readonly expandedToolCallIds: ReadonlySet<string>;
@@ -346,8 +558,11 @@ function LegendTranscriptList({
   readonly onViewFileInDiff?: (path: string) => void;
   readonly onContentHeightChange: () => void;
   readonly onOpenUrl?: (url: string) => void;
+  readonly onBranchFromMessage?: (messageId: string, role: "user" | "assistant", text: string) => Promise<void>;
+  readonly markersByRow: ReadonlyMap<string, readonly AttentionMarker[]>;
 }) {
   const legendListRef = useRef<LegendListRef | null>(null);
+  const extraData = useMemo(() => ({ expandedToolCallIds, markersByRow }), [expandedToolCallIds, markersByRow]);
 
   useLayoutEffect(() => {
     const node = legendListRef.current?.getScrollableNode?.();
@@ -364,20 +579,26 @@ function LegendTranscriptList({
     };
   }, [assignTimelinePaneRef]);
 
-  const renderItem = useCallback(({ item }: { item: TranscriptMessage }) => (
-    <div className="timeline__legend-row timeline__virtual-row" data-timeline-row-id={item.id}>
+  const renderItem = useCallback(({ item }: { item: TimelineDisplayRow }) => (
+    <div
+      className={`timeline__legend-row timeline__virtual-row${markersByRow.has(item.id) ? " timeline-row--attention" : ""}`}
+      data-timeline-row-id={item.id}
+      data-attention-types={markersByRow.get(item.id)?.map((marker) => marker.type).join(" ")}
+      title={markersByRow.get(item.id)?.map((marker) => marker.label).join("\n")}
+    >
       <TimelineItem
         item={item}
         expandedToolCallIds={expandedToolCallIds}
         onToggleToolCall={onToggleToolCall}
         onViewFileInDiff={onViewFileInDiff}
         onOpenUrl={onOpenUrl}
+        onBranchFromMessage={onBranchFromMessage}
       />
     </div>
-  ), [expandedToolCallIds, onOpenUrl, onToggleToolCall, onViewFileInDiff]);
+  ), [expandedToolCallIds, markersByRow, onBranchFromMessage, onOpenUrl, onToggleToolCall, onViewFileInDiff]);
 
   return (
-    <LegendList<TranscriptMessage>
+    <LegendList<TimelineDisplayRow>
       ref={legendListRef}
       data={transcript}
       keyExtractor={(item) => item.id}
@@ -389,7 +610,7 @@ function LegendTranscriptList({
       maintainScrollAtEndThreshold={0.1}
       maintainVisibleContentPosition
       recycleItems
-      extraData={expandedToolCallIds}
+      extraData={extraData}
       onItemSizeChanged={onContentHeightChange}
       onScroll={onTimelineScroll}
       data-timeline-session-key={timelineSessionKey}
@@ -406,13 +627,17 @@ const MeasuredTimelineItem = memo(function MeasuredTimelineItem({
   onToggleToolCall,
   onViewFileInDiff,
   onOpenUrl,
+  onBranchFromMessage,
+  markers,
 }: {
-  readonly item: TranscriptMessage;
+  readonly item: TimelineDisplayRow;
   readonly onHeightChange: (id: string, height: number) => void;
   readonly expandedToolCallIds: ReadonlySet<string>;
   readonly onToggleToolCall: (callId: string) => void;
   readonly onViewFileInDiff?: (path: string) => void;
   readonly onOpenUrl?: (url: string) => void;
+  readonly onBranchFromMessage?: (messageId: string, role: "user" | "assistant", text: string) => Promise<void>;
+  readonly markers?: readonly AttentionMarker[];
 }) {
   const rowRef = useRef<HTMLDivElement | null>(null);
 
@@ -438,13 +663,20 @@ const MeasuredTimelineItem = memo(function MeasuredTimelineItem({
   }, [item.id, onHeightChange]);
 
   return (
-    <div data-timeline-row-id={item.id} ref={rowRef}>
+    <div
+      className={markers?.length ? "timeline-row--attention" : undefined}
+      data-timeline-row-id={item.id}
+      data-attention-types={markers?.map((marker) => marker.type).join(" ")}
+      title={markers?.map((marker) => marker.label).join("\n")}
+      ref={rowRef}
+    >
       <TimelineItem
         item={item}
         expandedToolCallIds={expandedToolCallIds}
         onToggleToolCall={onToggleToolCall}
         onViewFileInDiff={onViewFileInDiff}
         onOpenUrl={onOpenUrl}
+        onBranchFromMessage={onBranchFromMessage}
       />
     </div>
   );
@@ -452,20 +684,22 @@ const MeasuredTimelineItem = memo(function MeasuredTimelineItem({
 
 function areMeasuredTimelineItemPropsEqual(
   previous: Readonly<{
-    item: TranscriptMessage;
+    item: TimelineDisplayRow;
     onHeightChange: (id: string, height: number) => void;
     expandedToolCallIds: ReadonlySet<string>;
     onToggleToolCall: (callId: string) => void;
     onViewFileInDiff?: (path: string) => void;
     onOpenUrl?: (url: string) => void;
+    markers?: readonly AttentionMarker[];
   }>,
   next: Readonly<{
-    item: TranscriptMessage;
+    item: TimelineDisplayRow;
     onHeightChange: (id: string, height: number) => void;
     expandedToolCallIds: ReadonlySet<string>;
     onToggleToolCall: (callId: string) => void;
     onViewFileInDiff?: (path: string) => void;
     onOpenUrl?: (url: string) => void;
+    markers?: readonly AttentionMarker[];
   }>,
 ): boolean {
   if (
@@ -473,7 +707,8 @@ function areMeasuredTimelineItemPropsEqual(
     previous.onHeightChange !== next.onHeightChange ||
     previous.onToggleToolCall !== next.onToggleToolCall ||
     previous.onViewFileInDiff !== next.onViewFileInDiff ||
-    previous.onOpenUrl !== next.onOpenUrl
+    previous.onOpenUrl !== next.onOpenUrl ||
+    previous.markers !== next.markers
   ) {
     return false;
   }

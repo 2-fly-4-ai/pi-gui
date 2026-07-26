@@ -35,7 +35,10 @@ import {
 } from "./features/display-mode/display-mode-utils";
 import type { PiDesktopApi } from "./ipc";
 import type { SettingsSection } from "./settings-view";
-import { formatRelativeTime } from "./string-utils";
+import type { FastModeSelection } from "./fast-mode-selector";
+import { codexUsageStatusFrom } from "./codex-usage-status";
+import { formatExactLocalTime, formatRelativeTime } from "./string-utils";
+import { LoadingState } from "./loading-state";
 import {
   clampVsCodeSidePanelWidth,
   getMaxVsCodeSidePanelWidth,
@@ -57,17 +60,23 @@ export interface DisplayModeViewProps {
   readonly runtimeByWorkspace: Readonly<Record<string, RuntimeSnapshot>>;
   readonly sessionCommandsBySession: Readonly<Record<string, readonly RuntimeCommandRecord[]>>;
   readonly commandCompatibilityByWorkspace: Readonly<Record<string, readonly ExtensionCommandCompatibilityRecord[]>>;
+  readonly sessionExtensionUiBySession: DesktopAppState["sessionExtensionUiBySession"];
+  readonly fastMode: FastModeSelection;
+  readonly fastModeAvailable: boolean;
+  readonly showThinking: boolean;
   readonly setSnapshot: Dispatch<SetStateAction<DesktopAppState | null>>;
   readonly openSettings: (workspaceId?: string, section?: SettingsSection) => void;
+  readonly openSkillProfiles: (workspaceId?: string) => void;
   readonly onOpenThread: (target: { readonly workspaceId: string; readonly sessionId: string }) => void;
 }
 
 export function DisplayModeView({
-  api, drawerOpen,
+  api, drawerOpen, onToggleDrawer,
   vsCodeOpen, vsCodeWorkspaceId, vsCodeWidth, onVsCodeWidthChange, onOpenVsCodeForWorkspace,
   initialPinnedThreadKey, vscodeSlotRef,
-  runtimeByWorkspace, sessionCommandsBySession, commandCompatibilityByWorkspace,
-  setSnapshot, openSettings, onOpenThread,
+  runtimeByWorkspace, sessionCommandsBySession, commandCompatibilityByWorkspace, sessionExtensionUiBySession,
+  fastMode, fastModeAvailable, showThinking,
+  setSnapshot, openSettings, openSkillProfiles, onOpenThread,
 }: DisplayModeViewProps) {
   const [threads, setThreads] = useState<readonly DisplayModeThreadRecord[]>([]);
   const [loading, setLoading] = useState(true);
@@ -257,10 +266,13 @@ export function DisplayModeView({
   const pinThread = useCallback((record: DisplayModeThreadRecord, key: string) => {
     setPinnedThreadKey(key);
     setPinnedThreadFiles([]);
+    if (!drawerOpen) {
+      onToggleDrawer();
+    }
     if (vsCodeOpen) {
       onOpenVsCodeForWorkspace(record.workspace.id, record.workspace.path);
     }
-  }, [onOpenVsCodeForWorkspace, vsCodeOpen]);
+  }, [drawerOpen, onOpenVsCodeForWorkspace, onToggleDrawer, vsCodeOpen]);
 
   const focusRecord = expandedId
     ? (orderedThreads.find((r) => threadKey(r.workspace.id, r.session.id) === expandedId) ?? null)
@@ -389,37 +401,43 @@ export function DisplayModeView({
                 ))}
               </select>
             )}
-            <div className="display-mode__col-picker" aria-label="Grid columns">
-              <button
-                className={`display-mode__col-btn display-mode__col-btn--auto${colCount === "auto" ? " display-mode__col-btn--active" : ""}`}
-                type="button"
-                aria-label="Automatic columns"
-                onClick={() => setColCount("auto")}
+            <label className="display-mode__layout-control">
+              <span>Layout</span>
+              <select
+                aria-label="Grid columns"
+                value={String(colCount)}
+                onChange={(event) => {
+                  const value = event.target.value;
+                  setColCount(value === "auto" ? "auto" : Number(value) as ColumnMode);
+                }}
               >
-                Auto
-              </button>
-              {([1, 2, 3, 4, 5, 6, 7, 8] as const).map((n) => (
-                <button
-                  key={n}
-                  className={`display-mode__col-btn${colCount === n ? " display-mode__col-btn--active" : ""}`}
-                  type="button"
-                  aria-label={`${n} columns`}
-                  onClick={() => setColCount(n)}
-                >
-                  {n}
-                </button>
-              ))}
-            </div>
+                <option value="auto">Auto</option>
+                {([1, 2, 3, 4, 5, 6, 7, 8] as const).map((count) => (
+                  <option key={count} value={count}>{count} columns</option>
+                ))}
+              </select>
+            </label>
             <button
+              aria-pressed={drawerOpen}
+              className={`display-mode__preview-toggle${drawerOpen ? " display-mode__preview-toggle--active" : ""}`}
+              type="button"
+              onClick={onToggleDrawer}
+            >
+              Preview
+            </button>
+            <button
+              aria-label={compact ? "Use detailed Display Mode cards" : "Use compact Display Mode cards"}
+              aria-pressed={compact}
               className={`display-mode__compact-toggle${compact ? " display-mode__compact-toggle--active" : ""}`}
+              title="Changes Display Mode cards only; transcript and app density stay unchanged."
               type="button"
               onClick={() => setCompact((c) => !c)}
             >
-              {compact ? "Detailed" : "Compact"}
+              {compact ? "Detailed cards" : "Compact cards"}
             </button>
             <div className="display-mode__summary">
               <span><strong>{runningCount}</strong> running</span>
-              <span><strong>{errorCount}</strong> errors</span>
+              <span><strong>{errorCount}</strong> failed</span>
               <span><strong>{threads.length}</strong> threads</span>
             </div>
             <button className="button display-mode__pause-btn" type="button" disabled={runningCount === 0} onClick={pauseAll}>
@@ -429,7 +447,12 @@ export function DisplayModeView({
         </header>
 
         {loading ? (
-          <div className="display-mode__empty">Loading threads…</div>
+          <LoadingState
+            className="display-mode__loading"
+            label="Loading threads"
+            detail="Syncing sessions, activity, and runtime state…"
+            testId="display-mode-loading"
+          />
         ) : orderedThreads.length === 0 ? (
           <div className="display-mode__empty">No threads match this filter.</div>
         ) : expandedId && focusRecord && focusKey ? (
@@ -448,9 +471,14 @@ export function DisplayModeView({
                 commandCompatibility={commandCompatibilityByWorkspace[focusRecord.workspace.id] ?? []}
                 setSnapshot={setSnapshot}
                 openSettings={openSettings}
+                openSkillProfiles={openSkillProfiles}
                 isPinned={focusKey === pinnedThreadKey}
                 isExpanded={true}
                 compact={false}
+                fastMode={fastMode}
+                fastModeAvailable={fastModeAvailable}
+                showThinking={showThinking}
+                codexUsageStatus={codexUsageStatusFrom(sessionExtensionUiBySession[focusKey])}
                 onFilesUpdate={focusKey === pinnedThreadKey ? setPinnedThreadFiles : undefined}
                 onOpenThread={() => onOpenThread({ workspaceId: focusRecord.workspace.id, sessionId: focusRecord.session.id })}
                 onOpenVSCode={() => onOpenVsCodeForWorkspace(focusRecord.workspace.id, focusRecord.workspace.path)}
@@ -477,9 +505,14 @@ export function DisplayModeView({
                         commandCompatibility={commandCompatibilityByWorkspace[record.workspace.id] ?? []}
                         setSnapshot={setSnapshot}
                         openSettings={openSettings}
+                        openSkillProfiles={openSkillProfiles}
                         isPinned={key === pinnedThreadKey}
                         isExpanded={false}
                         compact={compact}
+                        fastMode={fastMode}
+                        fastModeAvailable={fastModeAvailable}
+                        showThinking={showThinking}
+                        codexUsageStatus={codexUsageStatusFrom(sessionExtensionUiBySession[key])}
                         onFilesUpdate={key === pinnedThreadKey ? setPinnedThreadFiles : undefined}
                         onOpenThread={() => onOpenThread({ workspaceId: record.workspace.id, sessionId: record.session.id })}
                         onOpenVSCode={() => onOpenVsCodeForWorkspace(record.workspace.id, record.workspace.path)}
@@ -516,9 +549,14 @@ export function DisplayModeView({
                       commandCompatibility={commandCompatibilityByWorkspace[record.workspace.id] ?? []}
                       setSnapshot={setSnapshot}
                       openSettings={openSettings}
+                      openSkillProfiles={openSkillProfiles}
                       isPinned={key === pinnedThreadKey}
                       isExpanded={false}
                       compact={compact}
+                      fastMode={fastMode}
+                      fastModeAvailable={fastModeAvailable}
+                      showThinking={showThinking}
+                      codexUsageStatus={codexUsageStatusFrom(sessionExtensionUiBySession[key])}
                       onFilesUpdate={key === pinnedThreadKey ? setPinnedThreadFiles : undefined}
                       onOpenThread={() => onOpenThread({ workspaceId: record.workspace.id, sessionId: record.session.id })}
                       onOpenVSCode={() => onOpenVsCodeForWorkspace(record.workspace.id, record.workspace.path)}
@@ -548,7 +586,7 @@ export function DisplayModeView({
         title="Drag to resize"
         style={{ pointerEvents: drawerOpen ? undefined : "none" }}
       />
-      <aside className="display-mode-drawer">
+      <aside aria-hidden={!drawerOpen} className="display-mode-drawer">
         <div className="display-mode-drawer__tabs" role="tablist">
           {(["preview", "logs", "files"] as const).map((tab) => (
             <button
@@ -591,16 +629,18 @@ export function DisplayModeView({
               </div>
             )}
             <div className="display-mode-drawer__device-toggle">
-              <button className={previewDevice === "desktop" ? "is-active" : ""} type="button" onClick={() => setPreviewDevice("desktop")}>Desktop</button>
-              <button className={previewDevice === "mobile" ? "is-active" : ""} type="button" onClick={() => setPreviewDevice("mobile")}>Mobile</button>
+              <button aria-pressed={previewDevice === "desktop"} className={previewDevice === "desktop" ? "is-active" : ""} type="button" onClick={() => setPreviewDevice("desktop")}>Desktop</button>
+              <button aria-pressed={previewDevice === "mobile"} className={previewDevice === "mobile" ? "is-active" : ""} type="button" onClick={() => setPreviewDevice("mobile")}>Mobile</button>
             </div>
-            <div className={`display-mode-preview display-mode-preview--${previewDevice}`}>
-              {isHttpUrl(previewUrl) ? (
+            {isHttpUrl(previewUrl) ? (
+              <div className={`display-mode-preview display-mode-preview--${previewDevice}`}>
                 <iframe title="Preview" src={previewUrl} />
-              ) : (
-                <div className="display-mode-preview__empty">Enter a URL above.</div>
-              )}
-            </div>
+              </div>
+            ) : (
+              <div className="display-mode-preview__empty">
+                Enter or select a local preview URL. The preview stays closed until you ask for it.
+              </div>
+            )}
             <button className="button" type="button" disabled={!isHttpUrl(previewUrl)} onClick={() => void api.openExternal(previewUrl)}>
               Open in browser
             </button>
@@ -623,7 +663,15 @@ export function DisplayModeView({
                         <div className="display-mode-log-entry__body">
                           <div className="display-mode-log-entry__title">{r.workspace.name} <span>/</span> {r.session.title}</div>
                           {r.session.preview ? <div className="display-mode-log-entry__preview">{r.session.preview}</div> : null}
-                          <div className="display-mode-log-entry__time">{formatRelativeTime(r.session.updatedAt)}</div>
+                          <time
+                            aria-label={`Updated ${formatExactLocalTime(r.session.updatedAt)}`}
+                            className="display-mode-log-entry__time"
+                            dateTime={r.session.updatedAt}
+                            tabIndex={0}
+                            title={formatExactLocalTime(r.session.updatedAt)}
+                          >
+                            {formatRelativeTime(r.session.updatedAt)}
+                          </time>
                         </div>
                       </div>
                     );

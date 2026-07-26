@@ -44,6 +44,9 @@ export interface ComposerImageAttachment {
   readonly name: string;
   readonly mimeType: string;
   readonly data: string;
+  readonly source?: "copied";
+  readonly status?: "pending" | "ready" | "failed";
+  readonly error?: string;
 }
 
 export interface ComposerFileAttachment {
@@ -53,6 +56,20 @@ export interface ComposerFileAttachment {
   readonly mimeType: string;
   readonly fsPath: string;
   readonly sizeBytes?: number;
+  readonly source?: "workspace-reference";
+  readonly status?: "pending" | "ready" | "missing" | "failed";
+  readonly error?: string;
+  readonly artifactReference?: {
+    readonly workspaceId: string;
+    readonly relativePath: string;
+    readonly observedAt: string;
+    readonly version?: {
+      readonly sizeBytes: number;
+      readonly modifiedAt: string;
+    };
+    readonly sensitivity: "normal" | "private";
+    readonly includeInHandoff: boolean;
+  };
 }
 
 export type ComposerAttachment = ComposerImageAttachment | ComposerFileAttachment;
@@ -67,6 +84,8 @@ export interface QueuedComposerMessage {
   readonly metadata?: unknown;
   readonly createdAt: string;
   readonly updatedAt: string;
+  readonly recoveryState?: "stale" | "invalid";
+  readonly recoveryReason?: string;
 }
 
 export interface SessionRecord {
@@ -121,7 +140,15 @@ export interface SessionExtensionWidgetRecord {
 export type SessionExtensionDialogRecord = Extract<
   HostUiRequest,
   { readonly kind: "confirm" | "select" | "input" | "editor" }
->;
+> & {
+  readonly workspaceId?: string;
+  readonly sessionId?: string;
+  readonly runId?: string;
+  readonly receivedAt?: string;
+  readonly source?: "runtime-extension";
+  readonly risk?: "routine" | "significant";
+  readonly timeoutMs?: number;
+};
 
 export interface SessionExtensionUiStateRecord {
   readonly statuses: readonly SessionExtensionStatusRecord[];

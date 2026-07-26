@@ -27,7 +27,7 @@ test("shows a live runtime job card for a surviving bash child process", async (
 
     const composer = window.getByTestId("composer");
     await composer.fill(
-      "Use your bash or shell tool to run this exact command and do not wait for the child before replying: `sleep 20 >/dev/null 2>&1 & echo rest-lane-1 launched`. After running it, briefly confirm what happened.",
+      "Use your bash or shell tool to run this exact command and do not wait for the background child before replying: `sleep 45 >/dev/null 2>&1 & background_pid=$!; echo \"rest-lane-1 pid $background_pid\"; sleep 3`. After running it, briefly confirm what happened.",
     );
     await composer.press("Enter");
 

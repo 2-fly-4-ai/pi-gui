@@ -15,6 +15,16 @@ import {
 } from "../../desktop-state";
 import { parseTreeComposerCommand } from "../../composer-commands";
 import { readComposerAttachmentsFromFiles } from "../../composer-attachments";
+import {
+  buildContextManifest,
+  extractFileMentions,
+  resolveProjectMemory,
+} from "../../product-experience/context-manifest";
+import {
+  activeDecisions,
+  clearTemporaryMemoryExclusions,
+  resolveInjectableMemory,
+} from "../../product-experience/project-knowledge";
 
 interface UseSessionComposerOptions {
   readonly api: typeof window.piApp;
@@ -68,7 +78,17 @@ export function useSessionComposer({
   } | null>(null);
   showThinkingRequestRef.current = showThinking;
 
-  const composerAttachments = attachmentsClearedOnSubmit ? [] : (snapshot?.composerAttachments ?? []);
+  const composerAttachments = (attachmentsClearedOnSubmit ? [] : (snapshot?.composerAttachments ?? [])).map((attachment) => (
+    attachment.kind === "file"
+    && attachment.artifactReference
+    && attachment.artifactReference.workspaceId !== selectedWorkspace?.id
+      ? {
+          ...attachment,
+          status: "missing" as const,
+          error: "This artifact belongs to another workspace. Switch back or remove it.",
+        }
+      : attachment
+  ));
   const queuedComposerMessages = snapshot?.queuedComposerMessages ?? [];
   const editingQueuedMessageId = snapshot?.editingQueuedMessageId;
   const persistedComposerDraft = snapshot?.composerDraft ?? "";
@@ -130,6 +150,16 @@ export function useSessionComposer({
     if (modelSelectionRequired) {
       return;
     }
+    const unavailableAttachment = composerAttachments.find((attachment) => (
+      attachment.status === "missing" || attachment.status === "failed"
+    ));
+    if (unavailableAttachment) {
+      setSnapshot((current) => current ? {
+        ...current,
+        lastError: unavailableAttachment.error ?? `Attachment ${unavailableAttachment.name} is unavailable.`,
+      } : current);
+      return;
+    }
 
     const treeCommand = parseTreeComposerCommand(composerDraft);
     if (treeCommand?.type === "error") {
@@ -149,14 +179,134 @@ export function useSessionComposer({
     }
 
     const previousDraft = composerDraft;
-    onRecordSubmittedSkillUsage(previousDraft, selectedRuntime);
-    setComposerDraftState({ dirty: false, sessionKey: selectedSessionKey, value: "" });
-    setAttachmentsClearedOnSubmit(true);
     void (async () => {
+      const workspaceId = selectedWorkspace?.id;
+      for (const attachment of composerAttachments) {
+        if (attachment.kind !== "file" || !attachment.artifactReference || !workspaceId) continue;
+        if (attachment.artifactReference.workspaceId !== workspaceId) {
+          throw new Error(`Artifact ${attachment.name} belongs to another workspace.`);
+        }
+        const currentVersion = await api.inspectWorkspaceArtifact(
+          workspaceId,
+          attachment.artifactReference.relativePath,
+        ).catch(() => undefined);
+        const intendedVersion = attachment.artifactReference.version;
+        if (!currentVersion) {
+          throw new Error(`Artifact ${attachment.name} is missing. Remove it or attach it again.`);
+        }
+        if (
+          intendedVersion
+          && (
+            currentVersion.sizeBytes !== intendedVersion.sizeBytes
+            || currentVersion.modifiedAt !== intendedVersion.modifiedAt
+          )
+        ) {
+          throw new Error(`Artifact ${attachment.name} changed after it was attached. Remove it and attach the intended version again.`);
+        }
+      }
+      const boundaryPreflight = workspaceId
+        ? await api.preflightExecutionBoundary(workspaceId, selectedSession.id, previousDraft).catch(() => undefined)
+        : undefined;
+      const denied = boundaryPreflight?.violations.filter((violation) => violation.mode === "deny") ?? [];
+      if (denied.length > 0) {
+        setSnapshot((current) => current ? {
+          ...current,
+          lastError: `Execution boundary blocked this submission: ${denied.map((violation) => violation.label).join("; ")}`,
+        } : current);
+        return;
+      }
+      const approvalViolations = boundaryPreflight?.violations.filter(
+        (violation) => violation.mode === "approval",
+      ) ?? [];
+      if (
+        approvalViolations.length > 0
+        && !window.confirm([
+          "This request crosses the active execution boundary:",
+          ...approvalViolations.map((violation) => `• ${violation.label}`),
+          "",
+          "Approve this submission once?",
+        ].join("\n"))
+      ) {
+        return;
+      }
+      if (workspaceId && approvalViolations.length > 0) {
+        await api.recordExecutionBoundaryException(
+          workspaceId,
+          selectedSession.id,
+          approvalViolations.map((violation) => violation.id),
+        );
+      }
+      onRecordSubmittedSkillUsage(previousDraft, selectedRuntime);
+      setComposerDraftState({ dirty: false, sessionKey: selectedSessionKey, value: "" });
+      setAttachmentsClearedOnSubmit(true);
+      const activeProfile = selectedRuntime?.skillProfiles.find((profile) =>
+        profile.id === selectedRuntime.activeSkillProfileId);
+      const checkout = selectedWorkspace
+        ? await api.getCurrentBranch(selectedWorkspace.id).catch(() => undefined)
+        : undefined;
+      const injectableMemory = selectedWorkspace ? resolveProjectMemory(resolveInjectableMemory({
+        workspaceId: selectedWorkspace.id,
+        sessionId: selectedSession.id,
+      }), {
+        workspaceId: selectedWorkspace.id,
+        sessionId: selectedSession.id,
+      }) : [];
+      const applicableDecisions = selectedWorkspace ? activeDecisions({
+        workspaceId: selectedWorkspace.id,
+        sessionId: selectedSession.id,
+      }) : [];
+      const contextSnapshot = selectedWorkspace
+        ? await api.snapshotContextManifest(buildContextManifest({
+            workspaceId: selectedWorkspace.id,
+            sessionId: selectedSession.id,
+            provider: selectedSession.config?.provider ?? selectedRuntime?.settings.defaultProvider,
+            model: selectedSession.config?.modelId ?? selectedRuntime?.settings.defaultModelId,
+            ...(checkout ? { checkout } : {}),
+            generatedAt: new Date().toISOString(),
+            attachments: composerAttachments.map((attachment) => ({
+              id: attachment.id,
+              label: attachment.name,
+              availability: attachment.status === "missing"
+                ? "missing"
+                : attachment.status === "failed"
+                  ? "stale"
+                  : "available",
+            })),
+            fileMentions: extractFileMentions(previousDraft),
+            desktopInstructionsEnabled: snapshot?.desktopCustomInstructions.enabled,
+            ...(activeProfile ? { activeSkillProfile: activeProfile.name } : {}),
+            projectMemory: injectableMemory,
+            decisions: applicableDecisions,
+          })).catch(() => undefined)
+        : undefined;
+      const messageMetadata = contextSnapshot || boundaryPreflight?.boundary.enabled ? {
+        ...(contextSnapshot ? {
+          contextManifestSnapshotId: contextSnapshot.id,
+          contextManifestSchemaVersion: contextSnapshot.manifest.schemaVersion,
+          projectMemoryCount: injectableMemory.length,
+          activeDecisionCount: applicableDecisions.length,
+          ...(injectableMemory.length > 0 || applicableDecisions.length > 0 ? {
+            providerContextPreamble: buildProjectKnowledgePreamble(injectableMemory, applicableDecisions),
+          } : {}),
+        } : {}),
+        ...(boundaryPreflight?.boundary.enabled ? {
+          executionBoundaryRevision: boundaryPreflight.boundary.revision,
+          executionBoundarySchemaVersion: boundaryPreflight.boundary.schemaVersion,
+          executionBoundaryExceptionIds: approvalViolations.map((violation) => violation.id),
+        } : {}),
+      } : undefined;
       await api.submitComposer(
         previousDraft,
-        selectedSession.status === "running" ? { deliverAs: options.deliverAs ?? "steer" } : undefined,
+        selectedSession.status === "running"
+          ? {
+              deliverAs: options.deliverAs ?? "steer",
+              ...(messageMetadata ? { messageMetadata } : {}),
+            }
+          : messageMetadata
+            ? { messageMetadata }
+            : undefined,
       );
+      clearTemporaryMemoryExclusions();
       const nextState = await api.getState();
       setSnapshot(nextState);
       setComposerDraftState({
@@ -168,9 +318,13 @@ export function useSessionComposer({
         value: nextState.composerDraft,
       });
       setAttachmentsClearedOnSubmit(false);
-    })().catch(() => {
+    })().catch((error) => {
       setComposerDraft(previousDraft);
       setAttachmentsClearedOnSubmit(false);
+      setSnapshot((current) => current ? {
+        ...current,
+        lastError: error instanceof Error ? error.message : String(error),
+      } : current);
     });
   };
 
@@ -237,6 +391,22 @@ export function useSessionComposer({
     }
     setSnapshot((current) => current ? setQueuedComposerMessageMode(current, messageId, "steer") : current);
     void api.steerQueuedComposerMessage(messageId);
+  };
+
+  const handleQueueQueuedMessage = (messageId: string) => {
+    if (!api) return;
+    setSnapshot((current) => current ? setQueuedComposerMessageMode(current, messageId, "followUp") : current);
+    void api.setQueuedComposerMessageDelivery(messageId, "followUp");
+  };
+
+  const handleMoveQueuedMessage = (messageId: string, direction: "up" | "down") => {
+    if (!api) return;
+    void api.moveQueuedComposerMessage(messageId, direction);
+  };
+
+  const handleSendNextQueuedMessage = (messageId: string) => {
+    if (!api) return;
+    void api.sendNextQueuedComposerMessage(messageId);
   };
 
   const addAttachmentsToSessionComposer = async (files: File[]) => {
@@ -322,6 +492,9 @@ export function useSessionComposer({
     handlePickAttachments,
     handleRemoveAttachment,
     handleRemoveQueuedMessage,
+    handleMoveQueuedMessage,
+    handleQueueQueuedMessage,
+    handleSendNextQueuedMessage,
     handleSetFastMode,
     handleSetSessionModel,
     handleSetSessionThinking,
@@ -332,4 +505,15 @@ export function useSessionComposer({
     setComposerDraft,
     submitComposerDraft,
   };
+}
+
+function buildProjectKnowledgePreamble(
+  memory: readonly { readonly key: string; readonly text: string; readonly scope: string }[],
+  decisions: readonly { readonly kind: string; readonly text: string; readonly affectedScope: string }[],
+): string {
+  return [
+    "The user explicitly configured the following Pi GUI project context for this request.",
+    ...memory.map((entry) => `Memory (${entry.scope}) ${entry.key}: ${entry.text}`),
+    ...decisions.map((entry) => `${entry.kind} (${entry.affectedScope}): ${entry.text}`),
+  ].join("\n");
 }

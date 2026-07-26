@@ -51,7 +51,14 @@ export interface SubagentWorkflowRoleValidation {
   readonly missingRoles: readonly string[];
 }
 
-export type SubagentRunStatus = "submitted" | "running" | "completed" | "failed" | "cancelled";
+export type SubagentRunStatus =
+  | "submitted"
+  | "running"
+  | "completed"
+  | "partial"
+  | "failed"
+  | "cancelled"
+  | "interrupted";
 
 export interface SubagentChildRunRecord {
   readonly id: string;
@@ -75,6 +82,7 @@ export interface SubagentChildRunRecord {
 export interface SubagentRunRecord {
   readonly id: string;
   readonly workflowRunId?: string;
+  readonly retryOfRunId?: string;
   readonly workflowId: SubagentWorkflowId;
   readonly title: string;
   readonly workspaceId: string;
@@ -116,6 +124,7 @@ export interface RunSubagentWorkflowInput {
   readonly workflowId: SubagentWorkflowId;
   readonly target: WorkspaceSessionTarget;
   readonly userInstruction?: string;
+  readonly retryOfRunId?: string;
 }
 
 export const BUILTIN_SUBAGENT_WORKFLOWS: readonly SubagentWorkflowTemplate[] = [
@@ -227,6 +236,7 @@ export function buildSubagentWorkflowPrompt(
     `artifacts: ${workflow.artifacts.join(", ")}`,
     "",
     "Run this Nico-lite subagent workflow by invoking the available Agent(...) subagent tool exactly once for each listed role, in order.",
+    "A blocked, no-change, or inconclusive child result still counts as that role's one invocation. Never retry a role, and stop invoking Agent after every listed role has returned once.",
     "Keep child-agent prompts bounded. Return a concise summary and link or paste any artifacts you create.",
     ...(workflowRunId ? [`Begin every Agent prompt with exactly: workflow_run_id: ${workflowRunId}`] : []),
     "",

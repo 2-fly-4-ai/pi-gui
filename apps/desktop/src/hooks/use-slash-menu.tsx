@@ -140,7 +140,14 @@ export function useSlashMenu(params: UseSlashMenuParams): SlashMenuState {
           allowTreeCommand,
         })
       : [];
-  const slashSuggestions = flattenSlashSections(slashSections);
+  const slashSuggestions = flattenSlashSections(slashSections)
+    .map((command, index) => ({ command, index }))
+    .sort((left, right) => (
+      Number(isExactSlashCommand(slashQuery, right.command))
+      - Number(isExactSlashCommand(slashQuery, left.command))
+      || left.index - right.index
+    ))
+    .map(({ command }) => command);
   const exactSlashCommand = slashSuggestions.find((cmd) => isExactSlashCommand(slashQuery, cmd));
   const activeSlashOptionCommand =
     activeSlashFlow?.command ?? (exactSlashCommand?.submitMode === "pick-option" ? exactSlashCommand : undefined);
@@ -401,7 +408,8 @@ export function useSlashMenu(params: UseSlashMenuParams): SlashMenuState {
   const handleSlashKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>): boolean => {
     if ((showSlashMenu || showSlashOptionMenu) && event.key === "Escape") {
       event.preventDefault();
-      resetSlashUi();
+      closeSlashOptionMenu();
+      setSlashMenuSuppressedDraft(composerDraft);
       return true;
     }
 

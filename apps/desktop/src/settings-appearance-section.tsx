@@ -1,7 +1,14 @@
+import { useState } from "react";
 import type { ThemeMode } from "./desktop-state";
 import { SHINOBI_ROSTER, useSelectedShinobi } from "./shinobi-roster";
 import { SHURIKEN_ROSTER, useSelectedShuriken } from "./shuriken-roster";
 import { SettingsGroup, SettingsRow } from "./settings-utils";
+import {
+  DEFAULT_APPEARANCE_PREFERENCES,
+  readAppearancePreferences,
+  saveAppearancePreferences,
+  type AppearancePreferences,
+} from "./appearance-preferences";
 
 interface SettingsAppearanceSectionProps {
   readonly themeMode: ThemeMode;
@@ -17,6 +24,12 @@ const THEME_OPTIONS: { mode: ThemeMode; label: string; description: string }[] =
 export function SettingsAppearanceSection({ themeMode, onSetThemeMode }: SettingsAppearanceSectionProps) {
   const [selectedShinobi, selectShinobi] = useSelectedShinobi();
   const [selectedShuriken, selectShuriken] = useSelectedShuriken();
+  const [appearance, setAppearance] = useState(readAppearancePreferences);
+  const updateAppearance = (patch: Partial<AppearancePreferences>) => {
+    const next = { ...appearance, ...patch };
+    setAppearance(next);
+    saveAppearancePreferences(next);
+  };
 
   return (
     <>
@@ -24,6 +37,7 @@ export function SettingsAppearanceSection({ themeMode, onSetThemeMode }: Setting
         {THEME_OPTIONS.map((option) => (
           <SettingsRow key={option.mode} title={option.label} description={option.description}>
             <input
+              aria-label={option.label}
               checked={themeMode === option.mode}
               name="theme"
               type="radio"
@@ -31,6 +45,85 @@ export function SettingsAppearanceSection({ themeMode, onSetThemeMode }: Setting
             />
           </SettingsRow>
         ))}
+      </SettingsGroup>
+
+      <SettingsGroup title="Reading and density" description="Tune transcript spacing and text size across the app. Saved on this device.">
+        <SettingsRow title="Interface density" description="Compact reduces timeline and card spacing; Comfortable keeps the default breathing room.">
+          <select
+            aria-label="Interface density"
+            className="settings-select"
+            value={appearance.density}
+            onChange={(event) => updateAppearance({ density: event.target.value === "compact" ? "compact" : "comfortable" })}
+          >
+            <option value="comfortable">Comfortable</option>
+            <option value="compact">Compact</option>
+          </select>
+        </SettingsRow>
+        <SettingsRow title="Transcript text" description="Changes conversation prose without scaling the surrounding controls.">
+          <select
+            aria-label="Transcript text size"
+            className="settings-select"
+            value={appearance.transcriptFontSize}
+            onChange={(event) => updateAppearance({ transcriptFontSize: Number(event.target.value) })}
+          >
+            {[13, 14, 15, 16, 17, 18].map((size) => <option key={size} value={size}>{size}px</option>)}
+          </select>
+        </SettingsRow>
+        <SettingsRow title="Code and terminal text" description="Adjusts monospace content in transcripts and tool output.">
+          <select
+            aria-label="Monospace text size"
+            className="settings-select"
+            value={appearance.monoFontSize}
+            onChange={(event) => updateAppearance({ monoFontSize: Number(event.target.value) })}
+          >
+            {[11, 12, 13, 14, 15, 16].map((size) => <option key={size} value={size}>{size}px</option>)}
+          </select>
+        </SettingsRow>
+        <SettingsRow title="Timeline compression" description="Automatic groups repetition in long threads; Compact groups more aggressively; Fully expanded keeps every raw row visible.">
+          <select
+            aria-label="Timeline compression"
+            className="settings-select"
+            value={appearance.timelineCompression}
+            onChange={(event) => updateAppearance({
+              timelineCompression:
+                event.target.value === "compact" || event.target.value === "expanded"
+                  ? event.target.value
+                  : "automatic",
+            })}
+          >
+            <option value="automatic">Automatic</option>
+            <option value="compact">Compact</option>
+            <option value="expanded">Fully expanded</option>
+          </select>
+        </SettingsRow>
+        <SettingsRow title="Timeline minimap" description="Show an opt-in narrow event overview only when a thread is long enough to benefit.">
+          <input
+            aria-label="Show timeline minimap"
+            type="checkbox"
+            checked={appearance.timelineMinimap}
+            onChange={(event) => updateAppearance({ timelineMinimap: event.currentTarget.checked })}
+          />
+        </SettingsRow>
+        <SettingsRow title="Success moments" description="Show a brief, non-blocking accent only for evidence-backed completed work. Reduced motion and focused writing are always respected.">
+          <input
+            aria-label="Show success moments"
+            type="checkbox"
+            checked={appearance.successMoments}
+            onChange={(event) => updateAppearance({ successMoments: event.currentTarget.checked })}
+          />
+        </SettingsRow>
+        <SettingsRow title="Reset reading preferences" description="Restore Comfortable, 15px transcript text, 13px code text, automatic compression, a hidden minimap, and success moments.">
+          <button
+            className="button button--secondary"
+            type="button"
+            onClick={() => {
+              setAppearance(DEFAULT_APPEARANCE_PREFERENCES);
+              saveAppearancePreferences(DEFAULT_APPEARANCE_PREFERENCES);
+            }}
+          >
+            Reset
+          </button>
+        </SettingsRow>
       </SettingsGroup>
 
       <SettingsGroup

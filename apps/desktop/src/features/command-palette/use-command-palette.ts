@@ -25,6 +25,8 @@ interface UseCommandPaletteOptions {
   readonly setPendingNewThreadWorkspaceId: Dispatch<SetStateAction<string>>;
   readonly toggleDiffPanel: () => void;
   readonly toggleTerminal: () => void;
+  readonly resetWorkspaceLayout: () => void;
+  readonly additionalActions?: readonly CommandPaletteAction[];
 }
 
 function isEventInsideTerminal(event: globalThis.KeyboardEvent): boolean {
@@ -48,6 +50,8 @@ export function useCommandPalette({
   setPendingNewThreadWorkspaceId,
   toggleDiffPanel,
   toggleTerminal,
+  resetWorkspaceLayout,
+  additionalActions = [],
 }: UseCommandPaletteOptions) {
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const sidebarToggleShortcutLabel = api ? getDesktopShortcutLabel(api.platform, "B") : "";
@@ -59,6 +63,13 @@ export function useCommandPalette({
         subtitle: "Start a new pi session",
         keywords: ["chat", "session", "thread"],
         run: () => openNewThreadSurface(selectedRootWorkspaceId),
+      },
+      {
+        id: "search-threads",
+        title: "Search threads",
+        subtitle: "Search titles, workspaces, branches, and status metadata",
+        keywords: ["find", "filter", "history", "sidebar"],
+        run: () => window.dispatchEvent(new Event("pi-gui:focus-thread-list-search")),
       },
       {
         id: "toggle-terminal",
@@ -97,6 +108,19 @@ export function useCommandPalette({
         keywords: ["extensions", "plugins", "integrations"],
         run: () => openExtensions(selectedRootWorkspaceId),
       },
+      {
+        id: "reset-workspace-layout",
+        title: "Reset workspace layout",
+        subtitle: "Restore panel visibility and sizes for this workspace",
+        category: "Layout",
+        keywords: ["panels", "width", "reset", "workspace layout"],
+        disabled: !hasSelectedWorkspace,
+        significant: true,
+        run: () => {
+          if (window.confirm("Reset this workspace’s panel layout?")) resetWorkspaceLayout();
+        },
+      },
+      ...additionalActions,
     ],
     [
       hasSelectedSession,
@@ -105,6 +129,8 @@ export function useCommandPalette({
       openNewThreadSurface,
       openSettings,
       openSkills,
+      additionalActions,
+      resetWorkspaceLayout,
       selectedRootWorkspaceId,
       toggleDiffPanel,
       toggleTerminal,

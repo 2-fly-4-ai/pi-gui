@@ -5,6 +5,7 @@ import {
   makeUserDataDir,
   makeWorkspace,
   openNewThread,
+  toggleTopbarPanel,
 } from "../helpers/electron-app";
 
 test("packaged app records a real native crash artifact after opt-in", async () => {
@@ -62,8 +63,8 @@ test("packaged app records a real native crash artifact after opt-in", async () 
     const window = await restarted.firstWindow();
     await expect.poll(async () => (await getDesktopState(window)).diagnosticReporting.nativeCrashReportsEnabled).toBe(true);
     await window.getByRole("button", { name: "Threads", exact: true }).click();
-    await expect(window.getByLabel("Toggle logs panel")).toBeVisible();
-    await window.getByLabel("Toggle logs panel").click();
+    await expect(window.getByRole("button", { name: "Open panels menu" })).toBeVisible();
+    await toggleTopbarPanel(window, "App logs");
     await window.getByRole("tab", { name: "App logs" }).click();
     await expect.poll(async () => {
       await window.getByLabel("Refresh logs").click();

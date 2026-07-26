@@ -6,6 +6,7 @@ interface UseTimelineInputIntentOptions {
   readonly autoAligningTimelineRef: RefObject<boolean>;
   readonly hasSelectedSession: boolean;
   readonly lastExplicitTimelineScrollIntentAtRef: RefObject<number>;
+  readonly lastExplicitTimelineWheelDeltaYRef: RefObject<number>;
   readonly lastTimelineScrollbarDragAtRef: RefObject<number>;
   readonly lastUserTimelineScrollIntentAtRef: RefObject<number>;
   readonly onExplicitTimelineScrollIntent: () => void;
@@ -26,6 +27,7 @@ export function useTimelineInputIntent({
   autoAligningTimelineRef,
   hasSelectedSession,
   lastExplicitTimelineScrollIntentAtRef,
+  lastExplicitTimelineWheelDeltaYRef,
   lastTimelineScrollbarDragAtRef,
   lastUserTimelineScrollIntentAtRef,
   onExplicitTimelineScrollIntent,
@@ -59,6 +61,10 @@ export function useTimelineInputIntent({
         sessionsWithExplicitTimelineScrollRef.current.add(selectedSessionKey);
       }
       onExplicitTimelineScrollIntent();
+    };
+    const markWheelScrollIntent = (event: WheelEvent) => {
+      lastExplicitTimelineWheelDeltaYRef.current = event.deltaY;
+      markUserScrollIntent();
     };
 
     const startScrollbarDrag = (clientY: number) => {
@@ -186,7 +192,7 @@ export function useTimelineInputIntent({
       timelineScrollHandlerRef.current();
     };
 
-    pane.addEventListener("wheel", markUserScrollIntent, { passive: true });
+    pane.addEventListener("wheel", markWheelScrollIntent, { passive: true });
     pane.addEventListener("touchstart", markUserScrollIntent, { passive: true });
     pane.addEventListener("pointerdown", markPointerScrollIntent, { passive: true });
     pane.addEventListener("scroll", handleNativeScroll, { passive: true });
@@ -200,7 +206,7 @@ export function useTimelineInputIntent({
     window.addEventListener("blur", clearScrollbarDragIntent);
 
     return () => {
-      pane.removeEventListener("wheel", markUserScrollIntent);
+      pane.removeEventListener("wheel", markWheelScrollIntent);
       pane.removeEventListener("touchstart", markUserScrollIntent);
       pane.removeEventListener("pointerdown", markPointerScrollIntent);
       pane.removeEventListener("scroll", handleNativeScroll);
@@ -219,6 +225,7 @@ export function useTimelineInputIntent({
     autoAligningTimelineRef,
     hasSelectedSession,
     lastExplicitTimelineScrollIntentAtRef,
+    lastExplicitTimelineWheelDeltaYRef,
     lastTimelineScrollbarDragAtRef,
     lastUserTimelineScrollIntentAtRef,
     onExplicitTimelineScrollIntent,

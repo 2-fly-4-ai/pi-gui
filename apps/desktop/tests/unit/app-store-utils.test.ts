@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { TranscriptMessage } from "../../src/desktop-state";
-import { formatPreviewText, previewFromTranscript } from "../../electron/app-store-utils";
+import {
+  formatPreviewText,
+  previewFromTranscript,
+  restorePersistedQueuedComposerMessages,
+  toSessionQueuedMessages,
+} from "../../electron/app-store-utils";
 
 const assistantMessage = (id: string, text: string): TranscriptMessage => ({
   kind: "message",
@@ -48,5 +53,78 @@ describe("previewFromTranscript", () => {
     ]);
 
     expect(preview).toBe("Previous answer");
+  });
+});
+
+describe("queued composer persistence", () => {
+  it("recovers valid and malformed items without sending stale entries back to the runtime", () => {
+    const restored = restorePersistedQueuedComposerMessages([
+      {
+        id: "valid",
+        mode: "steer",
+        text: "Keep my context",
+        metadata: { contextManifestSnapshotId: "context-1" },
+        createdAt: "2026-07-09T00:00:00.000Z",
+        updatedAt: "2026-07-09T00:00:01.000Z",
+      },
+      { id: "malformed", mode: "unknown" },
+    ]);
+
+    expect(restored).toMatchObject([
+      {
+        id: "valid",
+        mode: "steer",
+        recoveryState: "stale",
+        metadata: { contextManifestSnapshotId: "context-1" },
+      },
+      {
+        id: "malformed",
+        mode: "followUp",
+        recoveryState: "invalid",
+      },
+    ]);
+    expect(toSessionQueuedMessages(restored)).toEqual([]);
+  });
+
+  it("retains an artifact reference version when a queued message is recovered", () => {
+    const [restored] = restorePersistedQueuedComposerMessages([{
+      id: "artifact-message",
+      mode: "followUp",
+      text: "Review this artifact",
+      attachments: [{
+        id: "artifact",
+        kind: "file",
+        name: "report.md",
+        mimeType: "text/markdown",
+        fsPath: "/workspace/reports/report.md",
+        sizeBytes: 42,
+        source: "workspace-reference",
+        status: "ready",
+        artifactReference: {
+          workspaceId: "workspace",
+          relativePath: "reports/report.md",
+          observedAt: "2026-07-25T00:00:00.000Z",
+          version: {
+            sizeBytes: 42,
+            modifiedAt: "2026-07-25T00:00:00.000Z",
+          },
+          sensitivity: "normal",
+          includeInHandoff: false,
+        },
+      }],
+      createdAt: "2026-07-25T00:00:00.000Z",
+      updatedAt: "2026-07-25T00:00:00.000Z",
+    }]);
+
+    expect(restored?.attachments[0]).toMatchObject({
+      artifactReference: {
+        workspaceId: "workspace",
+        relativePath: "reports/report.md",
+        version: {
+          sizeBytes: 42,
+          modifiedAt: "2026-07-25T00:00:00.000Z",
+        },
+      },
+    });
   });
 });

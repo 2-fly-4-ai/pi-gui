@@ -1,10 +1,12 @@
 import { expect, test } from "@playwright/test";
 import {
   createNamedThread,
+  getDesktopState,
   launchDesktop,
   makeUserDataDir,
   makeWorkspace,
   waitForWorkspaceByPath,
+  type PiAppWindow,
 } from "../helpers/electron-app";
 
 test("adds a project action and runs it in the selected thread terminal", async () => {
@@ -36,6 +38,29 @@ test("adds a project action and runs it in the selected thread terminal", async 
     const terminal = window.getByTestId("integrated-terminal");
     await expect(terminal).toBeVisible();
     await expect(terminal.locator(".xterm-rows")).toContainText("PROJECT_ACTION_OK", { timeout: 15_000 });
+    const state = await getDesktopState(window);
+    await expect.poll(() => window.evaluate(
+      ({ workspaceId, sessionId }) => (window as PiAppWindow).piApp?.listTaskEvidence({
+        workspaceId,
+        sessionId,
+        kinds: ["command"],
+      }),
+      {
+        workspaceId: state.selectedWorkspaceId ?? "",
+        sessionId: state.selectedSessionId ?? "",
+      },
+    )).toMatchObject({
+      records: [{
+        kind: "command",
+        source: "desktop",
+        authority: "desktop-observed",
+        status: "unknown",
+        verification: {
+          command: "printf 'PROJECT_ACTION_OK\\n'",
+          cwd: ".",
+        },
+      }],
+    });
   } finally {
     await harness.close();
   }

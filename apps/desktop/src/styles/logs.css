@@ -375,3 +375,25 @@
   font-size: var(--font-size-xs);
   font-weight: 700;
 }
+
+@media (max-width: 900px) {
+  .main--with-logs {
+    position: relative;
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .main--with-diff.main--with-logs {
+    grid-template-columns: minmax(0, 1fr) minmax(220px, 42vw) !important;
+  }
+
+  .main--with-logs > .logs-panel {
+    position: absolute;
+    z-index: var(--z-docked);
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: min(440px, calc(100% - 40px));
+    min-width: 0;
+    box-shadow: -18px 0 36px rgba(3, 8, 18, 0.28);
+  }
+}

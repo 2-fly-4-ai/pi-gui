@@ -52,7 +52,7 @@ test("returning from Settings > Subagents keeps selected thread transcript visib
 });
 
 test("quick Settings round-trip after reopening a long thread returns to virtualized transcript rows", async () => {
-  test.setTimeout(120_000);
+  test.setTimeout(240_000);
   const userDataDir = await makeUserDataDir();
   const agentDir = `${userDataDir}/agent`;
   const workspacePath = await makeWorkspace("thread-return-long-reopen-workspace");

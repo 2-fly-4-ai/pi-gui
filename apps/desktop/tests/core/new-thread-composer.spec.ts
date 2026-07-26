@@ -1,6 +1,6 @@
 import { writeFile } from "node:fs/promises";
 import { expect, test } from "@playwright/test";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import {
   desktopShortcut,
   getDesktopState,
@@ -30,6 +30,12 @@ test("new thread reuses composer behaviors for slash commands, image previews, a
     await openNewThread(window);
 
     const composer = window.getByTestId("new-thread-composer");
+    const starters = window.getByLabel(`Starter prompts for ${basename(workspacePath)}`);
+    await expect(starters.getByRole("button")).toHaveCount(4);
+    await starters.getByRole("button", { name: /Explain architecture/ }).click();
+    await expect(composer).toHaveValue(/Explain this repository’s architecture/);
+    await expect(composer).toBeFocused();
+    await composer.fill("");
     await expect(window.locator(".new-thread .checkout-selector__bar")).toContainText("Local checkout");
     await window.locator(".new-thread .checkout-selector__button").click();
     await expect(window.locator(".new-thread .checkout-selector__popover")).toBeVisible();

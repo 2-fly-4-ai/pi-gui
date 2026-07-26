@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { formatRelativeTime, titleCase } from "../../src/string-utils";
+import { formatExactLocalTime, formatRelativeTime, titleCase } from "../../src/string-utils";
 
 describe("titleCase", () => {
   it("formats dash and underscore separated values", () => {
@@ -28,5 +28,21 @@ describe("formatRelativeTime", () => {
     expect(formatRelativeTime("2026-07-08T11:42:00.000Z")).toBe("18m");
     expect(formatRelativeTime("2026-07-08T09:00:00.000Z")).toBe("3h");
     expect(formatRelativeTime("2026-07-05T12:00:00.000Z")).toBe("3d");
+  });
+
+  it("reports future clock skew instead of treating it as now", () => {
+    vi.setSystemTime(new Date("2026-07-08T12:00:00.000Z"));
+    expect(formatRelativeTime("2026-07-08T12:18:00.000Z")).toBe("in 18m");
+  });
+});
+
+describe("formatExactLocalTime", () => {
+  it("handles missing and invalid timestamps honestly", () => {
+    expect(formatExactLocalTime("")).toBe("Time unavailable");
+    expect(formatExactLocalTime("not-a-date")).toBe("Unrecognized time: not-a-date");
+  });
+
+  it("returns a localized exact timestamp", () => {
+    expect(formatExactLocalTime("2026-07-08T12:00:00.000Z")).toMatch(/2026/);
   });
 });

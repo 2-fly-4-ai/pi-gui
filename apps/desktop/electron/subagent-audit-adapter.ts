@@ -185,7 +185,7 @@ export class SubagentAuditAdapter {
       ...toLifecycleEvent(correlation, timestamp, status),
       agentId,
       ...(role ? { role } : {}),
-      ...(toolUseCount > 0 ? { toolUseCount } : {}),
+      toolUseCount,
       ...(elapsedMs !== undefined ? { elapsedMs } : {}),
       ...(summary ? { summary } : {}),
     });

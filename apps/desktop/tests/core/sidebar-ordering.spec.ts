@@ -78,3 +78,44 @@ test("sidebar thread order is stable after creation and does not flicker", async
     await harness.close();
   }
 });
+
+test("pinned threads stay prominent and persist across relaunch", async () => {
+  const userDataDir = await makeUserDataDir();
+  const workspacePath = await makeWorkspace("pin-ordering-test");
+  const first = await launchDesktop(userDataDir, {
+    initialWorkspaces: [workspacePath],
+    testMode: "background",
+  });
+
+  try {
+    const window = await first.firstWindow();
+    await waitForWorkspaceByPath(window, workspacePath);
+    await createNamedThread(window, "Older pinned thread", { workspaceName: basename(workspacePath) });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    await createNamedThread(window, "Newer regular thread", { workspaceName: basename(workspacePath) });
+
+    const pinnedRow = window.locator(".session-row").filter({ hasText: "Older pinned thread" });
+    await pinnedRow.hover();
+    await pinnedRow.getByRole("button", { name: "Thread actions for Older pinned thread" }).click();
+    await pinnedRow.getByRole("menuitem", { name: "Pin", exact: true }).click();
+    await expect(pinnedRow.getByLabel("Pinned", { exact: true })).toBeVisible();
+
+    const titles = await window.locator(".session-row__select").allTextContents();
+    expect(titles.findIndex((title) => title.includes("Older pinned thread")))
+      .toBeLessThan(titles.findIndex((title) => title.includes("Newer regular thread")));
+  } finally {
+    await first.close();
+  }
+
+  const relaunched = await launchDesktop(userDataDir, { testMode: "background" });
+  try {
+    const window = await relaunched.firstWindow();
+    const pinnedRow = window.locator(".session-row").filter({ hasText: "Older pinned thread" });
+    await expect(pinnedRow.getByLabel("Pinned", { exact: true })).toBeVisible();
+    const titles = await window.locator(".session-row__select").allTextContents();
+    expect(titles.findIndex((title) => title.includes("Older pinned thread")))
+      .toBeLessThan(titles.findIndex((title) => title.includes("Newer regular thread")));
+  } finally {
+    await relaunched.close();
+  }
+});

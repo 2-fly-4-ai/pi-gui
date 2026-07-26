@@ -8,6 +8,139 @@ import {
   makeWorkspace,
 } from "../helpers/electron-app";
 
+test("semantic muted text tokens remain readable in light and dark themes", async () => {
+  const userDataDir = await makeUserDataDir();
+  const workspacePath = await makeWorkspace("appearance-contrast-workspace");
+  const harness = await launchDesktop(userDataDir, {
+    initialWorkspaces: [workspacePath],
+    testMode: "background",
+  });
+
+  try {
+    const window = await harness.firstWindow();
+    await window.getByRole("button", { name: "Settings", exact: true }).click();
+    await window.getByTestId("settings-surface").getByRole("button", { name: "Appearance", exact: true }).click();
+
+    for (const theme of ["Light", "Dark"] as const) {
+      await window.locator(`input[name="theme"][aria-label="${theme}"]`).check();
+      const ratios = await window.evaluate(() => {
+        const styles = getComputedStyle(document.documentElement);
+        const parse = (value: string) => {
+          const normalized = value.trim();
+          if (/^#[\da-f]{6}$/i.test(normalized)) {
+            return [1, 3, 5].map((offset) => Number.parseInt(normalized.slice(offset, offset + 2), 16));
+          }
+          const match = value.match(/\d+(?:\.\d+)?/g)?.slice(0, 3).map(Number);
+          if (!match || match.length !== 3) throw new Error(`Unable to parse color: ${value}`);
+          return match;
+        };
+        const luminance = (rgb: number[]) => {
+          const linear = rgb.map((channel) => {
+            const value = channel / 255;
+            return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+          });
+          return 0.2126 * linear[0]! + 0.7152 * linear[1]! + 0.0722 * linear[2]!;
+        };
+        const contrast = (foreground: string, background: string) => {
+          const foregroundLuminance = luminance(parse(foreground));
+          const backgroundLuminance = luminance(parse(background));
+          const lighter = Math.max(foregroundLuminance, backgroundLuminance);
+          const darker = Math.min(foregroundLuminance, backgroundLuminance);
+          return (lighter + 0.05) / (darker + 0.05);
+        };
+        const backgrounds = ["--main", "--surface"] as const;
+        const foregrounds = ["--muted", "--muted-strong", "--muted-faint"] as const;
+        return foregrounds.flatMap((foreground) =>
+          backgrounds.map((background) => ({
+            foreground,
+            background,
+            ratio: contrast(styles.getPropertyValue(foreground), styles.getPropertyValue(background)),
+          })),
+        );
+      });
+
+      for (const result of ratios) {
+        expect(result.ratio, `${theme} ${result.foreground} on ${result.background}`).toBeGreaterThanOrEqual(4.5);
+      }
+    }
+  } finally {
+    await harness.close();
+  }
+});
+
+test("settings use a bounded two-column grid that collapses cleanly", async () => {
+  const userDataDir = await makeUserDataDir();
+  const workspacePath = await makeWorkspace("settings-geometry-workspace");
+  const harness = await launchDesktop(userDataDir, {
+    initialWorkspaces: [workspacePath],
+    testMode: "background",
+  });
+
+  try {
+    const window = await harness.firstWindow();
+    await window.setViewportSize({ width: 1480, height: 900 });
+    await window.getByRole("button", { name: "Settings", exact: true }).click();
+    await window.getByTestId("settings-surface").getByRole("button", { name: "Appearance", exact: true }).click();
+
+    const settingsView = window.locator(".settings-view");
+    const wideBox = await settingsView.boundingBox();
+    expect(wideBox?.width ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(960);
+    const firstRow = settingsView.locator(".settings-row").first();
+    await expect.poll(() => firstRow.evaluate((element) => getComputedStyle(element).gridTemplateColumns.split(" ").length)).toBe(2);
+
+    await window.setViewportSize({ width: 720, height: 780 });
+    await expect.poll(() => firstRow.evaluate((element) => getComputedStyle(element).gridTemplateColumns.split(" ").length)).toBe(1);
+    await expect.poll(() => settingsView.evaluate((element) => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
+  } finally {
+    await harness.close();
+  }
+});
+
+test("density and transcript font preferences persist and reset", async () => {
+  const userDataDir = await makeUserDataDir();
+  const workspacePath = await makeWorkspace("appearance-density-workspace");
+  const firstRun = await launchDesktop(userDataDir, {
+    initialWorkspaces: [workspacePath],
+    testMode: "background",
+  });
+
+  try {
+    const window = await firstRun.firstWindow();
+    await window.getByRole("button", { name: "Settings", exact: true }).click();
+    await window.getByTestId("settings-surface").getByRole("button", { name: "Appearance", exact: true }).click();
+    await window.getByLabel("Interface density").selectOption("compact");
+    await window.getByLabel("Transcript text size").selectOption("18");
+    await window.getByLabel("Monospace text size").selectOption("16");
+    await expect(window.getByLabel("Show success moments")).toBeChecked();
+    await window.getByLabel("Show success moments").uncheck();
+    await expect.poll(() => window.evaluate(() => ({
+      density: document.documentElement.dataset.density,
+      transcript: document.documentElement.style.getPropertyValue("--transcript-font-size"),
+      mono: document.documentElement.style.getPropertyValue("--mono-font-size"),
+    }))).toEqual({ density: "compact", transcript: "18px", mono: "16px" });
+  } finally {
+    await firstRun.close();
+  }
+
+  const secondRun = await launchDesktop(userDataDir, { testMode: "background" });
+  try {
+    const window = await secondRun.firstWindow();
+    await expect.poll(() => window.evaluate(() => document.documentElement.dataset.density)).toBe("compact");
+    if (await window.getByTestId("settings-surface").count() === 0) {
+      await window.getByRole("button", { name: "Settings", exact: true }).click();
+    }
+    await window.getByTestId("settings-surface").getByRole("button", { name: "Appearance", exact: true }).click();
+    await expect(window.getByLabel("Transcript text size")).toHaveValue("18");
+    await expect(window.getByLabel("Show success moments")).not.toBeChecked();
+    await window.getByRole("button", { name: "Reset", exact: true }).click();
+    await expect(window.getByLabel("Interface density")).toHaveValue("comfortable");
+    await expect(window.getByLabel("Show success moments")).toBeChecked();
+    await expect.poll(() => window.evaluate(() => document.documentElement.style.getPropertyValue("--transcript-font-size"))).toBe("15px");
+  } finally {
+    await secondRun.close();
+  }
+});
+
 test("appearance shuriken picker controls the thinking spinner", async () => {
   test.setTimeout(60_000);
   const userDataDir = await makeUserDataDir();

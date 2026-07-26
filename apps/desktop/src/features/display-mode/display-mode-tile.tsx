@@ -1,17 +1,54 @@
-import { useCallback, useEffect, useRef, useState, type Dispatch, type KeyboardEvent, type SetStateAction } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ClipboardEvent,
+  type Dispatch,
+  type DragEvent,
+  type KeyboardEvent,
+  type SetStateAction,
+} from "react";
 import type { RuntimeCommandRecord, RuntimeSnapshot } from "@pi-gui/session-driver/runtime-types";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import type { DesktopAppState, DisplayModeThreadRecord, ExtensionCommandCompatibilityRecord } from "../../desktop-state";
+import type {
+  ComposerAttachment,
+  DesktopAppState,
+  DisplayModeThreadRecord,
+  ExtensionCommandCompatibilityRecord,
+} from "../../desktop-state";
+import { applySessionConfigPatch } from "../../desktop-state";
 import { TimelineItem } from "../../timeline-item";
 import { TerminalPanel } from "../../terminal-panel";
 import { ComposerSurface } from "../../composer-surface";
+import {
+  extractFilesFromDataTransfer,
+  extractImageFilesFromClipboardData,
+  readComposerAttachmentsFromFiles,
+} from "../../composer-attachments";
+import { ComposerControlBar } from "../../composer-control-bar";
+import { ContextWindowIndicator } from "../../context-window-indicator";
+import { FastModeSelector, type FastModeSelection } from "../../fast-mode-selector";
 import { useSlashMenu } from "../../hooks/use-slash-menu";
-import { ArrowUpIcon, MaximizeIcon, MinimizeIcon, StopSquareIcon, TerminalIcon } from "../../icons";
+import {
+  ChevronRightIcon,
+  EllipsisIcon,
+  MaximizeIcon,
+  MinimizeIcon,
+  StopSquareIcon,
+  TerminalIcon,
+  VSCodeIcon,
+} from "../../icons";
 import type { PiDesktopApi } from "../../ipc";
+import { ModelSelector } from "../../model-selector";
+import { ReasoningSelector } from "../../reasoning-selector";
 import { logIgnoredError } from "../../renderer-diagnostics";
 import type { SettingsSection } from "../../settings-view";
-import { formatRelativeTime } from "../../string-utils";
+import { SkillProfileSelector } from "../../skill-profile-selector";
+import { formatExactLocalTime, formatRelativeTime } from "../../string-utils";
+import { ThinkingTraceToggle } from "../../thinking-trace-toggle";
+import { ToolAccessSelector } from "../../tool-access-selector";
 import type { ChangedFile } from "./display-mode-types";
 import { statusLabel, statusTone, summarizeDisplayModeSubagents } from "./display-mode-utils";
 
@@ -26,9 +63,14 @@ export interface DisplayModeTileProps {
   readonly commandCompatibility: readonly ExtensionCommandCompatibilityRecord[];
   readonly setSnapshot: Dispatch<SetStateAction<DesktopAppState | null>>;
   readonly openSettings: (workspaceId?: string, section?: SettingsSection) => void;
+  readonly openSkillProfiles: (workspaceId?: string) => void;
   readonly isPinned: boolean;
   readonly isExpanded: boolean;
   readonly compact: boolean;
+  readonly fastMode: FastModeSelection;
+  readonly fastModeAvailable: boolean;
+  readonly showThinking: boolean;
+  readonly codexUsageStatus?: string;
   readonly onFilesUpdate: ((files: readonly ChangedFile[]) => void) | undefined;
   readonly onOpenThread: () => void;
   readonly onOpenVSCode: () => void;
@@ -39,16 +81,21 @@ export interface DisplayModeTileProps {
 
 export function DisplayModeTile({
   api, id, record, terminalOpen, renderTerminalInline, isPinned, isExpanded, compact,
-  runtime, sessionCommands, commandCompatibility, setSnapshot, openSettings,
+  fastMode, fastModeAvailable, showThinking, codexUsageStatus,
+  runtime, sessionCommands, commandCompatibility, setSnapshot, openSettings, openSkillProfiles,
   onFilesUpdate, onOpenThread, onOpenVSCode, onPinPreview, onToggleTerminal, onToggleExpand,
 }: DisplayModeTileProps) {
   const [renaming, setRenaming] = useState(false);
   const [renameDraft, setRenameDraft] = useState("");
+  const [actionsMenuOpen, setActionsMenuOpen] = useState(false);
   const renameInputRef = useRef<HTMLInputElement | null>(null);
+  const actionsMenuRef = useRef<HTMLDivElement | null>(null);
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id, disabled: isExpanded });
   const [draft, setDraft] = useState("");
+  const [attachments, setAttachments] = useState<readonly ComposerAttachment[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const transcriptRef = useRef<HTMLDivElement | null>(null);
   const terminalWrapperRef = useRef<HTMLDivElement | null>(null);
   const [terminalHeight, setTerminalHeight] = useState(200);
@@ -64,15 +111,19 @@ export function DisplayModeTile({
   };
   const submitText = useCallback((textInput: string) => {
     const text = textInput.trim();
-    if (!text || submitting) return;
+    if ((!text && attachments.length === 0) || submitting) return;
     setSubmitting(true);
     setDraft("");
+    setAttachments([]);
     void api.submitComposerToSession(
       { workspaceId: record.workspace.id, sessionId: record.session.id },
       text,
-      record.session.status === "running" ? { deliverAs: "steer" } : undefined,
+      {
+        attachments,
+        ...(record.session.status === "running" ? { deliverAs: "steer" as const } : {}),
+      },
     ).finally(() => setSubmitting(false));
-  }, [api, record.session.id, record.session.status, record.workspace.id, submitting]);
+  }, [api, attachments, record.session.id, record.session.status, record.workspace.id, submitting]);
 
   const slashMenu = useSlashMenu({
     composerDraft: draft,
@@ -146,6 +197,26 @@ export function DisplayModeTile({
 
   useEffect(() => { if (renaming) renameInputRef.current?.select(); }, [renaming]);
 
+  useEffect(() => {
+    if (!actionsMenuOpen) return;
+    const closeOnPointerDown = (event: PointerEvent) => {
+      if (!actionsMenuRef.current?.contains(event.target as Node)) {
+        setActionsMenuOpen(false);
+      }
+    };
+    const closeOnEscape = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setActionsMenuOpen(false);
+      }
+    };
+    window.addEventListener("pointerdown", closeOnPointerDown);
+    window.addEventListener("keydown", closeOnEscape);
+    return () => {
+      window.removeEventListener("pointerdown", closeOnPointerDown);
+      window.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [actionsMenuOpen]);
+
   const startRename = () => { setRenameDraft(record.session.title); setRenaming(true); };
   const submitRename = () => {
     const title = renameDraft.trim();
@@ -177,6 +248,29 @@ export function DisplayModeTile({
     submitText(draft);
   };
 
+  const addAttachments = useCallback((files: readonly File[]) => {
+    if (files.length === 0) return;
+    void readComposerAttachmentsFromFiles(files).then((nextAttachments) => {
+      if (nextAttachments.length > 0) {
+        setAttachments((current) => [...current, ...nextAttachments]);
+      }
+    });
+  }, []);
+
+  const handleComposerPaste = (event: ClipboardEvent<HTMLDivElement>) => {
+    const files = extractImageFilesFromClipboardData(event.clipboardData);
+    if (files.length === 0) return;
+    event.preventDefault();
+    addAttachments(files);
+  };
+
+  const handleComposerDrop = (event: DragEvent<HTMLDivElement>) => {
+    const files = extractFilesFromDataTransfer(event.dataTransfer);
+    if (files.length === 0) return;
+    event.preventDefault();
+    addAttachments(files);
+  };
+
   const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (slashMenu.handleSlashKeyDown(event)) return;
     if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); submit(); }
@@ -189,6 +283,45 @@ export function DisplayModeTile({
     else if (event.key === "v" || event.key === "V") { event.preventDefault(); onOpenVSCode(); }
     else if (event.key === "o" || event.key === "O") { event.preventDefault(); onOpenThread(); }
   };
+  const runAction = (action: () => void) => {
+    setActionsMenuOpen(false);
+    action();
+  };
+  const setSessionModel = (provider: string, modelId: string) => {
+    setSnapshot((current) => current
+      ? applySessionConfigPatch(current, record.workspace.id, record.session.id, { provider, modelId })
+      : current);
+    void api.setSessionModel(record.workspace.id, record.session.id, provider, modelId);
+  };
+  const setSessionThinking = (level: string) => {
+    const thinkingLevel = level as NonNullable<RuntimeSnapshot["settings"]["defaultThinkingLevel"]>;
+    setSnapshot((current) => current
+      ? applySessionConfigPatch(current, record.workspace.id, record.session.id, { thinkingLevel })
+      : current);
+    void api.setSessionThinkingLevel(record.workspace.id, record.session.id, thinkingLevel);
+  };
+  const setSessionToolAccess = (toolAccess: NonNullable<DisplayModeThreadRecord["session"]["config"]>["toolAccess"]) => {
+    if (!toolAccess) return;
+    setSnapshot((current) => current
+      ? applySessionConfigPatch(current, record.workspace.id, record.session.id, { toolAccess })
+      : current);
+    void api.setSessionToolAccess(record.workspace.id, record.session.id, toolAccess);
+  };
+  const toggleShowThinking = () => {
+    const nextShowThinking = !showThinking;
+    setSnapshot((current) => current ? { ...current, showThinking: nextShowThinking } : current);
+    void api.setShowThinking(nextShowThinking);
+  };
+  const setFastMode = (mode: FastModeSelection) => {
+    const enabled = mode === "on";
+    setSnapshot((current) => current
+      ? { ...current, fastMode: { ...current.fastMode, enabled }, lastError: undefined }
+      : current);
+    void api.setFastMode(enabled);
+  };
+  const provider = record.session.config?.provider ?? runtime?.settings.defaultProvider;
+  const modelId = record.session.config?.modelId ?? runtime?.settings.defaultModelId;
+  const thinkingLevel = record.session.config?.thinkingLevel ?? runtime?.settings.defaultThinkingLevel;
 
   return (
     <article
@@ -227,7 +360,81 @@ export function DisplayModeTile({
             <span className="display-mode-tile__status-dot" aria-hidden="true" />
             {statusLabel(record.session)}
           </span>
-          <span className="display-mode-tile__time">{formatRelativeTime(record.session.updatedAt)}</span>
+          <time
+            aria-label={`Updated ${formatExactLocalTime(record.session.updatedAt)}`}
+            className="display-mode-tile__time"
+            dateTime={record.session.updatedAt}
+            tabIndex={0}
+            title={formatExactLocalTime(record.session.updatedAt)}
+          >
+            {formatRelativeTime(record.session.updatedAt)}
+          </time>
+          <div className="display-mode-tile__action-menu" ref={actionsMenuRef}>
+            <button
+              aria-expanded={actionsMenuOpen}
+              aria-haspopup="menu"
+              aria-label="Thread actions"
+              className={`display-mode-tile__action-menu-trigger${actionsMenuOpen ? " display-mode-tile__action-menu-trigger--open" : ""}`}
+              data-testid="display-mode-thread-actions"
+              title="Thread actions"
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                setActionsMenuOpen((open) => !open);
+              }}
+            >
+              <EllipsisIcon />
+            </button>
+            {actionsMenuOpen ? (
+              <div aria-label="Thread actions" className="display-mode-tile__action-menu-popover" role="menu">
+                <button role="menuitem" type="button" onClick={() => runAction(onOpenThread)}>
+                  <ChevronRightIcon />
+                  <span>Open thread</span>
+                </button>
+                {record.session.status === "running" ? (
+                  <button
+                    className="display-mode-tile__action-menu-danger"
+                    role="menuitem"
+                    type="button"
+                    onClick={() => runAction(() => {
+                      void api.cancelSessionRun({
+                        workspaceId: record.workspace.id,
+                        sessionId: record.session.id,
+                      });
+                    })}
+                  >
+                    <StopSquareIcon />
+                    <span>Stop</span>
+                  </button>
+                ) : null}
+                <div className="display-mode-tile__action-menu-separator" role="separator" />
+                <button
+                  aria-pressed={terminalOpen}
+                  role="menuitem"
+                  type="button"
+                  onClick={() => runAction(onToggleTerminal)}
+                >
+                  <TerminalIcon />
+                  <span>Terminal</span>
+                  {terminalOpen ? <span aria-hidden="true" className="display-mode-tile__action-menu-state">Open</span> : null}
+                </button>
+                <button role="menuitem" type="button" onClick={() => runAction(onOpenVSCode)}>
+                  <VSCodeIcon />
+                  <span>VS Code</span>
+                </button>
+                <button
+                  aria-pressed={isPinned}
+                  role="menuitem"
+                  type="button"
+                  onClick={() => runAction(onPinPreview)}
+                >
+                  <MaximizeIcon />
+                  <span>Pin preview</span>
+                  {isPinned ? <span aria-hidden="true" className="display-mode-tile__action-menu-state">Pinned</span> : null}
+                </button>
+              </div>
+            ) : null}
+          </div>
         </div>
         <div className="display-mode-tile__head-title">
           {renaming ? (
@@ -254,32 +461,7 @@ export function DisplayModeTile({
             </button>
           )}
         </div>
-        {subagentActivity ? (
-          <div
-            className={`display-mode-tile__subagents display-mode-tile__subagents--${subagentActivity.status}`}
-            data-testid="display-mode-subagent-activity"
-            title={subagentActivity.label}
-          >
-            <span className="display-mode-tile__subagents-dot" aria-hidden="true" />
-            <span>{subagentActivity.label}</span>
-          </div>
-        ) : null}
       </header>
-
-      {/* Actions row */}
-      {!compact && (
-        <div className="display-mode-tile__actions">
-          <button className="button button--primary display-mode-tile__action-primary" type="button" onClick={onOpenThread}>Open thread</button>
-          {record.session.status === "running" && (
-            <button className="button display-mode-tile__action-stop" type="button" onClick={() => void api.cancelSessionRun({ workspaceId: record.workspace.id, sessionId: record.session.id })}>
-              <StopSquareIcon /> Stop
-            </button>
-          )}
-          <button className={`button${terminalOpen ? " display-mode-tile__action-active" : ""}`} type="button" onClick={onToggleTerminal}><TerminalIcon /> Terminal</button>
-          <button className="button" type="button" onClick={onOpenVSCode}>VS Code</button>
-          <button className={`button${isPinned ? " display-mode-tile__action-active" : ""}`} type="button" aria-pressed={isPinned} onClick={onPinPreview}><MaximizeIcon /> Pin</button>
-        </div>
-      )}
 
       {/* Transcript */}
       {!compact && hasRecentMessages ? (
@@ -316,29 +498,57 @@ export function DisplayModeTile({
         </div>
       )}
 
+      {subagentActivity && !compact ? (
+        <div
+          aria-live="polite"
+          className={`display-mode-tile__activity-rail display-mode-tile__activity-rail--${subagentActivity.status}`}
+          data-testid="display-mode-subagent-activity"
+          title={subagentActivity.label}
+        >
+          <span className="display-mode-tile__activity-rail-marker" aria-hidden="true" />
+          <span>{subagentActivity.label}</span>
+        </div>
+      ) : null}
+
       {/* Reply — reuse the same composer surface/input structure as the thread view. */}
       {!compact && <div className="composer display-mode-tile__reply">
         <div className="conversation conversation--composer">
+          <input
+            ref={fileInputRef}
+            className="sr-only"
+            multiple
+            tabIndex={-1}
+            type="file"
+            onChange={(event) => {
+              addAttachments(Array.from(event.currentTarget.files ?? []));
+              event.currentTarget.value = "";
+            }}
+          />
           <ComposerSurface
             activeSlashCommand={slashMenu.activeSlashFlow?.command}
             activeSlashCommandMeta={slashMenu.activeSlashFlow?.command?.description}
-            attachments={[]}
+            attachments={attachments}
             queuedMessages={[]}
             composerDraft={draft}
             composerRef={textareaRef}
             lastError={undefined}
             onCancelQueuedEdit={() => undefined}
             onClearSlashCommand={slashMenu.resetSlashUi}
-            onComposerDrop={(event) => event.preventDefault()}
+            onComposerDrop={handleComposerDrop}
             onComposerKeyDown={handleKeyDown}
-            onComposerPaste={() => undefined}
+            onComposerPaste={handleComposerPaste}
             onEditQueuedMessage={() => undefined}
-            onRemoveAttachment={() => undefined}
+            onRemoveAttachment={(attachmentId) => {
+              setAttachments((current) => current.filter((attachment) => attachment.id !== attachmentId));
+            }}
             onRemoveQueuedMessage={() => undefined}
             onSelectMention={() => undefined}
             onSelectSlashCommand={(command) => slashMenu.applySlashCommandSelection(command, "click")}
             onSelectSlashOption={(option) => slashMenu.applySlashOptionSelection(option)}
             onSteerQueuedMessage={() => undefined}
+            onQueueQueuedMessage={() => undefined}
+            onMoveQueuedMessage={() => undefined}
+            onSendNextQueuedMessage={() => undefined}
             selectedMentionIndex={0}
             selectedSlashCommand={slashMenu.activeSlashOptionCommand ?? slashMenu.selectedSlashCommand}
             selectedSlashOption={slashMenu.selectedSlashOption}
@@ -356,22 +566,68 @@ export function DisplayModeTile({
             compactSlashDescriptions
             footer={(
               <div className="composer__footer">
-                <div className="composer-control-bar display-mode-tile__reply-bar">
-                  <div className="composer-control-bar__left">
-                    <span className="display-mode-tile__reply-hint">Enter to send · Shift+Enter newline</span>
-                  </div>
-                  <div className="composer-control-bar__right">
-                    <button
-                      className="button button--primary button--cta-icon"
-                      type="button"
-                      disabled={submitting || !draft.trim()}
-                      onClick={submit}
-                      aria-label="Send reply"
-                    >
-                      <ArrowUpIcon />
-                    </button>
-                  </div>
-                </div>
+                <ComposerControlBar
+                  modelControl={(
+                    <ModelSelector
+                      runtime={runtime}
+                      provider={provider}
+                      modelId={modelId}
+                      thinkingLevel={undefined}
+                      showEmptyModelControl
+                      variant="composer"
+                      onSetModel={setSessionModel}
+                      onSetThinking={setSessionThinking}
+                    />
+                  )}
+                  reasoningControl={(
+                    <ReasoningSelector
+                      thinkingLevel={thinkingLevel}
+                      onSetThinking={setSessionThinking}
+                    />
+                  )}
+                  fastModeControl={fastMode === "on" ? (
+                    <FastModeSelector
+                      available={fastModeAvailable}
+                      value={fastMode}
+                      onSetFastMode={setFastMode}
+                    />
+                  ) : undefined}
+                  skillProfileControl={runtime ? (
+                    <SkillProfileSelector
+                      profiles={runtime.skillProfiles}
+                      activeProfileId={runtime.activeSkillProfileId}
+                      onSelectProfile={(profileId) => {
+                        void api.setActiveSkillProfile(record.workspace.id, profileId);
+                      }}
+                      onOpenSkillProfiles={() => {
+                        openSkillProfiles(record.workspace.rootWorkspaceId ?? record.workspace.id);
+                      }}
+                    />
+                  ) : undefined}
+                  supervisionControl={(
+                    <ToolAccessSelector
+                      value={record.session.config?.toolAccess}
+                      onChange={setSessionToolAccess}
+                    />
+                  )}
+                  contextControl={(
+                    <ContextWindowIndicator
+                      codexUsageStatus={codexUsageStatus}
+                      compactionEnabled
+                    />
+                  )}
+                  thinkingTraceControl={(
+                    <ThinkingTraceToggle
+                      showThinking={showThinking}
+                      onToggle={toggleShowThinking}
+                    />
+                  )}
+                  sendLabel={record.session.status === "running" ? "Steer thread" : "Send reply"}
+                  sendDisabled={submitting || (!draft.trim() && attachments.length === 0)}
+                  stopMode={false}
+                  onAttach={() => fileInputRef.current?.click()}
+                  onSubmit={submit}
+                />
               </div>
             )}
           />

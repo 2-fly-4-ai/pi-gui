@@ -9,13 +9,15 @@
   --line-strong: #d2d7e2;
   --text: #39435b;
   --text-strong: #1f2638;
-  --muted: #747d93;
-  --muted-strong: #556077;
-  --muted-faint: #8f97aa;
+  --muted: #5e687e;
+  --muted-strong: #4f596f;
+  --muted-faint: #687188;
   --accent: #6a55f2;
   --link: #3358d4;
   --error: #c45666;
   --error-ink: #8f3040;
+  --success: #247a52;
+  --warning: #8a5b10;
   --font-ui:
     ui-sans-serif,
     -apple-system,
@@ -61,6 +63,8 @@
   --font-size-display-md: 26px;
   --font-size-display-lg: 30px;
   --font-size-display-xl: 52px;
+  --transcript-font-size: 15px;
+  --mono-font-size: 13px;
   --z-base: 1;
   --z-above: 2;
   --z-raised: 3;
@@ -107,13 +111,15 @@
   --line-strong: #4a4d55;
   --text: #d4d4d8;
   --text-strong: #f4f4f5;
-  --muted: #8b8d94;
-  --muted-strong: #9ea0a8;
-  --muted-faint: #6b6e76;
+  --muted: #a8aab1;
+  --muted-strong: #b6b8be;
+  --muted-faint: #9b9da5;
   --accent: #7c6bf5;
   --link: #8da7ff;
   --error: #e05467;
   --error-ink: #f87171;
+  --success: #55b985;
+  --warning: #d6a74a;
   --border: var(--line);
   --ink: var(--text);
   --ink-strong: var(--text-strong);

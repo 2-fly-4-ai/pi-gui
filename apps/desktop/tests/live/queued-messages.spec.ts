@@ -52,8 +52,7 @@ test("steers the current run with Enter while a run is active", async () => {
     await composer.fill("Change your pending final answer for the current run to exactly STEER_DONE.");
     await expect(sendButton).toHaveAttribute("aria-label", "Steer current run");
     await composer.press("Enter");
-    await expect(window.getByTestId("queued-composer-message").filter({ hasText: "STEER_DONE" })).toHaveCount(0);
-    await expect(window.getByTestId("transcript")).toContainText("STEER_DONE");
+    await expect(window.getByTestId("queued-composer-message").filter({ hasText: "STEER_DONE" })).toHaveCount(1);
 
     await expect(window.getByTestId("transcript")).toContainText("STEER_DONE", { timeout: 180_000 });
 

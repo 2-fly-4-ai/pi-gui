@@ -1,6 +1,7 @@
-import { memo, useEffect, useState, type CSSProperties } from "react";
+import { memo, useCallback, useEffect, useState, type CSSProperties } from "react";
 import type { SessionTranscriptMessage } from "@pi-gui/pi-sdk-driver";
 import type { TimelineActivity, TimelineToolCall, TimelineSummary, TranscriptMessage } from "./timeline-types";
+import type { SemanticTimelineGroup, TimelineDisplayRow } from "./semantic-timeline-compression";
 import type { SubagentTranscriptPreview } from "./ipc";
 import { MessageMarkdown } from "./message-markdown";
 import { InlineDiff, extractDiffFromOutput } from "./diff-inline";
@@ -10,6 +11,7 @@ import { BUILTIN_AGENT_CONFIGS, canonicalRoleForAgentName } from "./agent-defini
 import { resolveSubagentShinobiFromMap, useSubagentShinobiMap } from "./subagent-shinobi-roster";
 import { resolveSubagentRoleColor, useSubagentRoleColorMap } from "./subagent-role-colors";
 import { subagentWorkflowCardFromMessage } from "./subagent-timeline-card";
+import type { SubagentRunRecord, SubagentWorkflowMessageMetadata } from "./subagent-workflows";
 import { useSelectedShuriken } from "./shuriken-roster";
 import { canStopRuntimeJob, isRuntimeJobActive } from "./runtime-jobs";
 import { logIgnoredError } from "./renderer-diagnostics";
@@ -23,6 +25,10 @@ import {
   shortenPath,
   statusLabel,
 } from "./timeline-item-formatters";
+import { saveDecision } from "./product-experience/project-knowledge";
+import { attachLatestPendingReviewAnswer, readReviewQuestions } from "./review/review-questions";
+import { formatExactLocalTime } from "./string-utils";
+import { LoadingState } from "./loading-state";
 
 const MAX_TRANSCRIPT_PREVIEW_BYTES = 256 * 1024;
 
@@ -32,16 +38,18 @@ export const TimelineItem = memo(function TimelineItem({
   onToggleToolCall,
   onViewFileInDiff,
   onOpenUrl,
+  onBranchFromMessage,
 }: {
-  readonly item: TranscriptMessage;
+  readonly item: TimelineDisplayRow;
   readonly expandedToolCallIds?: ReadonlySet<string>;
   readonly onToggleToolCall?: (callId: string) => void;
   readonly onViewFileInDiff?: (path: string) => void;
   readonly onOpenUrl?: (url: string) => void;
+  readonly onBranchFromMessage?: (messageId: string, role: "user" | "assistant", text: string) => Promise<void>;
 }) {
   switch (item.kind) {
     case "message":
-      return <TimelineMessage item={item} onOpenUrl={onOpenUrl} />;
+      return <TimelineMessage item={item} onOpenUrl={onOpenUrl} onViewFileInDiff={onViewFileInDiff} onBranchFromMessage={onBranchFromMessage} />;
     case "thinking":
       return <TimelineThinkingItem item={item} onOpenUrl={onOpenUrl} />;
     case "activity":
@@ -59,6 +67,17 @@ export const TimelineItem = memo(function TimelineItem({
       return <TimelineRuntimeJobItem item={item} />;
     case "summary":
       return <TimelineSummaryItem item={item} onOpenUrl={onOpenUrl} />;
+    case "semantic-group":
+      return (
+        <TimelineSemanticGroupItem
+          group={item}
+          expandedToolCallIds={expandedToolCallIds}
+          onToggleToolCall={onToggleToolCall}
+          onViewFileInDiff={onViewFileInDiff}
+          onOpenUrl={onOpenUrl}
+          onBranchFromMessage={onBranchFromMessage}
+        />
+      );
     default:
       return null;
   }
@@ -66,25 +85,28 @@ export const TimelineItem = memo(function TimelineItem({
 
 function areTimelineItemPropsEqual(
   previous: Readonly<{
-    item: TranscriptMessage;
+    item: TimelineDisplayRow;
     expandedToolCallIds?: ReadonlySet<string>;
     onToggleToolCall?: (callId: string) => void;
     onViewFileInDiff?: (path: string) => void;
     onOpenUrl?: (url: string) => void;
+    onBranchFromMessage?: (messageId: string, role: "user" | "assistant", text: string) => Promise<void>;
   }>,
   next: Readonly<{
-    item: TranscriptMessage;
+    item: TimelineDisplayRow;
     expandedToolCallIds?: ReadonlySet<string>;
     onToggleToolCall?: (callId: string) => void;
     onViewFileInDiff?: (path: string) => void;
     onOpenUrl?: (url: string) => void;
+    onBranchFromMessage?: (messageId: string, role: "user" | "assistant", text: string) => Promise<void>;
   }>,
 ): boolean {
   if (
     previous.item !== next.item ||
     previous.onToggleToolCall !== next.onToggleToolCall ||
     previous.onViewFileInDiff !== next.onViewFileInDiff ||
-    previous.onOpenUrl !== next.onOpenUrl
+    previous.onOpenUrl !== next.onOpenUrl ||
+    previous.onBranchFromMessage !== next.onBranchFromMessage
   ) {
     return false;
   }
@@ -99,48 +121,91 @@ function areTimelineItemPropsEqual(
   );
 }
 
-function TimelineMessage({ item, onOpenUrl }: { readonly item: SessionTranscriptMessage; readonly onOpenUrl?: (url: string) => void }) {
+function TimelineSemanticGroupItem({
+  group,
+  expandedToolCallIds,
+  onToggleToolCall,
+  onViewFileInDiff,
+  onOpenUrl,
+  onBranchFromMessage,
+}: {
+  readonly group: SemanticTimelineGroup;
+  readonly expandedToolCallIds?: ReadonlySet<string>;
+  readonly onToggleToolCall?: (callId: string) => void;
+  readonly onViewFileInDiff?: (path: string) => void;
+  readonly onOpenUrl?: (url: string) => void;
+  readonly onBranchFromMessage?: (messageId: string, role: "user" | "assistant", text: string) => Promise<void>;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const [visibleCount, setVisibleCount] = useState(120);
+  useEffect(() => {
+    setVisibleCount(120);
+  }, [group.id]);
+  const visibleItems = group.items.slice(0, visibleCount);
+  return (
+    <article className="timeline-semantic-group" data-testid="timeline-semantic-group" data-group-kind={group.groupKind}>
+      <button
+        className="timeline-semantic-group__header"
+        type="button"
+        aria-expanded={expanded}
+        onClick={() => setExpanded((current) => !current)}
+      >
+        <span className={`timeline-tool__chevron ${expanded ? "timeline-tool__chevron--expanded" : ""}`}><ChevronRightIcon /></span>
+        <strong>{group.summary}</strong>
+        <span>{formatDurationMs(group.durationMs)}</span>
+      </button>
+      {group.exceptions.length ? (
+        <p className="timeline-semantic-group__exceptions">Includes {group.exceptions.join(" · ")}</p>
+      ) : null}
+      {expanded ? (
+        <div className="timeline-semantic-group__items" data-testid="timeline-semantic-group-items">
+          {visibleItems.map((item) => (
+            <TimelineItem
+              item={item}
+              key={item.id}
+              expandedToolCallIds={expandedToolCallIds}
+              onToggleToolCall={onToggleToolCall}
+              onViewFileInDiff={onViewFileInDiff}
+              onOpenUrl={onOpenUrl}
+              onBranchFromMessage={onBranchFromMessage}
+            />
+          ))}
+          {visibleCount < group.items.length ? (
+            <button
+              className="timeline-semantic-group__more"
+              type="button"
+              onClick={() => setVisibleCount((current) => Math.min(group.items.length, current + 120))}
+            >
+              Show next {Math.min(120, group.items.length - visibleCount)} of {group.items.length}
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+    </article>
+  );
+}
+
+function TimelineMessage({
+  item,
+  onOpenUrl,
+  onViewFileInDiff,
+  onBranchFromMessage,
+}: {
+  readonly item: SessionTranscriptMessage;
+  readonly onOpenUrl?: (url: string) => void;
+  readonly onViewFileInDiff?: (path: string) => void;
+  readonly onBranchFromMessage?: (messageId: string, role: "user" | "assistant", text: string) => Promise<void>;
+}) {
   const [selectedShinobi] = useSelectedShinobi();
-  const [subagentShinobiMap] = useSubagentShinobiMap();
-  const [subagentRoleColorMap] = useSubagentRoleColorMap();
   const wrappedCompactionSummary = extractWrappedCompactionSummary(item.text);
+  const knowledgeDisclosure = projectKnowledgeDisclosure(item.metadata);
   if (wrappedCompactionSummary) {
     return <TimelineCompactionSummary item={{ ...item, role: "compactionSummary", text: wrappedCompactionSummary }} onOpenUrl={onOpenUrl} />;
   }
 
   const subagentCard = item.role === "user" ? subagentWorkflowCardFromMessage(item) : undefined;
   if (subagentCard) {
-    return (
-      <article className="subagent-timeline-card" data-testid="subagent-timeline-card" data-workflow-run-id={subagentCard.workflowRunId}>
-        <div className="subagent-timeline-card__eyebrow">Subagent workflow submitted</div>
-        <h3>{subagentCard.workflow}</h3>
-        {subagentCard.roles.length ? (
-          <div className="subagent-timeline-card__roles" aria-label={`Subagent roles: ${subagentCard.roles.join(" to ")}`}>
-            {subagentCard.roles.map((role, index) => {
-              const shinobi = resolveSubagentShinobiFromMap(subagentShinobiMap, role, role);
-              const roleColor = resolveSubagentRoleColor(subagentRoleColorMap, role, role);
-              return (
-                <span className="subagent-timeline-card__role" key={`${role}:${index}`} style={{ "--role-accent": roleColor } as CSSProperties}>
-                  {index > 0 ? <span className="subagent-timeline-card__role-arrow" aria-hidden="true">→</span> : null}
-                  <span className="subagent-timeline-card__role-chip">
-                    <img src={shinobi.imageUrl} alt="" aria-hidden="true" />
-                    <span>
-                      <strong>{role}</strong>
-                      <small>{shinobi.name}</small>
-                    </span>
-                  </span>
-                </span>
-              );
-            })}
-          </div>
-        ) : null}
-        {subagentCard.artifacts.length ? (
-          <div className="subagent-timeline-card__artifacts">
-            {subagentCard.artifacts.map((artifact) => <span key={artifact}>{artifact}</span>)}
-          </div>
-        ) : null}
-      </article>
-    );
+    return <SubagentWorkflowTimelineCard card={subagentCard} onViewFileInDiff={onViewFileInDiff} />;
   }
 
   if (item.role === "user") {
@@ -172,7 +237,15 @@ function TimelineMessage({ item, onOpenUrl }: { readonly item: SessionTranscript
               )}
             </div>
           ) : null}
-          <MessageMarkdown text={item.text} onOpenUrl={onOpenUrl} />
+          <MessageMarkdown text={item.text} onOpenFile={onViewFileInDiff} onOpenUrl={onOpenUrl} />
+          {knowledgeDisclosure ? (
+            <span className="timeline-item__context-disclosure" title="Explicit project context influenced this request">
+              {knowledgeDisclosure}
+            </span>
+          ) : null}
+          {onBranchFromMessage ? (
+            <BranchMessageAction item={item} onBranchFromMessage={onBranchFromMessage} />
+          ) : null}
         </div>
         <span className="timeline-item__user-icon-frame" aria-hidden="true" title={selectedShinobi.name}>
           <img className="timeline-item__user-icon" src={selectedShinobi.imageUrl} alt="" />
@@ -196,9 +269,313 @@ function TimelineMessage({ item, onOpenUrl }: { readonly item: SessionTranscript
 
   return (
     <article className="timeline-item timeline-item--assistant">
-      <MessageMarkdown text={item.text} onOpenUrl={onOpenUrl} />
+      <MessageMarkdown text={item.text} onOpenFile={onViewFileInDiff} onOpenUrl={onOpenUrl} />
+      {item.role === "assistant" && onBranchFromMessage ? (
+        <BranchMessageAction item={item} onBranchFromMessage={onBranchFromMessage} />
+      ) : null}
     </article>
   );
+}
+
+function projectKnowledgeDisclosure(metadata: unknown): string | undefined {
+  if (typeof metadata !== "object" || metadata === null) return undefined;
+  const memory = "projectMemoryCount" in metadata && typeof metadata.projectMemoryCount === "number"
+    ? metadata.projectMemoryCount
+    : 0;
+  const decisions = "activeDecisionCount" in metadata && typeof metadata.activeDecisionCount === "number"
+    ? metadata.activeDecisionCount
+    : 0;
+  if (memory + decisions === 0) return undefined;
+  return `Context used · ${memory} memor${memory === 1 ? "y" : "ies"} · ${decisions} decision${decisions === 1 ? "" : "s"}`;
+}
+
+function BranchMessageAction({
+  item,
+  onBranchFromMessage,
+}: {
+  readonly item: SessionTranscriptMessage;
+  readonly onBranchFromMessage: (messageId: string, role: "user" | "assistant", text: string) => Promise<void>;
+}) {
+  const role = item.role === "user" ? "user" : "assistant";
+  const [confirming, setConfirming] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | undefined>();
+  const [attachedReviewAnswer, setAttachedReviewAnswer] = useState(false);
+  const [hasPendingReviewQuestion, setHasPendingReviewQuestion] = useState(false);
+  useEffect(() => {
+    if (role !== "assistant") return;
+    void window.piApp?.getState().then((state) => {
+      if (!state.selectedWorkspaceId) return;
+      setHasPendingReviewQuestion(readReviewQuestions(state.selectedWorkspaceId).some((question) => !question.answer));
+    });
+  }, [item.id, role]);
+  const proposeDecision = async () => {
+    const state = await window.piApp?.getState();
+    if (!state?.selectedWorkspaceId) throw new Error("Select a workspace before proposing a decision.");
+    saveDecision({
+      kind: "decision",
+      text: item.text,
+      workspaceId: state.selectedWorkspaceId,
+      ...(state.selectedSessionId ? { sessionId: state.selectedSessionId } : {}),
+      affectedScope: "Current workspace",
+      sourceMessageId: item.id,
+      createdBy: "assistant-proposal",
+      confirmed: false,
+    });
+  };
+  return (
+    <div className="timeline-branch-action">
+      {!confirming ? (
+        <>
+          <button type="button" onClick={() => setConfirming(true)}>
+            Try another approach
+          </button>
+          {role === "assistant" ? (
+            <>
+              <button
+                type="button"
+                onClick={() => {
+                  setError(undefined);
+                  void proposeDecision().catch((cause: unknown) => {
+                    setError(cause instanceof Error ? cause.message : String(cause));
+                  });
+                }}
+              >
+                Propose as decision
+              </button>
+              {hasPendingReviewQuestion ? <button
+                type="button"
+                onClick={() => {
+                  void window.piApp?.getState().then((state) => {
+                    if (!state.selectedWorkspaceId) return;
+                    setAttachedReviewAnswer(Boolean(attachLatestPendingReviewAnswer(
+                      state.selectedWorkspaceId,
+                      { id: item.id, text: item.text },
+                    )));
+                    setHasPendingReviewQuestion(false);
+                  });
+                }}
+              >
+                Attach as review answer
+              </button> : null}
+            </>
+          ) : null}
+          {attachedReviewAnswer ? <span>Attached to the latest pending review question.</span> : null}
+          {error ? <span className="timeline-branch-action__error">{error}</span> : null}
+        </>
+      ) : (
+        <div className="timeline-branch-action__confirm" role="dialog" aria-label="Try another approach">
+          <strong>Branch from this point?</strong>
+          <p>
+            Pi keeps the durable transcript and context through this message. The original path remains available in
+            the session tree, and the current checkout does not change.
+          </p>
+          {error ? <p className="timeline-branch-action__error">{error}</p> : null}
+          <div>
+            <button type="button" disabled={submitting} onClick={() => setConfirming(false)}>Cancel</button>
+            <button
+              type="button"
+              disabled={submitting}
+              onClick={() => {
+                setSubmitting(true);
+                setError(undefined);
+                void onBranchFromMessage(item.id, role, item.text)
+                  .then(() => setConfirming(false))
+                  .catch((branchError: unknown) => {
+                    setError(branchError instanceof Error ? branchError.message : String(branchError));
+                  })
+                  .finally(() => setSubmitting(false));
+              }}
+            >
+              {submitting ? "Creating…" : "Create branch"}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SubagentWorkflowTimelineCard({
+  card,
+  onViewFileInDiff,
+}: {
+  readonly card: Pick<SubagentWorkflowMessageMetadata, "workflowRunId" | "workflow" | "roles" | "artifacts">;
+  readonly onViewFileInDiff?: (path: string) => void;
+}) {
+  type TranscriptState =
+    | { readonly status: "loading"; readonly path: string }
+    | { readonly status: "loaded"; readonly preview: SubagentTranscriptPreview }
+    | { readonly status: "error"; readonly path: string; readonly message: string };
+  const [subagentShinobiMap] = useSubagentShinobiMap();
+  const [subagentRoleColorMap] = useSubagentRoleColorMap();
+  const [run, setRun] = useState<SubagentRunRecord | undefined>();
+  const [expanded, setExpanded] = useState(false);
+  const [transcript, setTranscript] = useState<TranscriptState | undefined>();
+
+  const loadRun = useCallback(async () => {
+    const app = window.piApp;
+    if (!app || !card.workflowRunId) return;
+    const state = await app.getState();
+    const workspaceId = state.selectedWorkspaceId;
+    const sessionId = state.selectedSessionId;
+    if (!workspaceId || !sessionId) return;
+    const runs = await app.listSubagentRuns(workspaceId);
+    setRun(runs.find((candidate) =>
+      (candidate.workflowRunId === card.workflowRunId || candidate.id === card.workflowRunId) &&
+      candidate.target.sessionId === sessionId
+    ));
+  }, [card.workflowRunId]);
+
+  useEffect(() => {
+    void loadRun().catch((error) => logIgnoredError("subagent-card.load-run", error));
+    const app = window.piApp;
+    return app?.onSubagentRunsChanged(() => {
+      void loadRun().catch((error) => logIgnoredError("subagent-card.refresh-run", error));
+    });
+  }, [loadRun]);
+
+  useEffect(() => {
+    if (run?.status === "running" || run?.status === "partial" || run?.status === "failed" || run?.status === "interrupted") {
+      setExpanded(true);
+    }
+  }, [run?.status]);
+
+  const openTranscript = (path: string) => {
+    const app = window.piApp;
+    if (!app) return;
+    setTranscript({ status: "loading", path });
+    void app.readSubagentTranscript(path).then((preview) => {
+      setTranscript({ status: "loaded", preview });
+    }).catch((error: unknown) => {
+      setTranscript({ status: "error", path, message: error instanceof Error ? error.message : String(error) });
+    });
+  };
+
+  const scrollToActivity = (toolCallId: string) => {
+    document.querySelector<HTMLElement>(`[data-tool-call-id="${CSS.escape(toolCallId)}"]`)?.scrollIntoView({
+      block: "center",
+      behavior: "smooth",
+    });
+  };
+
+  const scrollToEvidence = () => {
+    document.querySelector<HTMLElement>(".completion-card__evidence, [data-testid='task-activity']")?.scrollIntoView({
+      block: "center",
+      behavior: "smooth",
+    });
+  };
+
+  return (
+    <article
+      className={`subagent-timeline-card subagent-timeline-card--${run?.status ?? "submitted"}`}
+      data-testid="subagent-timeline-card"
+      data-workflow-run-id={card.workflowRunId}
+    >
+      <button
+        className="subagent-timeline-card__header"
+        type="button"
+        aria-expanded={expanded}
+        onClick={() => setExpanded((current) => !current)}
+      >
+        <span className={`timeline-tool__chevron ${expanded ? "timeline-tool__chevron--expanded" : ""}`}><ChevronRightIcon /></span>
+        <span>
+          <span className="subagent-timeline-card__eyebrow">Subagent workflow</span>
+          <strong>{card.workflow}</strong>
+        </span>
+        <span className="subagent-timeline-card__status">
+          {run?.status ?? "submitted"}
+          {run?.elapsedMs !== undefined ? ` · ${formatDurationMs(run.elapsedMs)}` : ""}
+          {run?.toolUseCount !== undefined ? ` · ${run.toolUseCount} tools` : ""}
+        </span>
+      </button>
+      <div className="subagent-timeline-card__roles" aria-label={`Subagent roles: ${card.roles.join(" to ")}`}>
+        {card.roles.map((role, index) => {
+          const child = run?.childRuns?.[index];
+          const shinobi = resolveSubagentShinobiFromMap(subagentShinobiMap, role, role);
+          const roleColor = resolveSubagentRoleColor(subagentRoleColorMap, role, role);
+          return (
+            <span className="subagent-timeline-card__role" key={`${role}:${index}`} style={{ "--role-accent": roleColor } as CSSProperties}>
+              {index > 0 ? <span className="subagent-timeline-card__role-arrow" aria-hidden="true">→</span> : null}
+              <span className="subagent-timeline-card__role-chip">
+                <img src={shinobi.imageUrl} alt="" aria-hidden="true" />
+                <span>
+                  <strong>{child?.role ?? role}</strong>
+                  <small>{child ? child.status : shinobi.name}</small>
+                </span>
+              </span>
+            </span>
+          );
+        })}
+      </div>
+      {!expanded && card.artifacts.length ? (
+        <div className="subagent-timeline-card__artifacts" aria-label="Expected artifacts">
+          {card.artifacts.map((artifact) => <span key={artifact}>{artifact}</span>)}
+        </div>
+      ) : null}
+      {expanded ? (
+        <div className="subagent-timeline-card__details">
+          {run?.retryOfRunId ? <p className="subagent-timeline-card__retry">Retry of {run.retryOfRunId}</p> : null}
+          {run?.childRuns?.length ? (
+            <ol className="subagent-timeline-card__children" aria-label="Subagent run hierarchy">
+              {run.childRuns.map((child) => (
+                <li key={child.id}>
+                  <div className="subagent-timeline-card__child-summary">
+                    <strong>{child.role ?? child.agentName ?? "Subagent"}</strong>
+                    <span>{child.status}</span>
+                    {child.elapsedMs !== undefined ? <span>{formatDurationMs(child.elapsedMs)}</span> : null}
+                    <span>{child.toolUseCount ?? 0} tools</span>
+                  </div>
+                  {child.description ? <p>{child.description}</p> : null}
+                  {child.summary ? <p>{child.summary}</p> : null}
+                  <div className="subagent-timeline-card__actions">
+                    {child.toolCallId ? <button type="button" onClick={() => scrollToActivity(child.toolCallId!)}>Related activity</button> : null}
+                    {child.transcriptPath ? <button type="button" onClick={() => openTranscript(child.transcriptPath!)}>Transcript preview</button> : null}
+                    <button type="button" onClick={scrollToEvidence}>Related evidence</button>
+                  </div>
+                </li>
+              ))}
+            </ol>
+          ) : <p>Waiting for correlated child activity.</p>}
+          {run?.artifactPaths?.length ? (
+            <div className="subagent-timeline-card__artifacts" aria-label="Produced artifacts">
+              {run.artifactPaths.map((artifact) => (
+                <button type="button" key={artifact} onClick={() => onViewFileInDiff?.(artifact)}>{artifact}</button>
+              ))}
+            </div>
+          ) : card.artifacts.length ? (
+            <div className="subagent-timeline-card__artifacts" aria-label="Expected artifacts">
+              {card.artifacts.map((artifact) => <span key={artifact}>{artifact}</span>)}
+            </div>
+          ) : null}
+          {run?.summary ? <p><strong>Outcome:</strong> {run.summary}</p> : null}
+          {run?.error && run.error !== run.summary ? <p role="alert">{run.error}</p> : null}
+          {transcript ? (
+            <section className="subagent-timeline-card__transcript" aria-label="Subagent transcript preview">
+              <div>
+                <strong>Transcript preview</strong>
+                <button type="button" onClick={() => setTranscript(undefined)}>Close</button>
+              </div>
+              {transcript.status === "loading" ? (
+                <LoadingState compact label="Loading transcript" detail="Reading the child session preview…" />
+              ) : null}
+              {transcript.status === "error" ? <p role="alert">{transcript.message}</p> : null}
+              {transcript.status === "loaded" ? <pre>{transcript.preview.text || "(empty transcript)"}</pre> : null}
+            </section>
+          ) : null}
+          <p className="subagent-timeline-card__capability">
+            Child hierarchy uses durable runtime and audit IDs. Nested parentage remains unavailable when the runtime does not expose it.
+          </p>
+        </div>
+      ) : null}
+    </article>
+  );
+}
+
+function formatDurationMs(elapsedMs: number): string {
+  const seconds = Math.max(0, Math.round(elapsedMs / 1000));
+  if (seconds < 60) return `${seconds}s`;
+  return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
 }
 
 function TimelineThinkingItem({ item, onOpenUrl }: { readonly item: Extract<TranscriptMessage, { kind: "thinking" }>; readonly onOpenUrl?: (url: string) => void }) {
@@ -348,6 +725,8 @@ function TimelineToolCallItem({
     | { readonly status: "error"; readonly path: string; readonly message: string };
   const command = extractCommand(item.input);
   const outputText = item.outputText ?? extractToolText(item.output) ?? item.detail;
+  const failedTestCommand = item.status === "error" && isTestCommand(command);
+  const relatedFailurePath = failedTestCommand ? extractFailurePath(outputText) : undefined;
   const [subagentShinobiMap] = useSubagentShinobiMap();
   const [subagentRoleColorMap] = useSubagentRoleColorMap();
   const agentSubagentType = isAgentTool(item.toolName) ? extractAgentSubagentType(item.input) ?? "general-purpose" : undefined;
@@ -455,7 +834,9 @@ function TimelineToolCallItem({
                 </span>
               ) : null}
               <span className="timeline-tool__meta-inline">
-                {running ? <RunningToolMeta toolName={item.toolName} startedAt={item.createdAt} /> : `${item.toolName} · ${statusLabel(item.status)}`}
+                {running ? (
+                  <RunningToolMeta toolName={item.toolName} startedAt={item.createdAt} />
+                ) : `${command ? "Agent command · " : ""}${item.toolName} · ${statusLabel(item.status)}`}
               </span>
             </>
           )}
@@ -512,6 +893,35 @@ function TimelineToolCallItem({
                 </button>
               </div>
               {command ? <pre className="timeline-tool__command">$ {command}</pre> : null}
+              {failedTestCommand ? (
+                <div className="timeline-tool__body-actions" aria-label="Test failure actions">
+                  <button
+                    className="button button--secondary button--small"
+                    type="button"
+                    onClick={() => document.querySelector(`[data-tool-call-id="${CSS.escape(item.callId)}"] .timeline-tool__pre`)?.scrollIntoView({ block: "nearest" })}
+                  >
+                    Open failure
+                  </button>
+                  {relatedFailurePath && onViewFileInDiff ? (
+                    <button
+                      className="button button--secondary button--small"
+                      type="button"
+                      onClick={() => onViewFileInDiff(relatedFailurePath)}
+                    >
+                      Related change · {shortenPath(relatedFailurePath)}
+                    </button>
+                  ) : null}
+                  {item.fullOutputPath ? (
+                    <button
+                      className="button button--secondary button--small"
+                      type="button"
+                      onClick={() => window.dispatchEvent(new CustomEvent("pi-gui:open-logs"))}
+                    >
+                      Open logs
+                    </button>
+                  ) : null}
+                </div>
+              ) : null}
               {hasVisibleOutput ? (
                 <pre className="timeline-tool__pre">{outputText}</pre>
               ) : item.status === "running" ? (
@@ -552,7 +962,7 @@ function TimelineToolCallItem({
                     </button>
                   </div>
                   {transcriptDrawer.status === "loading" ? (
-                    <div className="timeline-transcript-drawer__message">Loading transcript…</div>
+                    <LoadingState compact label="Loading transcript" detail="Reading the selected child session…" />
                   ) : transcriptDrawer.status === "error" ? (
                     <div className="timeline-transcript-drawer__message timeline-transcript-drawer__message--error">{transcriptDrawer.message}</div>
                   ) : (
@@ -737,6 +1147,16 @@ function isWriteTool(toolName: string): boolean {
   return /write|edit|patch|apply/i.test(toolName);
 }
 
+function isTestCommand(command: string): boolean {
+  return /(?:^|[\s;&|])(?:pnpm|npm|yarn|bun)?\s*(?:test|vitest|jest|playwright|pytest|cargo\s+test|go\s+test)(?:[\s;&|]|$)/i.test(command);
+}
+
+function extractFailurePath(output: string | undefined): string | undefined {
+  if (!output) return undefined;
+  const match = output.match(/(?:^|[\s("'`])((?!\/)[A-Za-z0-9_.@+-]+(?:\/[A-Za-z0-9_.@+\-]+)+\.(?:[cm]?[jt]sx?|css|scss|html|json|md|py|rs|go))(?::\d+(?::\d+)?)?/m);
+  return match?.[1];
+}
+
 function isAgentTool(toolName: string): boolean {
   const normalized = toolName.toLowerCase();
   return normalized === "agent" || normalized.endsWith(".agent");
@@ -824,9 +1244,10 @@ function extractFilename(input: unknown): string {
 }
 
 function TimelineSummaryItem({ item, onOpenUrl: _onOpenUrl }: { readonly item: TimelineSummary; readonly onOpenUrl?: (url: string) => void }) {
+  const exactDetail = `${formatExactLocalTime(item.createdAt)}${item.metadata ? ` · ${item.metadata}` : ""}`;
   if (item.presentation === "divider") {
     return (
-      <div className="timeline-summary">
+      <div aria-label={exactDetail} className="timeline-summary" tabIndex={0} title={exactDetail}>
         <span>{item.label}</span>
         {item.metadata ? <span className="timeline-summary__meta">{item.metadata}</span> : null}
       </div>
@@ -834,7 +1255,7 @@ function TimelineSummaryItem({ item, onOpenUrl: _onOpenUrl }: { readonly item: T
   }
 
   return (
-    <div className="timeline-activity timeline-activity--summary">
+    <div aria-label={exactDetail} className="timeline-activity timeline-activity--summary" tabIndex={0} title={exactDetail}>
       <span className="timeline-activity__label">{item.label}</span>
       {item.metadata ? <span className="timeline-activity__meta">{item.metadata}</span> : null}
     </div>

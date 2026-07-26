@@ -146,7 +146,6 @@ test("reviewed checkboxes update counter, prune on changes, and survive relaunch
   const reopened = await launchDesktop(userDataDir, { testMode: "background" });
   const window = await reopened.firstWindow();
   try {
-    await window.keyboard.press(desktopShortcut("D"));
     const reopenedPanel = window.locator(".diff-panel");
     await expect(reopenedPanel).toBeVisible();
     await expect(reopenedPanel.getByTestId("diff-panel-counter")).toHaveText("Reviewed 2 of 3");

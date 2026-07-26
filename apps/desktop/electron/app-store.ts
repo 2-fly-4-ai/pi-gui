@@ -1,5 +1,5 @@
 import type { BrowserWindow } from "electron";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
   applyHostUiRequestToExtensionUiState,
@@ -89,6 +89,7 @@ import {
   cloneTranscriptMessage,
   latestSessionActivityAt,
   mergeQueuedComposerMessages,
+  restorePersistedQueuedComposerMessages,
   mapToRecord,
   previewFromTranscript,
   toSessionRef,
@@ -334,6 +335,7 @@ export class DesktopAppStore implements AppStoreInternals {
   private readonly uiStateFilePath: string;
   private readonly transcriptStore: JsonFileStore<PersistedTranscriptStoreValue>;
   readonly attachmentStore: JsonFileStore<ComposerAttachment[]>;
+  readonly queueStore: JsonFileStore<unknown>;
   readonly sessionState = new SessionStateMap();
   readonly runtimeByWorkspace = new Map<string, RuntimeSnapshot>();
   readonly extensionCommandCompatibilityByWorkspace = new Map<string, Map<string, ExtensionCommandCompatibilityRecord>>();
@@ -370,6 +372,7 @@ export class DesktopAppStore implements AppStoreInternals {
     this.uiStateFilePath = join(options.userDataDir, "ui-state.json");
     this.transcriptStore = new JsonFileStore<PersistedTranscriptStoreValue>(options.userDataDir, "transcripts");
     this.attachmentStore = new JsonFileStore<ComposerAttachment[]>(options.userDataDir, "attachments");
+    this.queueStore = new JsonFileStore<unknown>(options.userDataDir, "queued-messages");
     this.initialWorkspacePaths = options.initialWorkspacePaths;
     this.getWindow = options.getWindow ?? (() => null);
     this.listSubagentRunsForDisplayMode = options.listSubagentRunsForDisplayMode ?? (async () => []);
@@ -698,8 +701,12 @@ export class DesktopAppStore implements AppStoreInternals {
 
   /* ── Composer methods (delegated) ──────────────────────── */
 
-  async updateComposerDraft(target: WorkspaceSessionTarget, composerDraft: string): Promise<DesktopAppState> {
-    return composer.updateComposerDraft(this, target, composerDraft);
+  async updateComposerDraft(
+    target: WorkspaceSessionTarget,
+    composerDraft: string,
+    options?: { readonly syncToEditor?: boolean },
+  ): Promise<DesktopAppState> {
+    return composer.updateComposerDraft(this, target, composerDraft, options);
   }
 
   async addComposerAttachments(attachments: readonly ComposerAttachment[]): Promise<DesktopAppState> {
@@ -720,7 +727,11 @@ export class DesktopAppStore implements AppStoreInternals {
   async submitComposerToSession(
     target: WorkspaceSessionTarget,
     textInput: string,
-    options?: { readonly deliverAs?: "steer" | "followUp"; readonly messageMetadata?: unknown },
+    options?: {
+      readonly attachments?: readonly ComposerAttachment[];
+      readonly deliverAs?: "steer" | "followUp";
+      readonly messageMetadata?: unknown;
+    },
   ): Promise<DesktopAppState> {
     return composer.submitComposerToSession(this, target, textInput, options);
   }
@@ -739,6 +750,24 @@ export class DesktopAppStore implements AppStoreInternals {
 
   async steerQueuedComposerMessage(messageId: string): Promise<DesktopAppState> {
     return composer.steerQueuedComposerMessage(this, messageId);
+  }
+
+  async setQueuedComposerMessageDelivery(
+    messageId: string,
+    mode: "steer" | "followUp",
+  ): Promise<DesktopAppState> {
+    return composer.setQueuedComposerMessageDelivery(this, messageId, mode);
+  }
+
+  async moveQueuedComposerMessage(
+    messageId: string,
+    direction: "up" | "down",
+  ): Promise<DesktopAppState> {
+    return composer.moveQueuedComposerMessage(this, messageId, direction);
+  }
+
+  async sendNextQueuedComposerMessage(messageId: string): Promise<DesktopAppState> {
+    return composer.sendNextQueuedComposerMessage(this, messageId);
   }
 
   async cancelCurrentRun(): Promise<DesktopAppState> {
@@ -1368,6 +1397,7 @@ export class DesktopAppStore implements AppStoreInternals {
           workspaceId: selectedWorkspaceId,
           sessionId: selectedSessionId,
         };
+        await this.ensureQueuedComposerMessagesLoaded(sessionRef);
         await this.ensureSessionReady(sessionRef);
         await this.ensureComposerAttachmentsLoaded(sessionRef);
       }
@@ -1511,9 +1541,10 @@ export class DesktopAppStore implements AppStoreInternals {
 
   async ensureSessionSubscription(sessionRef: SessionRef): Promise<void> {
     if (!this.sessionState.sessionSubscriptions.has(sessionKey(sessionRef))) {
+      await this.ensureQueuedComposerMessagesLoaded(sessionRef);
       const snapshot = await this.driver.openSession(sessionRef);
       this.updateSessionConfig(sessionRef, snapshot.config);
-      this.updateQueuedComposerMessages(sessionRef, snapshot.queuedMessages);
+      this.updateQueuedComposerMessages(sessionRef, snapshot.queuedMessages, { preserveRecoveredWhenEmpty: true });
     }
     await this.ensureSessionSubscribed(sessionRef);
   }
@@ -1588,7 +1619,42 @@ export class DesktopAppStore implements AppStoreInternals {
 
     const attachments = await this.attachmentStore.read(key);
     if (attachments?.length) {
-      this.sessionState.composerAttachmentsBySession.set(key, cloneComposerAttachments(attachments));
+      const normalized = cloneComposerAttachments(attachments);
+      const refreshed = await Promise.all(normalized.map(async (attachment) => {
+        if (attachment.kind !== "file" || attachment.status === "failed") return attachment;
+        try {
+          await access(attachment.fsPath);
+          return { ...attachment, status: "ready" as const };
+        } catch {
+          return { ...attachment, status: "missing" as const };
+        }
+      }));
+      this.sessionState.composerAttachmentsBySession.set(key, refreshed);
+    }
+  }
+
+  private async ensureQueuedComposerMessagesLoaded(sessionRef: SessionRef): Promise<void> {
+    const key = sessionKey(sessionRef);
+    if (this.sessionState.queuedComposerMessagesBySession.has(key)) {
+      return;
+    }
+
+    const restored = await Promise.all(
+      restorePersistedQueuedComposerMessages(await this.queueStore.read(key)).map(async (message) => ({
+        ...message,
+        attachments: await Promise.all(message.attachments.map(async (attachment) => {
+          if (attachment.kind !== "file" || attachment.status === "failed") return attachment;
+          try {
+            await access(attachment.fsPath);
+            return { ...attachment, status: "ready" as const };
+          } catch {
+            return { ...attachment, status: "missing" as const };
+          }
+        })),
+      })),
+    );
+    if (restored.length > 0) {
+      this.sessionState.queuedComposerMessagesBySession.set(key, restored);
     }
   }
 
@@ -1846,7 +1912,15 @@ export class DesktopAppStore implements AppStoreInternals {
         break;
       default:
         if (isExtensionUiDialogRequest(event.request)) {
-          const dialog = event.request;
+          const dialog = {
+            ...event.request,
+            workspaceId: event.sessionRef.workspaceId,
+            sessionId: event.sessionRef.sessionId,
+            ...(event.runId ? { runId: event.runId } : {}),
+            receivedAt: event.timestamp,
+            source: "runtime-extension" as const,
+            risk: event.request.kind === "confirm" ? "significant" as const : "routine" as const,
+          };
           uiState.pendingDialogs = [
             ...uiState.pendingDialogs.filter((entry) => entry.requestId !== dialog.requestId),
             dialog,
@@ -1900,6 +1974,7 @@ export class DesktopAppStore implements AppStoreInternals {
 
   private async applySessionEventImmediately(event: SessionDriverEvent, subscriptionKey = sessionKey(event.sessionRef)): Promise<void> {
     const key = sessionKey(event.sessionRef);
+    await this.ensureQueuedComposerMessagesLoaded(event.sessionRef);
     const knownSession = this.sessionFromState(event.sessionRef);
     const shouldFollowSessionMutation = subscriptionKey !== key && this.currentSelectedSessionKey() === subscriptionKey;
     let refreshedFollowedSession = false;
@@ -1968,7 +2043,25 @@ export class DesktopAppStore implements AppStoreInternals {
       case "sessionClosed":
         this.sessionState.extensionUiBySession.delete(key);
         this.sessionState.sessionCommandsBySession.delete(key);
-        this.sessionState.queuedComposerMessagesBySession.delete(key);
+        {
+          const recoveredQueue = (this.sessionState.queuedComposerMessagesBySession.get(key) ?? [])
+            .map((message) => {
+              const invalid = !message.text.trim() && message.attachments.length === 0;
+              return {
+                ...message,
+                recoveryState: invalid ? "invalid" as const : "stale" as const,
+                recoveryReason: invalid
+                  ? "This recovered item has no sendable text or attachments. Edit it before sending."
+                  : "Recovered after the previous app session ended. Review or send it again.",
+              };
+            });
+          if (recoveredQueue.length > 0) {
+            this.sessionState.queuedComposerMessagesBySession.set(key, recoveredQueue);
+          } else {
+            this.sessionState.queuedComposerMessagesBySession.delete(key);
+          }
+          await this.persistQueuedComposerMessages(event.sessionRef);
+        }
         this.sessionState.queuedComposerEditsBySession.delete(key);
         this.clearPendingAutoTitle(event.sessionRef);
         this.pendingRuntimeCommandsBySession.delete(key);
@@ -2319,6 +2412,20 @@ export class DesktopAppStore implements AppStoreInternals {
   ): Promise<void> {
     await this.attachmentStore.write(key, cloneComposerAttachments(attachments));
     await this.persistUiState();
+  }
+
+  async persistQueuedComposerMessages(sessionRef: SessionRef): Promise<void> {
+    const messages = this.getQueuedComposerMessages(sessionRef).map((message) => ({
+      ...message,
+      attachments: cloneComposerAttachments(message.attachments),
+      recoveryState: message.recoveryState
+        ?? (!message.text.trim() && message.attachments.length === 0 ? "invalid" as const : "stale" as const),
+      recoveryReason: message.recoveryReason
+        ?? (!message.text.trim() && message.attachments.length === 0
+          ? "This recovered item has no sendable text or attachments. Edit it before sending."
+          : "Recovered after the previous app session ended. Review or send it again."),
+    }));
+    await this.queueStore.write(sessionKey(sessionRef), messages);
   }
 
   persistTranscriptCacheForSession(sessionRef: SessionRef): void {
@@ -2869,9 +2976,17 @@ export class DesktopAppStore implements AppStoreInternals {
     }
   }
 
-  updateQueuedComposerMessages(sessionRef: SessionRef, queuedMessages: readonly SessionQueuedMessage[] | undefined): void {
+  updateQueuedComposerMessages(
+    sessionRef: SessionRef,
+    queuedMessages: readonly SessionQueuedMessage[] | undefined,
+    _options: { readonly preserveRecoveredWhenEmpty?: boolean } = {},
+  ): void {
     const key = sessionKey(sessionRef);
-    const next = mergeQueuedComposerMessages(this.sessionState.queuedComposerMessagesBySession.get(key), queuedMessages);
+    const previous = this.sessionState.queuedComposerMessagesBySession.get(key);
+    const live = mergeQueuedComposerMessages(previous, queuedMessages);
+    const liveIds = new Set(live.map((message) => message.id));
+    const recovered = (previous ?? []).filter((message) => message.recoveryState && !liveIds.has(message.id));
+    const next = [...live, ...recovered];
     if (next.length > 0) {
       this.sessionState.queuedComposerMessagesBySession.set(key, next);
     } else {
@@ -2881,6 +2996,9 @@ export class DesktopAppStore implements AppStoreInternals {
     const editState = this.sessionState.queuedComposerEditsBySession.get(key);
     if (editState && !next.some((message) => message.id === editState.messageId)) {
       this.sessionState.queuedComposerEditsBySession.delete(key);
+    }
+    if (previous || next.length > 0) {
+      void this.persistQueuedComposerMessages(sessionRef);
     }
   }
 

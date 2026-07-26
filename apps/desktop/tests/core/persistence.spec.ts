@@ -125,6 +125,7 @@ test("persists transcript storage separately from ui state and restores the curr
     await firstRun.close();
   }
 
+  await unlink(filePath);
   const secondRun = await launchDesktop(userDataDir, { testMode: "background" });
   try {
     const window = await secondRun.firstWindow();
@@ -141,6 +142,9 @@ test("persists transcript storage separately from ui state and restores the curr
       .toMatchObject({
         attachments: 2,
       });
+    await expect(window.locator(".composer-attachment--missing")).toContainText("Missing");
+    await expect(window.locator(".composer-attachment--missing")).toContainText("Workspace reference");
+    await expect(window.locator(".composer-attachment--image")).toContainText("Copied attachment");
   } finally {
     await secondRun.close();
   }

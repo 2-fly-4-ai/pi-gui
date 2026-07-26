@@ -17,6 +17,7 @@ import {
   previewFromTranscript,
   toSessionAttachments,
   toSessionQueuedMessages,
+  toProviderMessageText,
   toTranscriptAttachments,
 } from "./app-store-utils";
 import type { AppStoreInternals } from "./app-store-internals";
@@ -29,6 +30,7 @@ export async function updateComposerDraft(
   store: AppStoreInternals,
   target: WorkspaceSessionTarget,
   composerDraft: string,
+  options?: { readonly syncToEditor?: boolean },
 ): Promise<DesktopAppState> {
   await store.initialize();
   const sessionRef = toSessionRef(target);
@@ -47,7 +49,7 @@ export async function updateComposerDraft(
   store.state = {
     ...store.state,
     composerDraft,
-    composerDraftSyncSource: "persist",
+    composerDraftSyncSource: options?.syncToEditor ? "command" : "persist",
     composerDraftSyncNonce: store.state.composerDraftSyncNonce + 1,
     revision: store.state.revision + 1,
   };
@@ -204,7 +206,17 @@ export async function removeQueuedComposerMessage(
     await store.persistComposerAttachments(key, editState.restoreAttachments);
   }
 
-  await store.driver.replaceQueuedMessages(sessionRef, toSessionQueuedMessages(next));
+  if (next.length > 0) {
+    store.sessionState.queuedComposerMessagesBySession.set(key, [...next]);
+  } else {
+    store.sessionState.queuedComposerMessagesBySession.delete(key);
+  }
+  const selectedSession = store.sessionFromState(sessionRef);
+  if (selectedSession?.status === "running") {
+    await store.driver.replaceQueuedMessages(sessionRef, toSessionQueuedMessages(next));
+  } else {
+    await store.persistQueuedComposerMessages(sessionRef);
+  }
   return store.refreshState({
     ...(editState?.messageId === messageId
       ? {
@@ -221,6 +233,14 @@ export async function steerQueuedComposerMessage(
   store: AppStoreInternals,
   messageId: string,
 ): Promise<DesktopAppState> {
+  return setQueuedComposerMessageDelivery(store, messageId, "steer");
+}
+
+export async function setQueuedComposerMessageDelivery(
+  store: AppStoreInternals,
+  messageId: string,
+  mode: "steer" | "followUp",
+): Promise<DesktopAppState> {
   await store.initialize();
   const sessionRef = store.selectedSessionRef();
   if (!sessionRef) {
@@ -233,12 +253,17 @@ export async function steerQueuedComposerMessage(
     return store.emit();
   }
 
-  const steeredMessage = {
+  const updatedMessage = {
     ...queuedMessage,
-    mode: "steer" as const,
+    mode,
     updatedAt: new Date().toISOString(),
   };
-  const next = current.map((message) => (message.id === messageId ? steeredMessage : message));
+  const next = current.map((message) => (message.id === messageId ? updatedMessage : message));
+  if (queuedMessage.recoveryState) {
+    store.sessionState.queuedComposerMessagesBySession.set(sessionKey(sessionRef), next);
+    await store.persistQueuedComposerMessages(sessionRef);
+    return store.refreshState({ clearLastError: true, markSelectedSessionViewed: false });
+  }
   const nextSessionQueuedMessages = toSessionQueuedMessages(next);
 
   try {
@@ -250,6 +275,77 @@ export async function steerQueuedComposerMessage(
   } catch (error) {
     return store.withError(error);
   }
+}
+
+export async function moveQueuedComposerMessage(
+  store: AppStoreInternals,
+  messageId: string,
+  direction: "up" | "down",
+): Promise<DesktopAppState> {
+  await store.initialize();
+  const sessionRef = store.selectedSessionRef();
+  if (!sessionRef) return store.emit();
+  const current = [...store.getQueuedComposerMessages(sessionRef)];
+  const index = current.findIndex((message) => message.id === messageId);
+  const target = direction === "up" ? index - 1 : index + 1;
+  if (index < 0 || target < 0 || target >= current.length) return store.emit();
+  [current[index], current[target]] = [current[target]!, current[index]!];
+  store.sessionState.queuedComposerMessagesBySession.set(sessionKey(sessionRef), current);
+
+  const selectedSession = store.sessionFromState(sessionRef);
+  if (selectedSession?.status === "running") {
+    await store.driver.replaceQueuedMessages(sessionRef, toSessionQueuedMessages(current));
+  } else {
+    await store.persistQueuedComposerMessages(sessionRef);
+  }
+  return store.refreshState({ clearLastError: true, markSelectedSessionViewed: false });
+}
+
+export async function sendNextQueuedComposerMessage(
+  store: AppStoreInternals,
+  messageId: string,
+): Promise<DesktopAppState> {
+  await store.initialize();
+  const sessionRef = store.selectedSessionRef();
+  if (!sessionRef) return store.emit();
+  const current = [...store.getQueuedComposerMessages(sessionRef)];
+  const index = current.findIndex((message) => message.id === messageId);
+  if (index < 0) return store.emit();
+  const selected = current[index]!;
+  if (!selected.text.trim() && selected.attachments.length === 0) {
+    return store.withError("Edit this recovered queue item before sending it.");
+  }
+  if (selected.attachments.some((attachment) => attachment.status === "missing" || attachment.status === "failed")) {
+    return store.withError("Repair or remove unavailable attachments before sending this recovered queue item.");
+  }
+
+  const selectedSession = store.sessionFromState(sessionRef);
+  if (selectedSession?.status === "running") {
+    const ready = {
+      ...selected,
+      mode: "followUp" as const,
+      recoveryState: undefined,
+      recoveryReason: undefined,
+      updatedAt: new Date().toISOString(),
+    };
+    const reordered = [ready, ...current.filter((message) => message.id !== messageId)];
+    store.sessionState.queuedComposerMessagesBySession.set(sessionKey(sessionRef), reordered);
+    await store.driver.replaceQueuedMessages(sessionRef, toSessionQueuedMessages(reordered));
+    return store.refreshState({ clearLastError: true, markSelectedSessionViewed: false });
+  }
+
+  await sendMessageToSession(store, sessionRef, selected.text, selected.attachments, {
+    messageMetadata: selected.metadata,
+  });
+  const remaining = current.filter((message) => message.id !== messageId);
+  if (remaining.length > 0) {
+    store.sessionState.queuedComposerMessagesBySession.set(sessionKey(sessionRef), remaining);
+  } else {
+    store.sessionState.queuedComposerMessagesBySession.delete(sessionKey(sessionRef));
+  }
+  await store.persistQueuedComposerMessages(sessionRef);
+  applyMessageMetadataToLatestUserMessage(store, sessionRef, selected.text, selected.metadata);
+  return store.refreshState({ clearLastError: true, markSelectedSessionViewed: false });
 }
 
 export async function submitComposer(
@@ -281,6 +377,15 @@ export async function submitComposer(
     : undefined;
 
   const key = sessionKey(sessionRef);
+  const unavailableAttachment = attachments.find((attachment) => (attachment.status ?? "ready") !== "ready");
+  if (unavailableAttachment) {
+    const status = unavailableAttachment.status === "pending"
+      ? "still processing"
+      : unavailableAttachment.status === "missing"
+        ? "is missing"
+        : "failed to process";
+    return store.withError(`Attachment “${unavailableAttachment.name}” ${status}. Remove it or attach the file again.`);
+  }
   const selectedSession = store.sessionFromState(sessionRef);
   const isRunning = selectedSession?.status === "running";
   const editingState = store.getQueuedComposerEditState(sessionRef);
@@ -316,14 +421,15 @@ export async function submitComposer(
 
     if (isRunning && !resolvedRuntimeSlashCommand) {
       const deliverAs = options.deliverAs ?? "steer";
+      const existingQueuedMessage = editingState
+        ? store.getQueuedComposerMessages(sessionRef).find((message) => message.id === editingState.messageId)
+        : undefined;
       const nextMessage = buildQueuedComposerMessage({
-        existing: editingState
-          ? store.getQueuedComposerMessages(sessionRef).find((message) => message.id === editingState.messageId)
-          : undefined,
+        existing: existingQueuedMessage,
         text,
         attachments,
         mode: deliverAs,
-        metadata: options.messageMetadata,
+        metadata: options.messageMetadata ?? existingQueuedMessage?.metadata,
       });
       const nextQueuedMessages = editingState
         ? replaceQueuedComposerMessage(
@@ -346,6 +452,36 @@ export async function submitComposer(
         clearLastError: true,
         markSelectedSessionViewed: false,
       });
+    }
+
+    if (editingState && !resolvedRuntimeSlashCommand) {
+      const existingQueuedMessage = store.getQueuedComposerMessages(sessionRef)
+        .find((message) => message.id === editingState.messageId);
+      if (existingQueuedMessage) {
+        const replacement = {
+          ...buildQueuedComposerMessage({
+            existing: existingQueuedMessage,
+            text,
+            attachments,
+            mode: existingQueuedMessage.mode,
+            metadata: options.messageMetadata ?? existingQueuedMessage.metadata,
+          }),
+          recoveryState: "stale" as const,
+          recoveryReason: "Recovered after the previous app session ended. Review or send it again.",
+        };
+        const next = replaceQueuedComposerMessage(
+          store.getQueuedComposerMessages(sessionRef),
+          editingState.messageId,
+          replacement,
+        );
+        store.sessionState.queuedComposerMessagesBySession.set(key, next);
+        store.sessionState.composerDraftsBySession.delete(key);
+        store.sessionState.composerAttachmentsBySession.delete(key);
+        store.setQueuedComposerEditState(sessionRef, undefined);
+        await store.persistComposerAttachments(key, []);
+        await store.persistQueuedComposerMessages(sessionRef);
+        return store.refreshState({ clearLastError: true, markSelectedSessionViewed: false });
+      }
     }
 
     await sendMessageToSession(store, sessionRef, text, attachments, { messageMetadata: options.messageMetadata });
@@ -447,11 +583,16 @@ export async function submitComposerToSession(
   store: AppStoreInternals,
   target: WorkspaceSessionTarget,
   textInput: string,
-  options: { readonly deliverAs?: "steer" | "followUp"; readonly messageMetadata?: unknown } = {},
+  options: {
+    readonly attachments?: readonly ComposerAttachment[];
+    readonly deliverAs?: "steer" | "followUp";
+    readonly messageMetadata?: unknown;
+  } = {},
 ): Promise<DesktopAppState> {
   await store.initialize();
   const text = textInput.trim();
-  if (!text) {
+  const attachments = options.attachments ?? [];
+  if (!text && attachments.length === 0) {
     return store.emit();
   }
 
@@ -462,6 +603,15 @@ export async function submitComposerToSession(
   }
 
   const key = sessionKey(sessionRef);
+  const unavailableAttachment = attachments.find((attachment) => (attachment.status ?? "ready") !== "ready");
+  if (unavailableAttachment) {
+    const status = unavailableAttachment.status === "pending"
+      ? "still processing"
+      : unavailableAttachment.status === "missing"
+        ? "is missing"
+        : "failed to process";
+    return store.withError(`Attachment “${unavailableAttachment.name}” ${status}. Remove it or attach the file again.`);
+  }
   await store.ensureRuntimeLoaded(sessionRef.workspaceId);
   const runtime = store.runtimeByWorkspace.get(sessionRef.workspaceId);
   const sessionCommands = store.sessionState.sessionCommandsBySession.get(key) ?? [];
@@ -480,7 +630,7 @@ export async function submitComposerToSession(
       const deliverAs = options.deliverAs ?? "steer";
       const nextMessage = buildQueuedComposerMessage({
         text,
-        attachments: [],
+        attachments,
         mode: deliverAs,
         metadata: options.messageMetadata,
       });
@@ -496,7 +646,7 @@ export async function submitComposerToSession(
       });
     }
 
-    await sendMessageToSession(store, sessionRef, text, [], { messageMetadata: options.messageMetadata });
+    await sendMessageToSession(store, sessionRef, text, attachments, { messageMetadata: options.messageMetadata });
     const nextState = await store.refreshState({
       clearLastError: true,
       markSelectedSessionViewed: false,
@@ -579,7 +729,7 @@ export async function sendMessageToSession(
   await store.persistComposerAttachments(key, []);
   try {
     await store.driver.sendUserMessage(sessionRef, {
-      text,
+      text: toProviderMessageText(text, options.messageMetadata),
       attachments: toSessionAttachments(attachments),
       ...(options.messageMetadata !== undefined ? { metadata: options.messageMetadata } : {}),
     });

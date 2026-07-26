@@ -36,6 +36,23 @@ test("toggles and persists the primary sidebar from the button and keyboard shor
     const toggle = window.getByTestId("sidebar-toggle");
     await expect(toggle).toBeVisible();
     await expect(window.locator(".sidebar")).toBeVisible();
+    const sidebarResize = window.getByRole("separator", { name: "Resize sidebar" });
+    await expect(sidebarResize).toBeVisible();
+    await expect(sidebarResize).toHaveAttribute("aria-valuenow", "292");
+    const resizeBox = await sidebarResize.boundingBox();
+    expect(resizeBox).not.toBeNull();
+    if (!resizeBox) throw new Error("Sidebar resize handle has no layout box");
+    await window.mouse.move(resizeBox.x + resizeBox.width / 2, resizeBox.y + 40);
+    await window.mouse.down();
+    await window.mouse.move(resizeBox.x + resizeBox.width / 2 + 40, resizeBox.y + 40, { steps: 4 });
+    await window.mouse.up();
+    await expect(sidebarResize).toHaveAttribute("aria-valuenow", "332");
+    await sidebarResize.focus();
+    await window.keyboard.press("Home");
+    await expect(sidebarResize).toHaveAttribute("aria-valuenow", "292");
+    await window.keyboard.press("Shift+ArrowRight");
+    await expect(sidebarResize).toHaveAttribute("aria-valuenow", "324");
+    await expect.poll(() => window.evaluate(() => window.localStorage.getItem("pi-gui:sidebar-width"))).toBe("324");
     const expandedMainBox = await window.locator(".main").boundingBox();
     expect(expandedMainBox).not.toBeNull();
 
@@ -94,6 +111,12 @@ test("toggles and persists the primary sidebar from the button and keyboard shor
     await window.getByRole("button", { name: "Back to app", exact: true }).click();
 
     await restoreSidebarIfNeeded(window);
+    const restoredResize = window.getByRole("separator", { name: "Resize sidebar" });
+    await restoredResize.focus();
+    await window.keyboard.press("Home");
+    await window.keyboard.press("Shift+ArrowRight");
+    await window.keyboard.press("Shift+ArrowRight");
+    await expect(restoredResize).toHaveAttribute("aria-valuenow", "356");
     await window.getByTestId("sidebar-toggle").click();
     await expectSidebarCollapsed(window, true);
   } finally {
@@ -108,6 +131,11 @@ test("toggles and persists the primary sidebar from the button and keyboard shor
     await expect(window.getByTestId("sidebar-toggle")).toBeVisible();
     await window.getByTestId("sidebar-toggle").click();
     await expectSidebarCollapsed(window, false);
+    await expect(window.getByRole("separator", { name: "Resize sidebar" })).toHaveAttribute("aria-valuenow", "356");
+    await window.setViewportSize({ width: 700, height: 720 });
+    await expect(window.getByRole("separator", { name: "Resize sidebar" })).toHaveAttribute("aria-valuemax", "240");
+    const narrowSidebarBox = await window.locator(".sidebar").boundingBox();
+    expect(narrowSidebarBox?.width ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(240);
   } finally {
     await secondRun.close();
   }

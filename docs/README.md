@@ -8,12 +8,13 @@ Start here:
 2. `SAFETY.md` - approval gates, secret handling, and private artifact rules.
 3. `folder-map.md` - quick orientation to the repository layout.
 4. `architecture.md` - desktop boundaries, state flow, driver stack, and test tiers.
-5. `runtime-deps.md` - why packaged Electron/runtime dependencies are explicit and how they are verified.
-6. `platform-expansion.md` - current mac x64 and Windows platform expansion decision.
-7. `workflows/agent-first-change.md` - default loop for agent-driven changes.
-8. `security/` - credential rotation, secret-scanning procedures, and repo hygiene audits.
-9. `superpowers/` - product specs and historical plans for major desktop capabilities.
-10. `readme/` - imported/readme-style pi documentation and media assets.
+5. `product-experience-safety.md` - evidence authority, checkpoint/restore, context/memory, review, and handoff safety contracts.
+6. `runtime-deps.md` - why packaged Electron/runtime dependencies are explicit and how they are verified.
+7. `platform-expansion.md` - current mac x64 and Windows platform expansion decision.
+8. `workflows/agent-first-change.md` - default loop for agent-driven changes.
+9. `security/` - credential rotation, secret-scanning procedures, and repo hygiene audits.
+10. `superpowers/` - product specs and historical plans for major desktop capabilities.
+11. `readme/` - imported/readme-style pi documentation and media assets.
 
 Rules:
 

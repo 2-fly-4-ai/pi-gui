@@ -124,6 +124,8 @@ function readImageAttachmentFromFile(file: File): Promise<ComposerImageAttachmen
         name: file.name || "pasted-image.png",
         mimeType: inferImageMimeType(file) ?? "image/png",
         data: dataUrl.slice(commaIndex + 1),
+        source: "copied",
+        status: "ready",
       });
     };
     reader.onerror = () => resolve(null);
@@ -143,6 +145,8 @@ function readFileAttachmentFromFile(file: FileWithPath): ComposerFileAttachment 
     name: file.name || fileNameFromPath(fsPath) || "attached-file",
     mimeType: file.type || "application/octet-stream",
     fsPath,
+    source: "workspace-reference",
+    status: "ready",
     ...(typeof file.size === "number" ? { sizeBytes: file.size } : {}),
   };
 }

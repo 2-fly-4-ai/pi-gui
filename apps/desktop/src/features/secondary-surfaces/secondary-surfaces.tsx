@@ -11,9 +11,11 @@ import { ReviewSurface } from "../../review/ReviewSurface";
 import type { ReviewSnapshot } from "../../review/review-types";
 import { SecondarySurface } from "../../secondary-surface";
 import { SettingsView } from "../../settings-view";
+import { SettingsSearch } from "../../settings-search";
 import type { SettingsSection } from "../../settings-utils";
 import { SkillsView } from "../../skills-view";
 import type { SkillUsageByPath } from "../../skill-usage";
+import { LoadingState } from "../../loading-state";
 
 const SETTINGS_NAV = [
   { id: "appearance", label: "Appearance" },
@@ -61,6 +63,7 @@ export function SettingsSecondarySurface({
         testId="settings-surface"
         title="Settings"
       >
+        <SettingsSearch onSelectSection={onSelectSection} />
         <SettingsView
           {...viewProps}
           section={section}
@@ -88,6 +91,7 @@ interface ReviewSecondarySurfaceProps {
   readonly snapshot?: ReviewSnapshot;
   readonly onBack: () => void;
   readonly onSubmitPrompt: (prompt: string) => void;
+  readonly onRefresh: () => void;
 }
 
 export function ReviewSecondarySurface({
@@ -96,6 +100,7 @@ export function ReviewSecondarySurface({
   snapshot,
   onBack,
   onSubmitPrompt,
+  onRefresh,
 }: ReviewSecondarySurfaceProps) {
   return (
     <>
@@ -103,14 +108,13 @@ export function ReviewSecondarySurface({
       <SecondarySurface onBack={onBack} testId="review-surface-shell" title="Review changes">
         {loading || !snapshot ? (
           <section className="canvas canvas--empty">
-            <div className="empty-panel">
-              <div className="session-header__eyebrow">Review</div>
-              <h1>Loading review...</h1>
-              <p>Freezing the current working-tree diff.</p>
-            </div>
+            <LoadingState
+              label="Loading review"
+              detail="Freezing the current working-tree diff…"
+            />
           </section>
         ) : (
-          <ReviewSurface snapshot={snapshot} onCancel={onBack} onSubmitPrompt={onSubmitPrompt} />
+          <ReviewSurface snapshot={snapshot} onCancel={onBack} onRefresh={onRefresh} onSubmitPrompt={onSubmitPrompt} />
         )}
       </SecondarySurface>
     </>
@@ -125,7 +129,7 @@ interface SkillsSecondarySurfaceProps {
   readonly workspaceOptions: readonly WorkspaceRecord[];
   readonly onBack: () => void;
   readonly onSelectWorkspace: (workspaceId: string) => void;
-  readonly onRefresh: () => void;
+  readonly onRefresh: () => Promise<string | undefined>;
   readonly onOpenSkillFolder: (filePath: string) => void;
   readonly onSetSkillMode: (filePath: string, mode: RuntimeSkillMode) => void;
   readonly onSetActiveProfile: (profileId: string) => void;
@@ -195,7 +199,7 @@ interface ExtensionsSecondarySurfaceProps {
   readonly workspaceOptions: readonly WorkspaceRecord[];
   readonly onBack: () => void;
   readonly onSelectWorkspace: (workspaceId: string) => void;
-  readonly onRefresh: () => void;
+  readonly onRefresh: () => Promise<string | undefined>;
   readonly onOpenExtensionFolder: (filePath: string) => void;
   readonly onToggleExtension: (filePath: string, enabled: boolean) => void;
 }

@@ -1,4 +1,4 @@
-import { type Dispatch, type SetStateAction, useCallback, useMemo, useRef } from "react";
+import { type Dispatch, type SetStateAction, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   appendComposerAttachments,
   type DesktopAppState,
@@ -8,11 +8,13 @@ import {
   type WorkspaceSessionTarget,
 } from "../../desktop-state";
 import { CommandPalette } from "../../command-palette";
+import type { CommandPaletteAction } from "../../command-palette-model";
 import { buildThreadGroups } from "../../thread-groups";
 import { appendComposerContext } from "../../terminal-selection-context";
 import { useSlashMenu } from "../../hooks/use-slash-menu";
 import { useMentionMenu } from "../../hooks/use-mention-menu";
 import { useThreadSearch } from "../../hooks/use-thread-search";
+import { readOpenFileHistory, recordOpenedFile } from "../../open-file-history";
 import { useWorkspaceMenu } from "../../hooks/use-workspace-menu";
 import { AppMainShell } from "./app-main-shell";
 import { AppPrimaryContent } from "./app-primary-content";
@@ -46,6 +48,16 @@ import { useSkillUsageTracking } from "../skills/use-skill-usage-tracking";
 import { useVisibleTerminal } from "../terminal/use-visible-terminal";
 import { useTimelineViewport } from "../timeline/use-timeline-viewport";
 import { useWorkspaceDerivations } from "../workspaces/use-workspace-derivations";
+import { CommandPreviewDialog } from "../evidence/command-preview-dialog";
+import { WorkspaceProductivityHub } from "../../workspace-productivity-hub";
+import {
+  indexWorkspaceArtifacts,
+  normalizeShortcut,
+  readWorkspaceShortcuts,
+  type WorkspaceArtifactReference,
+} from "../../product-experience/workspace-productivity";
+import { SETTINGS_SEARCH_ENTRIES } from "../../product-experience/settings-search";
+import type { AgentDefinitionRecord } from "../../agent-definitions";
 
 interface AppReadyProps {
   readonly api: NonNullable<typeof window.piApp>;
@@ -69,6 +81,10 @@ export function AppReady({
   const mainRef = useRef<HTMLElement | null>(null);
   const onLeaveDisplayModeSurfaceRef = useRef<() => void>(() => undefined);
   const preserveTimelineBottomForDiffToggleRef = useRef<(delayFrames?: number) => void>(() => undefined);
+  const [workspaceHubOpen, setWorkspaceHubOpen] = useState(false);
+  const [paletteAgents, setPaletteAgents] = useState<readonly AgentDefinitionRecord[]>([]);
+  const [paletteArtifacts, setPaletteArtifacts] = useState<readonly WorkspaceArtifactReference[]>([]);
+  const [workspaceShortcutRevision, setWorkspaceShortcutRevision] = useState(0);
 
   const selectedWorkspace = snapshot ? (getSelectedWorkspace(snapshot) ?? snapshot.workspaces[0]) : undefined;
   const selectedSession = snapshot ? (getSelectedSession(snapshot) ?? selectedWorkspace?.sessions[0]) : undefined;
@@ -76,7 +92,6 @@ export function AppReady({
     api,
     selectedWorkspace,
   });
-
   const {
     activeWorktrees,
     linkedWorktreeByWorkspaceId,
@@ -87,8 +102,50 @@ export function AppReady({
   const selectedWorktree = selectedWorkspace ? linkedWorktreeByWorkspaceId.get(selectedWorkspace.id) : undefined;
   const selectedWorkspaceId = selectedWorkspace?.id;
   const selectedSessionId = selectedSession?.id;
+  useEffect(() => {
+    let active = true;
+    if (!selectedWorkspaceId) {
+      setPaletteAgents([]);
+      setPaletteArtifacts([]);
+      return () => {
+        active = false;
+      };
+    }
+    void Promise.all([
+      api.listAgentDefinitions(selectedWorkspaceId),
+      api.listWorkspaceFiles(selectedWorkspaceId),
+      api.listTaskEvidence({ workspaceId: selectedWorkspaceId, limit: 2_000 }),
+      api.listSubagentRuns(selectedWorkspaceId),
+    ]).then(([agentSnapshot, workspacePaths, evidencePage, subagentRuns]) => {
+      if (!active) return;
+      setPaletteAgents(agentSnapshot.agents);
+      setPaletteArtifacts(indexWorkspaceArtifacts({
+        workspacePaths,
+        evidence: evidencePage.records,
+        subagentRuns,
+      }));
+    }).catch((error) => {
+      if (!active) return;
+      setPaletteAgents([]);
+      setPaletteArtifacts([]);
+      console.warn("Failed to build workspace palette index", error);
+    });
+    return () => {
+      active = false;
+    };
+  }, [api, selectedWorkspaceId]);
+  useEffect(() => {
+    const refresh = (event: Event) => {
+      if (!(event instanceof CustomEvent) || event.detail === selectedWorkspaceId) {
+        setWorkspaceShortcutRevision((current) => current + 1);
+      }
+    };
+    window.addEventListener("pi-gui:workspace-shortcuts-changed", refresh);
+    return () => window.removeEventListener("pi-gui:workspace-shortcuts-changed", refresh);
+  }, [selectedWorkspaceId]);
   const {
     resetReviewSurface,
+    refreshReviewSurface,
     reviewLoading,
     reviewSnapshot,
   } = useReviewSurface({
@@ -200,6 +257,7 @@ export function AppReady({
     sidebarCollapsed: snapshot?.sidebarCollapsed ?? false,
     workspaceCount: snapshot?.workspaces.length ?? 0,
     selectedSessionKey,
+    selectedWorkspaceId: selectedWorkspace?.id ?? "",
     mainRef,
   });
   const {
@@ -253,6 +311,7 @@ export function AppReady({
     latestPlan,
     planPanelOpen,
     planSurfaceAvailable,
+    resetPlanPanel,
     togglePlanPanel,
   } = usePlanPanel({
     activeView: snapshot?.activeView,
@@ -260,17 +319,30 @@ export function AppReady({
     rawTranscript: rawActiveTranscript,
     composerRef,
     setComposerDraft: sessionComposer.setComposerDraft,
+    workspaceId: selectedWorkspace?.id ?? "",
   });
   const fastModeState = snapshot?.fastMode ?? { available: false, enabled: false };
   const fastModeSelection = fastModeState.enabled ? "on" : "off";
   const {
     diffFileRequest,
-    handleViewFileInDiff,
+    handleViewFileInDiff: openFileInDiff,
+    resetDiffPanel,
     showDiffPanel,
     toggleDiffPanel,
   } = useDiffPanel({
     preserveTimelineBottomForLayoutChangeRef: preserveTimelineBottomForDiffToggleRef,
+    workspaceId: selectedWorkspace?.id ?? "",
   });
+  const handleViewFileInDiff = useCallback((path: string) => {
+    if (selectedWorkspace) {
+      recordOpenedFile({
+        workspaceId: selectedWorkspace.id,
+        path,
+        source: "changes",
+      });
+    }
+    openFileInDiff(path);
+  }, [openFileInDiff, selectedWorkspace]);
   const timelineViewport = useTimelineViewport({
     activeView: snapshot?.activeView,
     composerDraft: sessionComposer.composerDraft,
@@ -280,6 +352,11 @@ export function AppReady({
     selectedSessionKey,
     showDiffPanel,
   });
+  const resetAllWorkspaceLayout = useCallback(() => {
+    panelLayout.resetWorkspaceLayout();
+    resetDiffPanel();
+    resetPlanPanel();
+  }, [panelLayout, resetDiffPanel, resetPlanPanel]);
   preserveTimelineBottomForDiffToggleRef.current = timelineViewport.preserveTimelineBottomForLayoutChange;
   const threadSearch = useThreadSearch(timelineViewport.timelinePaneRef);
   const toggleSelectedWorkspaceVsCodePanel = useCallback(() => {
@@ -336,6 +413,7 @@ export function AppReady({
     handleViewFileInDiff(input.path);
   }, [handleOpenSubagentRunTarget, handleViewFileInDiff]);
   const {
+    branchFromMessage,
     closeTreeModal,
     navigateTreeSelection,
     openTreeModal,
@@ -354,7 +432,11 @@ export function AppReady({
   const {
     addActionDialogOpen,
     closeAddActionDialog,
+    confirmCommandPreview,
+    denyCommandPreview,
     openAddActionDialog,
+    pendingCommandPreview,
+    previewAgentCommand,
     runProjectAction,
     saveProjectAction,
     topbarProjectActions,
@@ -367,6 +449,242 @@ export function AppReady({
     selectedSessionKey,
     selectedWorkspace,
   });
+  const selectedRootWorkspaceId = selectedWorkspace?.rootWorkspaceId ?? selectedWorkspace?.id;
+  const wsMenu = useWorkspaceMenu({
+    api,
+    setSnapshot,
+  });
+  const workspaceShortcuts = useMemo(
+    () => {
+      void workspaceShortcutRevision;
+      return selectedWorkspace ? readWorkspaceShortcuts(selectedWorkspace.id) : [];
+    },
+    [selectedWorkspace, workspaceShortcutRevision],
+  );
+  const indexedPaletteActions = useMemo<readonly CommandPaletteAction[]>(() => {
+    const actions: CommandPaletteAction[] = [];
+    for (const workspace of snapshot.workspaces) {
+      actions.push({
+        id: `workspace:${workspace.id}`,
+        title: workspace.name,
+        subtitle: workspace.branchName ? `Workspace · ${workspace.branchName}` : "Workspace",
+        category: "Workspaces",
+        keywords: ["workspace", "folder", workspace.path, workspace.branchName ?? ""],
+        run: () => wsMenu.selectWorkspace(workspace.id),
+      });
+      for (const session of workspace.sessions) {
+        actions.push({
+          id: `thread:${workspace.id}:${session.id}`,
+          title: session.title,
+          subtitle: `${workspace.name} · ${session.status}`,
+          category: "Threads",
+          keywords: ["thread", "session", "history", workspace.name, workspace.branchName ?? "", session.status],
+          run: () => handleSelectSession({ workspaceId: workspace.id, sessionId: session.id }),
+        });
+      }
+    }
+    for (const section of ["appearance", "general", "providers", "models", "agents", "notifications"] as const) {
+      actions.push({
+        id: `settings:${section}`,
+        title: `${section === "agents" ? "Subagents" : section[0]?.toUpperCase()}${section === "agents" ? "" : section.slice(1)} settings`,
+        subtitle: "Open the exact Settings section",
+        category: "Settings",
+        keywords: ["settings", "preferences", section],
+        run: () => openSettings(selectedRootWorkspaceId, section),
+      });
+    }
+    for (const entry of SETTINGS_SEARCH_ENTRIES) {
+      actions.push({
+        id: `settings-search:${entry.id}`,
+        title: entry.label,
+        subtitle: entry.description,
+        category: "Settings",
+        keywords: ["settings", entry.section, entry.rowText, ...entry.synonyms],
+        run: () => openSettings(selectedRootWorkspaceId, entry.section),
+      });
+    }
+    for (const model of runtimeSelections.selectedRuntime?.models ?? []) {
+      actions.push({
+        id: `model:${model.providerId}:${model.modelId}`,
+        title: model.label,
+        subtitle: `${model.providerName} · model`,
+        category: "Models",
+        keywords: ["model", model.providerId, model.modelId, model.providerName],
+        run: () => openSettings(selectedRootWorkspaceId, "models"),
+      });
+    }
+    for (const skill of runtimeSelections.selectedRuntime?.skills ?? []) {
+      actions.push({
+        id: `skill:${skill.filePath}`,
+        title: skill.name,
+        subtitle: "Skill",
+        category: "Skills",
+        keywords: ["skill", skill.name, skill.description ?? ""],
+        run: () => openSkills(selectedRootWorkspaceId),
+      });
+    }
+    for (const agent of paletteAgents) {
+      actions.push({
+        id: `agent:${agent.name}`,
+        title: agent.config.displayName || agent.name,
+        subtitle: `${agent.source} agent · ${agent.config.enabled ? "enabled" : "disabled"}`,
+        category: "Agents",
+        keywords: ["agent", "subagent", agent.name, agent.config.role ?? "", agent.config.description],
+        run: () => openSettings(selectedRootWorkspaceId, "agents"),
+      });
+    }
+    for (const action of topbarProjectActions) {
+      actions.push({
+        id: `project-action:${action.id}`,
+        title: action.name,
+        subtitle: action.command,
+        category: "Project actions",
+        shortcut: action.keybinding,
+        significant: true,
+        keywords: ["project action", "command", action.name],
+        run: () => runProjectAction(action),
+      });
+    }
+    for (const assignment of workspaceShortcuts) {
+      if (!assignment.enabled) continue;
+      actions.push({
+        id: `workspace-shortcut:${assignment.id}`,
+        title: assignment.label,
+        subtitle: "Workspace shortcut",
+        category: "Workspace shortcuts",
+        shortcut: assignment.keys,
+        significant: assignment.significant,
+        keywords: ["shortcut", "workspace", assignment.commandId],
+        run: () => {
+          if (assignment.commandId === "toggle-changes") toggleDiffPanel();
+          else if (assignment.commandId === "open-settings") openSettings(selectedRootWorkspaceId);
+          else if (assignment.commandId === "open-workspace-hub") setWorkspaceHubOpen(true);
+          else if (assignment.commandId.startsWith("project-action:")) {
+            const action = topbarProjectActions.find((candidate) => (
+              candidate.id === assignment.commandId.slice("project-action:".length)
+            ));
+            if (action) runProjectAction(action);
+          }
+        },
+      });
+    }
+    for (const entry of selectedWorkspace ? readOpenFileHistory(selectedWorkspace.id).slice(0, 20) : []) {
+      actions.push({
+        id: `recent-file:${entry.path}`,
+        title: entry.path,
+        subtitle: `Recent file · ${entry.source}`,
+        category: "Recent files",
+        keywords: ["file", "recent", "open", entry.path],
+        run: () => handleViewFileInDiff(entry.path),
+      });
+    }
+    for (const artifact of paletteArtifacts.slice(0, 200)) {
+      actions.push({
+        id: `artifact:${artifact.id}`,
+        title: artifact.path,
+        subtitle: `${artifact.type} · ${artifact.state}`,
+        category: "Artifacts",
+        disabled: artifact.state !== "available",
+        keywords: [
+          "artifact",
+          artifact.type,
+          artifact.state,
+          artifact.source,
+          artifact.runId ?? "",
+          artifact.sessionId ?? "",
+        ],
+        run: () => handleViewFileInDiff(artifact.path),
+      });
+    }
+    for (const file of reviewSnapshot?.files ?? []) {
+      actions.push({
+        id: `review-group:${file.path}`,
+        title: `Review ${file.path}`,
+        subtitle: `${file.status} change`,
+        category: "Review groups",
+        keywords: ["review", "change", file.path, file.status],
+        run: () => setActiveView("review"),
+      });
+    }
+    actions.push({
+      id: "workspace-hub",
+      title: "Workspace hub",
+      subtitle: "Artifacts, worktree lifecycle, handoff, and shortcuts",
+      category: "Workspace",
+      keywords: ["artifact", "handoff", "worktree", "shortcuts", "workspace hub"],
+      disabled: !selectedWorkspace,
+      run: () => setWorkspaceHubOpen(true),
+    });
+    return actions;
+  }, [
+    handleSelectSession,
+    handleViewFileInDiff,
+    openSettings,
+    openSkills,
+    paletteAgents,
+    paletteArtifacts,
+    reviewSnapshot,
+    runProjectAction,
+    runtimeSelections.selectedRuntime?.models,
+    runtimeSelections.selectedRuntime?.skills,
+    selectedRootWorkspaceId,
+    selectedWorkspace,
+    setActiveView,
+    snapshot.workspaces,
+    topbarProjectActions,
+    toggleDiffPanel,
+    workspaceShortcuts,
+    wsMenu,
+  ]);
+  useEffect(() => {
+    const matchesShortcut = (event: globalThis.KeyboardEvent, keys: string) => {
+      const pressed = [
+        event.metaKey ? "cmd" : "",
+        event.ctrlKey ? "ctrl" : "",
+        event.altKey ? "alt" : "",
+        event.shiftKey ? "shift" : "",
+        event.key.length === 1 ? event.key.toLowerCase() : "",
+      ].filter(Boolean).join("+");
+      return normalizeShortcut(pressed) === normalizeShortcut(keys);
+    };
+    const handleWorkspaceShortcut = (event: globalThis.KeyboardEvent) => {
+      if (!selectedWorkspace || event.repeat || event.defaultPrevented) return;
+      const assignment = readWorkspaceShortcuts(selectedWorkspace.id)
+        .find((candidate) => candidate.enabled && matchesShortcut(event, candidate.keys));
+      if (!assignment) return;
+      event.preventDefault();
+      if (assignment.commandId === "toggle-changes") toggleDiffPanel();
+      else if (assignment.commandId === "open-settings") openSettings(selectedRootWorkspaceId);
+      else if (assignment.commandId === "open-workspace-hub") setWorkspaceHubOpen(true);
+      else if (assignment.commandId.startsWith("project-action:")) {
+        const actionId = assignment.commandId.slice("project-action:".length);
+        const action = topbarProjectActions.find((candidate) => candidate.id === actionId);
+        if (action) runProjectAction(action);
+      }
+    };
+    window.addEventListener("keydown", handleWorkspaceShortcut);
+    return () => window.removeEventListener("keydown", handleWorkspaceShortcut);
+  }, [
+    openSettings,
+    runProjectAction,
+    selectedRootWorkspaceId,
+    selectedWorkspace,
+    toggleDiffPanel,
+    topbarProjectActions,
+  ]);
+  useEffect(() => {
+    const previewSnippet = (event: Event) => {
+      if (!(event instanceof CustomEvent) || typeof event.detail !== "string") return;
+      previewAgentCommand(event.detail);
+    };
+    const openLogs = () => panelLayout.setLogsPanelOpen(true);
+    window.addEventListener("pi-gui:preview-shell-snippet", previewSnippet);
+    window.addEventListener("pi-gui:open-logs", openLogs);
+    return () => {
+      window.removeEventListener("pi-gui:preview-shell-snippet", previewSnippet);
+      window.removeEventListener("pi-gui:open-logs", openLogs);
+    };
+  }, [panelLayout, previewAgentCommand]);
 
   const addTerminalSelectionToComposer = useCallback((context: string) => {
     sessionComposer.setComposerDraft((current) => appendComposerContext(current, context));
@@ -379,8 +697,6 @@ export function AppReady({
       newThreadComposerRef.current?.focus();
     });
   };
-  const selectedRootWorkspaceId = selectedWorkspace?.rootWorkspaceId ?? selectedWorkspace?.id;
-
   const slashMenu = useSlashMenu({
     composerDraft: sessionComposer.composerDraft,
     setComposerDraft: sessionComposer.setComposerDraft,
@@ -452,11 +768,6 @@ export function AppReady({
     api,
   });
 
-  const wsMenu = useWorkspaceMenu({
-    api,
-    setSnapshot,
-  });
-
   const createCheckoutSelector = useCheckoutSelector({
     snapshot,
     linkedWorktreeByWorkspaceId,
@@ -496,20 +807,24 @@ export function AppReady({
     setPendingNewThreadWorkspaceId: newThreadState.setPendingNewThreadWorkspaceId,
     toggleDiffPanel,
     toggleTerminal: panelLayout.toggleTerminal,
+    resetWorkspaceLayout: resetAllWorkspaceLayout,
+    additionalActions: indexedPaletteActions,
   });
 
-  const refreshSkillsRuntime = useCallback(() => {
+  const refreshSkillsRuntime = useCallback(async () => {
     if (!api || !skillsWorkspace) {
-      return;
+      return "Select a workspace before refreshing skill discovery.";
     }
-    void api.refreshRuntime(skillsWorkspace.id);
+    await api.refreshRuntime(skillsWorkspace.id);
+    return (await api.getState()).lastError;
   }, [api, skillsWorkspace]);
 
-  const refreshExtensionsRuntime = useCallback(() => {
+  const refreshExtensionsRuntime = useCallback(async () => {
     if (!api || !extensionsWorkspace) {
-      return;
+      return "Select a workspace before refreshing extension discovery.";
     }
-    void api.refreshRuntime(extensionsWorkspace.id);
+    await api.refreshRuntime(extensionsWorkspace.id);
+    return (await api.getState()).lastError;
   }, [api, extensionsWorkspace]);
 
   const fillComposerFromReview = (prompt: string) => {
@@ -568,14 +883,71 @@ export function AppReady({
   });
 
   const commandPalette = commandPaletteOpen ? (
-    <CommandPalette actions={commandPaletteActions} onClose={() => setCommandPaletteOpen(false)} />
+    <CommandPalette
+      actions={commandPaletteActions}
+      storageScope={selectedWorkspace?.id}
+      onClose={() => setCommandPaletteOpen(false)}
+    />
+  ) : null;
+  const attachWorkspaceArtifact = useCallback(async (relativePath: string) => {
+    if (!selectedWorkspace) return;
+    const normalized = relativePath.replace(/^\.\/+/, "");
+    const snapshot = await api.snapshotWorkspaceArtifact(selectedWorkspace.id, normalized);
+    const version = {
+      sizeBytes: snapshot.sizeBytes,
+      modifiedAt: snapshot.modifiedAt,
+    };
+    const attachment = {
+      id: crypto.randomUUID(),
+      kind: "file" as const,
+      name: normalized.split("/").at(-1) ?? normalized,
+      mimeType: "application/octet-stream",
+      fsPath: snapshot.fsPath,
+      sizeBytes: snapshot.sizeBytes,
+      source: "workspace-reference" as const,
+      status: "ready" as const,
+      artifactReference: {
+        workspaceId: selectedWorkspace.id,
+        relativePath: normalized,
+        observedAt: new Date().toISOString(),
+        version,
+        sensitivity: /(?:secret|private|\.env|\.log$)/i.test(normalized) ? "private" as const : "normal" as const,
+        includeInHandoff: false,
+      },
+    };
+    setSnapshot((current) => current ? appendComposerAttachments(current, [attachment]) : current);
+    void api.addComposerAttachments([attachment]);
+    setWorkspaceHubOpen(false);
+    window.requestAnimationFrame(() => composerRef.current?.focus());
+  }, [api, selectedWorkspace, setSnapshot]);
+  const workspaceHub = workspaceHubOpen && selectedWorkspace ? (
+    <WorkspaceProductivityHub
+      projectActions={topbarProjectActions}
+      session={selectedSession}
+      workspace={selectedWorkspace}
+      worktree={selectedWorktree}
+      onAttachFile={attachWorkspaceArtifact}
+      onOpenBranches={() => {
+        setWorkspaceHubOpen(false);
+        openTreeModal();
+      }}
+      onClose={() => setWorkspaceHubOpen(false)}
+      onOpenChanges={() => {
+        if (!showDiffPanel) toggleDiffPanel();
+        setWorkspaceHubOpen(false);
+      }}
+      onOpenFile={(path) => {
+        handleViewFileInDiff(path);
+        setWorkspaceHubOpen(false);
+      }}
+    />
   ) : null;
 
   const secondarySurface = (
     <AppSecondarySurface
       activeView={snapshot.activeView}
       agents={agents}
-      commandPalette={commandPalette}
+      commandPalette={<>{commandPalette}{workspaceHub}</>}
       extensionsWorkspace={extensionsWorkspace}
       onOpenSubagentRunArtifact={handleOpenSubagentRunArtifact}
       onOpenSubagentRunTarget={handleOpenSubagentRunTarget}
@@ -599,6 +971,7 @@ export function AppReady({
       }
       reviewLoading={reviewLoading}
       reviewSnapshot={reviewSnapshot}
+      refreshReviewSurface={refreshReviewSurface}
       rootWorkspaceOptions={rootWorkspaceOptions}
       runtimeSelections={runtimeSelections}
       selectedSession={selectedSession}
@@ -617,13 +990,15 @@ export function AppReady({
   }
 
   const primaryContent = (
-    <AppPrimaryContent
+    <>
+      <AppPrimaryContent
       activeExtensionDialog={activeExtensionDialog}
       activeTranscript={activeTranscript}
       api={api}
       askPiToImplementLatestPlan={askPiToImplementLatestPlan}
       closePlanPanel={closePlanPanel}
       closeTreeModal={closeTreeModal}
+      branchFromMessage={branchFromMessage}
       composerRef={composerRef}
       createCheckoutSelector={createCheckoutSelector}
       displayModeInitialPinnedThreadKey={displayModeInitialPinnedThreadKey}
@@ -674,7 +1049,15 @@ export function AppReady({
       threadSearch={threadSearch}
       timelineViewport={timelineViewport}
       treeModalState={treeModalState}
-    />
+      />
+      {pendingCommandPreview ? (
+        <CommandPreviewDialog
+          preview={pendingCommandPreview}
+          onCancel={denyCommandPreview}
+          onConfirm={confirmCommandPreview}
+        />
+      ) : null}
+    </>
   );
 
   return (
@@ -683,7 +1066,7 @@ export function AppReady({
       addActionDialogOpen={addActionDialogOpen}
       api={api}
       closeAddActionDialog={closeAddActionDialog}
-      commandPalette={commandPalette}
+      commandPalette={<>{commandPalette}{workspaceHub}</>}
       diffFileRequest={diffFileRequest}
       displayedSessionTitle={displayedSessionTitle}
       gitActions={gitActions}

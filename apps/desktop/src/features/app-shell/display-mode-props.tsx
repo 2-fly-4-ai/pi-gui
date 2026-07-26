@@ -8,20 +8,26 @@ import type {
 import type { DisplayModeViewProps } from "../../display-mode-view";
 import type { PiDesktopApi } from "../../ipc";
 import type { SettingsSection } from "../../settings-utils";
+import type { FastModeSelection } from "../../fast-mode-selector";
 
 interface CreateDisplayModePropsOptions {
   readonly api: PiDesktopApi;
   readonly commandCompatibilityByWorkspace: Readonly<Record<string, readonly ExtensionCommandCompatibilityRecord[]>>;
   readonly displayModeInitialPinnedThreadKey: string;
+  readonly fastMode: FastModeSelection;
+  readonly fastModeAvailable: boolean;
   readonly dmDrawerOpen: boolean;
   readonly handleSelectSession: (target: WorkspaceSessionTarget) => void;
   readonly openSettings: (workspaceId?: string, section?: SettingsSection) => void;
+  readonly openSkillProfiles: (workspaceId?: string) => void;
   readonly openVsCodeForWorkspace: (workspaceId: string, folderPath: string) => void;
   readonly runtimeByWorkspace: Readonly<Record<string, RuntimeSnapshot>>;
   readonly sessionCommandsBySession: Readonly<Record<string, readonly RuntimeCommandRecord[]>>;
+  readonly sessionExtensionUiBySession: DesktopAppState["sessionExtensionUiBySession"];
   readonly setSharedVsCodeWidth: (width: number) => void;
   readonly setSnapshot: Dispatch<SetStateAction<DesktopAppState | null>>;
   readonly setVsCodeSlotElement: Dispatch<SetStateAction<HTMLElement | null>>;
+  readonly showThinking: boolean;
   readonly threadVsCodeWidth: number;
   readonly toggleDmDrawer: () => void;
   readonly toggleVsCode: () => void;
@@ -34,15 +40,20 @@ export function createDisplayModeProps({
   api,
   commandCompatibilityByWorkspace,
   displayModeInitialPinnedThreadKey,
+  fastMode,
+  fastModeAvailable,
   dmDrawerOpen,
   handleSelectSession,
   openSettings,
+  openSkillProfiles,
   openVsCodeForWorkspace,
   runtimeByWorkspace,
   sessionCommandsBySession,
+  sessionExtensionUiBySession,
   setSharedVsCodeWidth,
   setSnapshot,
   setVsCodeSlotElement,
+  showThinking,
   threadVsCodeWidth,
   toggleDmDrawer,
   toggleVsCode,
@@ -62,12 +73,17 @@ export function createDisplayModeProps({
     onToggleVsCode: toggleVsCode,
     onOpenVsCodeForWorkspace: openVsCodeForWorkspace,
     initialPinnedThreadKey: displayModeInitialPinnedThreadKey,
+    fastMode,
+    fastModeAvailable,
+    showThinking,
     vscodeSlotRef: setVsCodeSlotElement,
     runtimeByWorkspace,
     sessionCommandsBySession,
+    sessionExtensionUiBySession,
     commandCompatibilityByWorkspace,
     setSnapshot,
     openSettings,
+    openSkillProfiles,
     onOpenThread: handleSelectSession,
   };
 }

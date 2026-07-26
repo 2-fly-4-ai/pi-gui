@@ -7,6 +7,7 @@ interface UseComposerTimelineResizeOptions {
   readonly composerResizeBottomLockUntilRef: RefObject<number>;
   readonly followingLatestRef: RefObject<boolean>;
   readonly lastProgrammaticTimelineScrollAtRef: RefObject<number>;
+  readonly lastTimelinePinnedBySessionRef: RefObject<Map<string, boolean>>;
   readonly lastTimelineScrollTopBySessionRef: RefObject<Map<string, number>>;
   readonly manualTimelineScrollRestoreRef: RefObject<boolean>;
   readonly manualTimelineScrollTopRef: RefObject<number | null>;
@@ -24,6 +25,7 @@ export function useComposerTimelineResize({
   composerResizeBottomLockUntilRef,
   followingLatestRef,
   lastProgrammaticTimelineScrollAtRef,
+  lastTimelinePinnedBySessionRef,
   lastTimelineScrollTopBySessionRef,
   manualTimelineScrollRestoreRef,
   manualTimelineScrollTopRef,
@@ -45,7 +47,8 @@ export function useComposerTimelineResize({
     const previousScrollTop = pane?.scrollTop ?? null;
     const composerResizeOwnsBottom = performance.now() < composerResizeBottomLockUntilRef.current;
     const paneIsAtBottom = pane ? isNearBottom(pane) : false;
-    const shouldPreserveBottom = pane
+    const savedPinned = lastTimelinePinnedBySessionRef.current.get(selectedSessionKey);
+    const shouldPreserveBottom = savedPinned === false ? false : pane
       ? paneIsAtBottom || (followingLatestRef.current && (pinnedToBottomRef.current || preserveBottomOnNextPaneResizeRef.current)) || composerResizeOwnsBottom
       : pinnedToBottomRef.current || preserveBottomOnNextPaneResizeRef.current || composerResizeOwnsBottom;
 
@@ -111,6 +114,7 @@ export function useComposerTimelineResize({
     composerResizeBottomLockUntilRef,
     followingLatestRef,
     lastProgrammaticTimelineScrollAtRef,
+    lastTimelinePinnedBySessionRef,
     lastTimelineScrollTopBySessionRef,
     manualTimelineScrollRestoreRef,
     manualTimelineScrollTopRef,

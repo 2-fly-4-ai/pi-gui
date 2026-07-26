@@ -22,7 +22,9 @@ export function summarizeDisplayModeSubagentRuns(runs: readonly SubagentRunRecor
   if (runs.length === 0) return undefined;
   const active = runs.filter((run) => run.status === "submitted" || run.status === "running");
   if (active.length > 0) return buildWorkflowActivity("running", active);
-  const failed = runs.filter((run) => run.status === "failed" || run.status === "cancelled");
+  const failed = runs.filter((run) =>
+    run.status === "partial" || run.status === "failed" || run.status === "cancelled" || run.status === "interrupted"
+  );
   if (failed.length > 0) return buildWorkflowActivity("failed", failed);
   return buildWorkflowActivity("completed", runs);
 }

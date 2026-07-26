@@ -5,6 +5,7 @@ import {
   type DesktopNotificationPermissionStatus,
   type DesktopUpdateStatus,
   type PiDesktopCommand,
+  type RecordProjectActionEvidenceInput,
   type RendererDiagnosticPayload,
   type StatePatchEvent,
   type SubagentTranscriptPreview,
@@ -51,6 +52,34 @@ import type {
   SubagentWorkflowSnapshot,
 } from "../src/subagent-workflows";
 import type { ObservabilityEventPage, ObservabilityQuery } from "../src/observability-types";
+import type {
+  TaskEvidenceDelta,
+  TaskEvidencePage,
+  TaskEvidenceQuery,
+} from "../src/product-experience/task-evidence";
+import type {
+  CheckpointManifest,
+  CheckpointRestorePreview,
+  CheckpointRestoreRequest,
+  CheckpointRestoreResult,
+  CheckpointRetentionInput,
+  CheckpointRetentionPolicy,
+} from "../src/product-experience/checkpoint-contract";
+import type {
+  ContextManifest,
+  ContextManifestSnapshot,
+} from "../src/product-experience/context-manifest";
+import type {
+  ExecutionBoundary,
+  ExecutionBoundaryInput,
+  ExecutionBoundaryPreflight,
+} from "../src/product-experience/execution-boundary";
+import type { CommandOrigin, CommandRisk } from "../src/product-experience/command-preview";
+import type {
+  CheckpointHunkPreview,
+  RejectCheckpointHunksRequest,
+  RejectCheckpointHunksResult,
+} from "../src/product-experience/hunk-restoration";
 
 const devReloadMarkersEnabled = process.env.PI_APP_DEV_RELOAD_MARKERS === "1";
 
@@ -98,6 +127,87 @@ contextBridge.exposeInMainWorld("piApp", {
     ipcRenderer.invoke(desktopIpc.displayModeThreadsRequest) as Promise<readonly DisplayModeThreadRecord[]>,
   listObservabilityEvents: (input?: ObservabilityQuery) =>
     ipcRenderer.invoke(desktopIpc.listObservabilityEvents, input) as Promise<ObservabilityEventPage>,
+  listTaskEvidence: (input: TaskEvidenceQuery) =>
+    ipcRenderer.invoke(desktopIpc.listTaskEvidence, input) as Promise<TaskEvidencePage>,
+  recordProjectActionEvidence: (input: RecordProjectActionEvidenceInput) =>
+    ipcRenderer.invoke(desktopIpc.recordProjectActionEvidence, input) as Promise<void>,
+  onTaskEvidenceDelta: (listener: (event: TaskEvidenceDelta) => void) =>
+    subscribeIpc(desktopIpc.taskEvidenceDelta, listener),
+  listCheckpoints: (workspaceId: string) =>
+    ipcRenderer.invoke(desktopIpc.listCheckpoints, workspaceId) as Promise<readonly CheckpointManifest[]>,
+  previewCheckpointRestore: (checkpointId: string, workspaceId: string) =>
+    ipcRenderer.invoke(
+      desktopIpc.previewCheckpointRestore,
+      checkpointId,
+      workspaceId,
+    ) as Promise<CheckpointRestorePreview>,
+  restoreCheckpoint: (input: CheckpointRestoreRequest) =>
+    ipcRenderer.invoke(desktopIpc.restoreCheckpoint, input) as Promise<CheckpointRestoreResult>,
+  previewCheckpointHunks: (checkpointId: string, workspaceId: string, path: string) =>
+    ipcRenderer.invoke(
+      desktopIpc.previewCheckpointHunks,
+      checkpointId,
+      workspaceId,
+      path,
+    ) as Promise<CheckpointHunkPreview>,
+  rejectCheckpointHunks: (input: RejectCheckpointHunksRequest) =>
+    ipcRenderer.invoke(desktopIpc.rejectCheckpointHunks, input) as Promise<RejectCheckpointHunksResult>,
+  getCheckpointRetention: () =>
+    ipcRenderer.invoke(desktopIpc.getCheckpointRetention) as Promise<CheckpointRetentionPolicy>,
+  setCheckpointRetention: (input: CheckpointRetentionInput) =>
+    ipcRenderer.invoke(desktopIpc.setCheckpointRetention, input) as Promise<CheckpointRetentionPolicy>,
+  releaseCheckpointRestorePreview: (checkpointId: string) =>
+    ipcRenderer.invoke(
+      desktopIpc.releaseCheckpointRestorePreview,
+      checkpointId,
+    ) as Promise<CheckpointRetentionPolicy>,
+  snapshotContextManifest: (manifest: ContextManifest) =>
+    ipcRenderer.invoke(desktopIpc.snapshotContextManifest, manifest) as Promise<ContextManifestSnapshot>,
+  listContextManifests: (workspaceId: string, sessionId?: string) =>
+    ipcRenderer.invoke(
+      desktopIpc.listContextManifests,
+      workspaceId,
+      sessionId,
+    ) as Promise<readonly ContextManifestSnapshot[]>,
+  getExecutionBoundary: (workspaceId: string, sessionId: string) =>
+    ipcRenderer.invoke(desktopIpc.getExecutionBoundary, workspaceId, sessionId) as Promise<ExecutionBoundary>,
+  setExecutionBoundary: (
+    workspaceId: string,
+    sessionId: string,
+    input: ExecutionBoundaryInput,
+  ) => ipcRenderer.invoke(
+    desktopIpc.setExecutionBoundary,
+    workspaceId,
+    sessionId,
+    input,
+  ) as Promise<ExecutionBoundary>,
+  preflightExecutionBoundary: (workspaceId: string, sessionId: string, prompt: string) =>
+    ipcRenderer.invoke(
+      desktopIpc.preflightExecutionBoundary,
+      workspaceId,
+      sessionId,
+      prompt,
+    ) as Promise<ExecutionBoundaryPreflight>,
+  recordExecutionBoundaryException: (
+    workspaceId: string,
+    sessionId: string,
+    violationIds: readonly string[],
+  ) => ipcRenderer.invoke(
+    desktopIpc.recordExecutionBoundaryException,
+    workspaceId,
+    sessionId,
+    violationIds,
+  ) as Promise<void>,
+  recordCommandPreviewDecision: (input: {
+    readonly workspaceId: string;
+    readonly sessionId: string;
+    readonly previewId: string;
+    readonly origin: CommandOrigin;
+    readonly risk: CommandRisk;
+    readonly decision: "approved" | "denied";
+    readonly command: string;
+    readonly cwd: string;
+  }) => ipcRenderer.invoke(desktopIpc.recordCommandPreviewDecision, input) as Promise<void>,
   onTranscriptEvent: (listener: (event: TranscriptSyncEvent) => void) =>
     subscribeIpc(desktopIpc.transcriptEvent, listener),
   requestTranscriptReset: (input: TranscriptResetRequest) =>
@@ -320,11 +430,29 @@ contextBridge.exposeInMainWorld("piApp", {
     ipcRenderer.invoke(desktopIpc.removeQueuedComposerMessage, messageId) as Promise<void>,
   steerQueuedComposerMessage: (messageId: string) =>
     ipcRenderer.invoke(desktopIpc.steerQueuedComposerMessage, messageId) as Promise<void>,
-  updateComposerDraft: (target: WorkspaceSessionTarget, composerDraft: string) =>
-    ipcRenderer.invoke(desktopIpc.updateComposerDraft, target, composerDraft) as Promise<void>,
+  setQueuedComposerMessageDelivery: (messageId: string, mode: "steer" | "followUp") =>
+    ipcRenderer.invoke(desktopIpc.setQueuedComposerMessageDelivery, messageId, mode) as Promise<void>,
+  moveQueuedComposerMessage: (messageId: string, direction: "up" | "down") =>
+    ipcRenderer.invoke(desktopIpc.moveQueuedComposerMessage, messageId, direction) as Promise<void>,
+  sendNextQueuedComposerMessage: (messageId: string) =>
+    ipcRenderer.invoke(desktopIpc.sendNextQueuedComposerMessage, messageId) as Promise<void>,
+  updateComposerDraft: (
+    target: WorkspaceSessionTarget,
+    composerDraft: string,
+    options?: { readonly syncToEditor?: boolean },
+  ) =>
+    ipcRenderer.invoke(desktopIpc.updateComposerDraft, target, composerDraft, options) as Promise<void>,
   submitComposer: (text: string, options?: { readonly deliverAs?: "steer" | "followUp"; readonly messageMetadata?: unknown }) =>
     ipcRenderer.invoke(desktopIpc.submitComposer, text, options) as Promise<void>,
-  submitComposerToSession: (target: WorkspaceSessionTarget, text: string, options?: { readonly deliverAs?: "steer" | "followUp"; readonly messageMetadata?: unknown }) =>
+  submitComposerToSession: (
+    target: WorkspaceSessionTarget,
+    text: string,
+    options?: {
+      readonly attachments?: readonly ComposerAttachment[];
+      readonly deliverAs?: "steer" | "followUp";
+      readonly messageMetadata?: unknown;
+    },
+  ) =>
     ipcRenderer.invoke(desktopIpc.submitComposerToSession, target, text, options) as Promise<void>,
   getSessionTree: (target: WorkspaceSessionTarget) =>
     ipcRenderer.invoke(desktopIpc.getSessionTree, target) as Promise<SessionTreeSnapshot>,
@@ -335,6 +463,21 @@ contextBridge.exposeInMainWorld("piApp", {
     }>,
   listWorkspaceFiles: (workspaceId: string) =>
     ipcRenderer.invoke(desktopIpc.listWorkspaceFiles, workspaceId) as Promise<string[]>,
+  inspectWorkspaceArtifact: (workspaceId: string, filePath: string) =>
+    ipcRenderer.invoke(desktopIpc.inspectWorkspaceArtifact, workspaceId, filePath) as Promise<{
+      readonly sizeBytes: number;
+      readonly modifiedAt: string;
+    }>,
+  snapshotWorkspaceArtifact: (workspaceId: string, filePath: string) =>
+    ipcRenderer.invoke(desktopIpc.snapshotWorkspaceArtifact, workspaceId, filePath) as Promise<{
+      readonly fsPath: string;
+      readonly sizeBytes: number;
+      readonly modifiedAt: string;
+    }>,
+  revealWorkspacePath: (workspaceId: string, filePath: string) =>
+    ipcRenderer.invoke(desktopIpc.revealWorkspacePath, workspaceId, filePath) as Promise<void>,
+  saveWorkspaceHandoff: (workspaceId: string, content: string) =>
+    ipcRenderer.invoke(desktopIpc.saveWorkspaceHandoff, workspaceId, content) as Promise<string>,
   getChangedFiles: (workspaceId: string) =>
     ipcRenderer.invoke(desktopIpc.getChangedFiles, workspaceId) as Promise<{ path: string; status: "added" | "modified" | "deleted" | "untracked"; staged: boolean }[]>,
   getCurrentBranch: (workspaceId: string) =>

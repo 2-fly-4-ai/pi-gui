@@ -1,7 +1,56 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test } from "@playwright/test";
-import { createNamedThread, getDesktopState, launchDesktop, makeUserDataDir, makeWorkspace } from "../helpers/electron-app";
+import { createNamedThread, getDesktopState, launchDesktop, makeUserDataDir, makeWorkspace, writeProjectExtension } from "../helpers/electron-app";
+
+test("empty discovery distinguishes no matches, refresh failure, and successful recovery", async () => {
+  test.setTimeout(60_000);
+  const userDataDir = await makeUserDataDir();
+  const workspacePath = await makeWorkspace("discovery-recovery-workspace");
+  const harness = await launchDesktop(userDataDir, {
+    initialWorkspaces: [workspacePath],
+    testMode: "background",
+  });
+
+  try {
+    const window = await harness.firstWindow();
+    await createNamedThread(window, "Discovery recovery");
+
+    await window.getByRole("button", { name: "Skills", exact: true }).click();
+    await expect(window.getByTestId("skills-list")).toContainText("No skills are available in this workspace context yet.");
+    await expect(window.getByTestId("skills-list").getByRole("button", { name: "Create skill" })).toBeVisible();
+    await window.getByRole("button", { name: "Back to app", exact: true }).click();
+
+    await window.getByRole("button", { name: "Extensions", exact: true }).click();
+    await expect(window.getByTestId("extensions-list")).toContainText("Refresh runtime discovery");
+    await harness.electronApp.evaluate(() => {
+      const hooks = (globalThis as {
+        __PI_APP_TEST_HOOKS?: { failNextRuntimeRefresh?: (message: string) => void };
+      }).__PI_APP_TEST_HOOKS;
+      hooks?.failNextRuntimeRefresh?.("Injected discovery failure.");
+    });
+    await window.getByTestId("extensions-list").getByRole("button", { name: "Refresh extensions" }).click();
+    await expect(window.getByTestId("extensions-list")).toContainText("Extension discovery failed.");
+    await expect(window.getByTestId("extensions-list").getByRole("button", { name: "Retry discovery" })).toBeVisible();
+
+    await writeProjectExtension(workspacePath, "recovered-extension.ts", String.raw`
+export default function recoveredExtension(pi) {
+  pi.registerCommand("recovered", {
+    description: "Recovered after refresh",
+    handler: async () => {},
+  });
+}
+`);
+    await window.getByTestId("extensions-list").getByRole("button", { name: "Retry discovery" }).click();
+    await expect(window.getByTestId("extensions-list")).toContainText("recovered-extension");
+    await window.getByLabel("Search extensions").fill("no-such-extension");
+    await expect(window.getByTestId("extensions-list")).toContainText("No extensions match the current search.");
+    await window.getByTestId("extensions-list").getByRole("button", { name: "Clear search" }).click();
+    await expect(window.getByTestId("extensions-list")).toContainText("recovered-extension");
+  } finally {
+    await harness.close();
+  }
+});
 
 test("shows skills and settings surfaces from runtime data", async () => {
   test.setTimeout(60_000);
@@ -78,9 +127,12 @@ Use this skill when building Pi extensions, commands, tools, packages, or SDK in
     await expect(window.getByTestId("skills-list")).not.toContainText("Frontend Design");
     await window.getByLabel("Search skills").fill("no-such-skill");
     await expect(window.getByTestId("skills-list")).toContainText("No skills found");
+    await expect(window.getByTestId("skills-list")).toContainText("No skills match the current search and category filters.");
     await expect(window.getByText("Select a skill", { exact: true })).toHaveCount(0);
     await expect(window.locator(".skill-detail")).toHaveCount(0);
-    await window.getByRole("button", { name: "Clear skill search" }).click();
+    await window.getByRole("button", { name: "Clear filters" }).click();
+    await expect(window.getByLabel("Search skills")).toHaveValue("");
+    await expect(window.getByTestId("skills-list")).toContainText("Demo Skill");
     const listWidthBeforeSelection = (await window.getByTestId("skills-list").boundingBox())?.width ?? 0;
     await window.getByRole("button", { name: /Demo Skill/i }).click();
     const listWidthAfterSelection = (await window.getByTestId("skills-list").boundingBox())?.width ?? 0;

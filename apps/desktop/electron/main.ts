@@ -16,8 +16,8 @@ import {
   type WebContents,
 } from "electron";
 import { randomUUID } from "node:crypto";
-import { readFileSync } from "node:fs";
-import { open as openFile, readFile, stat } from "node:fs/promises";
+import { constants as fsConstants, readFileSync } from "node:fs";
+import { copyFile, mkdir, open as openFile, readFile, realpath, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { DesktopAppStore } from "./app-store";
@@ -83,6 +83,7 @@ import {
   desktopIpc,
   getDesktopCommandFromShortcut,
   type DesktopUpdateStatus,
+  type RecordProjectActionEvidenceInput,
   type StatePatchEvent,
   type SubagentTranscriptPreview,
   type TerminalSize,
@@ -108,6 +109,36 @@ import type { NavigateSessionTreeOptions } from "@pi-gui/session-driver/types";
 import type { GenerateThreadTitleOptions } from "@pi-gui/pi-sdk-driver";
 import type { WorkspaceRef } from "@pi-gui/session-driver";
 import type { ObservabilityQuery } from "../src/observability-types";
+import {
+  TASK_EVIDENCE_SCHEMA_VERSION,
+  type TaskEvidenceQuery,
+} from "../src/product-experience/task-evidence";
+import { TaskEvidenceLedger } from "./task-evidence-ledger";
+import {
+  classifyObservedCommand,
+  extractTestIdentifiers,
+  TaskEvidenceSessionObserver,
+} from "./task-evidence-session-observer";
+import { CheckpointStore } from "./checkpoint-store";
+import { CheckpointSessionObserver } from "./checkpoint-session-observer";
+import type {
+  CheckpointRestoreRequest,
+  CheckpointRetentionInput,
+} from "../src/product-experience/checkpoint-contract";
+import type { ContextManifest } from "../src/product-experience/context-manifest";
+import type { RejectCheckpointHunksRequest } from "../src/product-experience/hunk-restoration";
+import { ContextManifestStore } from "./context-manifest-store";
+import {
+  validateExecutionBoundaryPrompt,
+  type ExecutionBoundaryInput,
+} from "../src/product-experience/execution-boundary";
+import { ExecutionBoundaryStore } from "./execution-boundary-store";
+import {
+  commandOriginLabel,
+  redactCommandEnvironment,
+  type CommandOrigin,
+  type CommandRisk,
+} from "../src/product-experience/command-preview";
 
 const isDev = Boolean(process.env.ELECTRON_RENDERER_URL);
 const windowTestMode = resolveWindowTestMode();
@@ -120,6 +151,12 @@ let notificationPermissionService: NotificationPermissionService | undefined;
 let terminalService: TerminalService | undefined;
 let subagentRunsStore: SubagentRunStore | undefined;
 let subagentAuditAdapter: SubagentAuditAdapter | undefined;
+let taskEvidenceLedger: TaskEvidenceLedger | undefined;
+let taskEvidenceObserver: TaskEvidenceSessionObserver | undefined;
+let checkpointStore: CheckpointStore | undefined;
+let checkpointObserver: CheckpointSessionObserver | undefined;
+let contextManifestStore: ContextManifestStore | undefined;
+let executionBoundaryStore: ExecutionBoundaryStore | undefined;
 let integratedTerminalShell = "";
 let stopPublishingStatePatches: (() => void) | undefined;
 let stopPublishingTranscriptEvents: (() => void) | undefined;
@@ -130,6 +167,7 @@ let stopUpdateStatusEvents: (() => void) | undefined;
 let stopPruningTerminals: (() => void) | undefined;
 let stopMemoryMonitor: (() => void) | undefined;
 let retainedTerminalWorkspacePathSignature = "";
+let nextRuntimeRefreshError: string | undefined;
 const terminalFocusedWebContentsIds = new Set<number>();
 let quittingAfterStoreFlush = false;
 
@@ -785,6 +823,10 @@ void app.whenReady().then(async () => {
         const changedWorkspaceIds = await subagentRunsStore?.applyAuditEvent(event) ?? [];
         for (const changedWorkspaceId of changedWorkspaceIds) publishSubagentRunsChanged(changedWorkspaceId);
       });
+      await subagentRunsStore.reconcileInterruptedRuns(
+        workspaceId,
+        (target) => store.sessionFromState(target)?.status === "running",
+      );
       return subagentRunsStore.listRuns(workspaceId, store.getWorkspacePath(workspaceId));
     },
     generateThreadTitleOverride: async (workspace, options) => generateThreadTitleOverride?.(workspace, options),
@@ -796,8 +838,59 @@ void app.whenReady().then(async () => {
   };
   const subagentRuns = new SubagentRunStore(configuredUserDataDir, publishSubagentRunsChanged);
   subagentRunsStore = subagentRuns;
+  const evidenceSequences = new Map<string, number>();
+  taskEvidenceLedger = new TaskEvidenceLedger(configuredUserDataDir, {
+    homePath: app.getPath("home"),
+    workspacePath: (workspaceId) => store.getWorkspacePath(workspaceId),
+    onRecordsAppended: (workspaceId, records) => {
+      if (!mainWindow || !canPublishToWindow(mainWindow)) return;
+      const sequence = (evidenceSequences.get(workspaceId) ?? 0) + 1;
+      evidenceSequences.set(workspaceId, sequence);
+      const sessionRecords = new Map<string, typeof records>();
+      for (const record of records) {
+        const existing = sessionRecords.get(record.sessionId) ?? [];
+        sessionRecords.set(record.sessionId, [...existing, record]);
+      }
+      for (const [sessionId, appendedRecords] of sessionRecords) {
+        mainWindow.webContents.send(desktopIpc.taskEvidenceDelta, {
+          workspaceId,
+          sessionId,
+          sequence,
+          records: appendedRecords,
+        });
+      }
+    },
+  });
+  taskEvidenceObserver = new TaskEvidenceSessionObserver(
+    taskEvidenceLedger,
+    randomUUID,
+    async (event) => {
+      const selected = await store.getSelectedTranscript();
+      if (
+        !selected
+        || selected.workspaceId !== event.sessionRef.workspaceId
+        || selected.sessionId !== event.sessionRef.sessionId
+      ) return undefined;
+      const user = [...selected.transcript].reverse().find((entry) => (
+        entry.kind === "message" && entry.role === "user" && entry.text.trim()
+      ));
+      return user && user.kind === "message"
+        ? { id: user.id, intent: user.text.replace(/\s+/g, " ").trim().slice(0, 160) }
+        : undefined;
+    },
+  );
+  checkpointStore = new CheckpointStore(configuredUserDataDir);
+  contextManifestStore = new ContextManifestStore(configuredUserDataDir);
+  executionBoundaryStore = new ExecutionBoundaryStore(configuredUserDataDir);
+  checkpointObserver = new CheckpointSessionObserver(
+    checkpointStore,
+    taskEvidenceLedger,
+    resolveCheckpointWorkspaceIdentity,
+  );
   await store.initialize();
   store.subscribeToSessionEvents(async (event) => {
+    await checkpointObserver?.observe(event);
+    taskEvidenceObserver?.observe(event);
     const changedWorkspaceId = await subagentRuns.applySessionEvent(event);
     if (changedWorkspaceId) {
       publishSubagentRunsChanged(changedWorkspaceId);
@@ -870,8 +963,12 @@ void app.whenReady().then(async () => {
           process.abort();
         },
         flushPersistence: () => store.flushPersistence(),
+        activateWindow: () => store.handleWindowActivation(),
         getDiagnostics: () => store.getDiagnostics(),
         setUpdateStatus: (status: DesktopUpdateStatus) => setUpdateStatusForTest(status),
+        failNextRuntimeRefresh: (message = "Runtime discovery failed for test.") => {
+          nextRuntimeRefreshError = message;
+        },
         setDeferredThreadTitleMode: () => {
           generateThreadTitleOverride = () =>
             new Promise<string | null>((resolve, reject) => {
@@ -936,6 +1033,277 @@ void app.whenReady().then(async () => {
     const state = await store.getState();
     return listObservabilityEvents(input, {
       includeNativeCrashReports: state.diagnosticReporting.nativeCrashReportsEnabled,
+    });
+  });
+  handleMainFrameIpc(desktopIpc.listTaskEvidence, (_event, input: TaskEvidenceQuery) => {
+    if (!taskEvidenceLedger) {
+      throw new Error("Task evidence is unavailable.");
+    }
+    return taskEvidenceLedger.query(input);
+  });
+  handleMainFrameIpc(desktopIpc.recordProjectActionEvidence, async (
+    _event,
+    input: RecordProjectActionEvidenceInput,
+  ) => {
+    if (!taskEvidenceLedger) {
+      throw new Error("Task evidence is unavailable.");
+    }
+    const state = await store.getState();
+    const workspace = state.workspaces.find((candidate) => candidate.id === input.workspaceId);
+    const session = workspace?.sessions.find((candidate) => candidate.id === input.sessionId);
+    if (!workspace || !session || !input.actionId.trim() || !input.command.trim()) {
+      throw new Error("The project action target is no longer available.");
+    }
+    const classification = classifyObservedCommand(input.command);
+    await taskEvidenceLedger.append({
+      schemaVersion: TASK_EVIDENCE_SCHEMA_VERSION,
+      id: randomUUID(),
+      workspaceId: input.workspaceId,
+      sessionId: input.sessionId,
+      timestamp: new Date().toISOString(),
+      kind: classification.kind,
+      source: "desktop",
+      authority: "desktop-observed",
+      status: "unknown",
+      summary: `Project action sent to terminal: ${input.actionName.trim() || "Unnamed action"}`,
+      correlation: { commandId: input.actionId },
+      verification: {
+        scope: classification.scope ?? "package",
+        command: input.command,
+        cwd: workspace.path,
+        ...(classification.kind === "test" ? {
+          testIdentifiers: extractTestIdentifiers(input.command),
+        } : {}),
+      },
+      activity: {
+        type: classification.kind === "test" ? "running-tests" : "running-command",
+      },
+    });
+  });
+  handleMainFrameIpc(desktopIpc.listCheckpoints, async (_event, workspaceId: string) => {
+    if (!checkpointStore || !(await resolveCheckpointWorkspaceIdentity(workspaceId))) {
+      throw new Error("Checkpoint workspace is unavailable.");
+    }
+    return checkpointStore.list(workspaceId);
+  });
+  handleMainFrameIpc(desktopIpc.previewCheckpointRestore, async (
+    _event,
+    checkpointId: string,
+    workspaceId: string,
+  ) => {
+    if (!checkpointStore) throw new Error("Checkpoints are unavailable.");
+    const workspace = await resolveCheckpointWorkspaceIdentity(workspaceId);
+    if (!workspace) throw new Error("Checkpoint workspace is unavailable.");
+    return checkpointStore.preview(checkpointId, workspace);
+  });
+  handleMainFrameIpc(desktopIpc.restoreCheckpoint, async (
+    _event,
+    input: CheckpointRestoreRequest,
+  ) => {
+    if (!checkpointStore) throw new Error("Checkpoints are unavailable.");
+    const workspace = await resolveCheckpointWorkspaceIdentity(input.workspaceId);
+    if (!workspace) throw new Error("Checkpoint workspace is unavailable.");
+    return checkpointStore.restore({
+      checkpointId: input.checkpointId,
+      workspace,
+      selectedPaths: input.selectedPaths,
+      ...(input.confirmedPaths ? { confirmedPaths: input.confirmedPaths } : {}),
+    });
+  });
+  handleMainFrameIpc(desktopIpc.previewCheckpointHunks, async (
+    _event,
+    checkpointId: string,
+    workspaceId: string,
+    path: string,
+  ) => {
+    if (!checkpointStore) throw new Error("Checkpoints are unavailable.");
+    const workspace = await resolveCheckpointWorkspaceIdentity(workspaceId);
+    if (!workspace) throw new Error("Checkpoint workspace is unavailable.");
+    return checkpointStore.previewHunks(checkpointId, workspace, path);
+  });
+  handleMainFrameIpc(desktopIpc.rejectCheckpointHunks, async (
+    _event,
+    input: RejectCheckpointHunksRequest,
+  ) => {
+    if (!checkpointStore) throw new Error("Checkpoints are unavailable.");
+    const workspace = await resolveCheckpointWorkspaceIdentity(input.workspaceId);
+    if (!workspace) throw new Error("Checkpoint workspace is unavailable.");
+    return checkpointStore.rejectHunks({
+      checkpointId: input.checkpointId,
+      workspace,
+      path: input.path,
+      hunkIds: input.hunkIds,
+    });
+  });
+  handleMainFrameIpc(desktopIpc.getCheckpointRetention, () => {
+    if (!checkpointStore) throw new Error("Checkpoints are unavailable.");
+    return checkpointStore.getRetentionPolicy();
+  });
+  handleMainFrameIpc(desktopIpc.setCheckpointRetention, (
+    _event,
+    input: CheckpointRetentionInput,
+  ) => {
+    if (!checkpointStore) throw new Error("Checkpoints are unavailable.");
+    return checkpointStore.setRetentionPolicy(input);
+  });
+  handleMainFrameIpc(desktopIpc.releaseCheckpointRestorePreview, (
+    _event,
+    checkpointId: string,
+  ) => {
+    if (!checkpointStore) throw new Error("Checkpoints are unavailable.");
+    return checkpointStore.releaseRestoreLease(checkpointId);
+  });
+  handleMainFrameIpc(desktopIpc.snapshotContextManifest, async (
+    _event,
+    manifest: ContextManifest,
+  ) => {
+    if (!contextManifestStore) throw new Error("Context manifest storage is unavailable.");
+    const state = await store.getState();
+    const workspace = state.workspaces.find((candidate) => candidate.id === manifest.workspaceId);
+    const session = manifest.sessionId
+      ? workspace?.sessions.find((candidate) => candidate.id === manifest.sessionId)
+      : undefined;
+    if (!workspace || (manifest.sessionId && !session)) {
+      throw new Error("Context manifest target is unavailable.");
+    }
+    return contextManifestStore.snapshot(manifest);
+  });
+  handleMainFrameIpc(desktopIpc.listContextManifests, async (
+    _event,
+    workspaceId: string,
+    sessionId?: string,
+  ) => {
+    if (!contextManifestStore || !(await resolveCheckpointWorkspaceIdentity(workspaceId))) {
+      throw new Error("Context manifest workspace is unavailable.");
+    }
+    return contextManifestStore.list(workspaceId, sessionId);
+  });
+  handleMainFrameIpc(desktopIpc.getExecutionBoundary, async (
+    _event,
+    workspaceId: string,
+    sessionId: string,
+  ) => {
+    assertSessionTargetAvailable(workspaceId, sessionId);
+    if (!executionBoundaryStore) throw new Error("Execution boundaries are unavailable.");
+    return executionBoundaryStore.get(workspaceId, sessionId);
+  });
+  handleMainFrameIpc(desktopIpc.setExecutionBoundary, async (
+    _event,
+    workspaceId: string,
+    sessionId: string,
+    input: ExecutionBoundaryInput,
+  ) => {
+    assertSessionTargetAvailable(workspaceId, sessionId);
+    if (!executionBoundaryStore) throw new Error("Execution boundaries are unavailable.");
+    const boundary = await executionBoundaryStore.set(workspaceId, sessionId, input);
+    await store.setSessionToolAccess(
+      { workspaceId, sessionId },
+      boundary.enabled ? boundary.toolAccess : { mode: "full", tools: [] },
+    );
+    await taskEvidenceLedger?.append({
+      schemaVersion: TASK_EVIDENCE_SCHEMA_VERSION,
+      id: randomUUID(),
+      workspaceId,
+      sessionId,
+      timestamp: new Date().toISOString(),
+      kind: "decision",
+      source: "user",
+      authority: "user-declared",
+      status: "passed",
+      summary: boundary.enabled
+        ? `Execution boundary updated (revision ${boundary.revision})`
+        : `Execution boundary disabled (revision ${boundary.revision})`,
+      decision: {
+        decisionId: `execution-boundary:${boundary.revision}`,
+        state: boundary.enabled ? "active" : "withdrawn",
+        scope: "thread",
+      },
+    });
+    return boundary;
+  });
+  handleMainFrameIpc(desktopIpc.preflightExecutionBoundary, async (
+    _event,
+    workspaceId: string,
+    sessionId: string,
+    prompt: string,
+  ) => {
+    assertSessionTargetAvailable(workspaceId, sessionId);
+    if (!executionBoundaryStore) throw new Error("Execution boundaries are unavailable.");
+    return validateExecutionBoundaryPrompt(
+      await executionBoundaryStore.get(workspaceId, sessionId),
+      typeof prompt === "string" ? prompt.slice(0, 200_000) : "",
+    );
+  });
+  handleMainFrameIpc(desktopIpc.recordExecutionBoundaryException, async (
+    _event,
+    workspaceId: string,
+    sessionId: string,
+    violationIds: readonly string[],
+  ) => {
+    assertSessionTargetAvailable(workspaceId, sessionId);
+    const ids = [...new Set(violationIds.filter((value) => typeof value === "string" && value.trim()))].slice(0, 50);
+    if (ids.length === 0 || !taskEvidenceLedger) return;
+    await taskEvidenceLedger.append({
+      schemaVersion: TASK_EVIDENCE_SCHEMA_VERSION,
+      id: randomUUID(),
+      workspaceId,
+      sessionId,
+      timestamp: new Date().toISOString(),
+      kind: "approval",
+      source: "user",
+      authority: "user-declared",
+      status: "passed",
+      summary: `Approved one-time execution boundary exception for ${ids.length} predicted limit${ids.length === 1 ? "" : "s"}`,
+      approval: {
+        requestId: randomUUID(),
+        requestKind: "boundary",
+        decision: "approved",
+        risk: "significant",
+      },
+    });
+  });
+  handleMainFrameIpc(desktopIpc.recordCommandPreviewDecision, async (
+    _event,
+    input: {
+      readonly workspaceId: string;
+      readonly sessionId: string;
+      readonly previewId: string;
+      readonly origin: CommandOrigin;
+      readonly risk: CommandRisk;
+      readonly decision: "approved" | "denied";
+      readonly command: string;
+      readonly cwd: string;
+    },
+  ) => {
+    assertSessionTargetAvailable(input.workspaceId, input.sessionId);
+    if (!taskEvidenceLedger || !input.previewId.trim() || !input.command.trim()) return;
+    const workspacePath = store.getWorkspacePath(input.workspaceId);
+    if (!workspacePath || path.resolve(input.cwd) !== path.resolve(workspacePath)) {
+      throw new Error("Command preview working directory does not match the selected checkout.");
+    }
+    await taskEvidenceLedger.append({
+      schemaVersion: TASK_EVIDENCE_SCHEMA_VERSION,
+      id: randomUUID(),
+      workspaceId: input.workspaceId,
+      sessionId: input.sessionId,
+      timestamp: new Date().toISOString(),
+      kind: "approval",
+      source: "user",
+      authority: "user-declared",
+      status: input.decision === "approved" ? "passed" : "cancelled",
+      summary: `${commandOriginLabel(input.origin)} ${input.decision}: ${input.risk} command`,
+      correlation: { commandId: input.previewId },
+      approval: {
+        requestId: input.previewId,
+        requestKind: "permission",
+        decision: input.decision,
+        risk: input.risk === "routine" ? "routine" : input.risk === "destructive" ? "destructive" : "significant",
+      },
+      verification: {
+        scope: "package",
+        command: redactCommandEnvironment(input.command),
+        cwd: input.cwd,
+      },
     });
   });
   handleMainFrameIpc(desktopIpc.addWorkspacePath, async (_event, workspacePath: string) => {
@@ -1018,6 +1386,12 @@ void app.whenReady().then(async () => {
     await store.setFastMode(enabled);
   });
   handleMainFrameIpc(desktopIpc.refreshRuntime, async (_event, workspaceId?: string) => {
+    if (nextRuntimeRefreshError) {
+      const message = nextRuntimeRefreshError;
+      nextRuntimeRefreshError = undefined;
+      await store.withError(new Error(message));
+      return;
+    }
     await store.refreshRuntime(workspaceId);
   });
   handleMainFrameIpc(desktopIpc.setModelSettingsScopeMode, async (_event, mode: ModelSettingsScopeMode) => {
@@ -1087,6 +1461,30 @@ void app.whenReady().then(async () => {
   });
   handleMainFrameIpc(desktopIpc.respondToHostUiRequest, async (_event, workspaceId: string, sessionId: string, response: HostUiResponse) => {
     await store.respondToHostUiRequest({ workspaceId, sessionId }, response);
+    await taskEvidenceLedger?.append({
+      schemaVersion: TASK_EVIDENCE_SCHEMA_VERSION,
+      id: randomUUID(),
+      workspaceId,
+      sessionId,
+      timestamp: new Date().toISOString(),
+      kind: "approval",
+      source: "user",
+      authority: "user-declared",
+      status: "passed",
+      summary: "confirmed" in response
+        ? `Approval request ${response.confirmed ? "approved once" : "denied"}`
+        : "cancelled" in response
+          ? "Approval request denied"
+          : "Approval request answered",
+      approval: {
+        requestId: response.requestId,
+        requestKind: "confirm",
+        decision: "confirmed" in response
+          ? response.confirmed ? "approved" : "denied"
+          : "cancelled" in response ? "denied" : "approved",
+        risk: "routine",
+      },
+    });
   });
   handleMainFrameIpc(desktopIpc.setNotificationPreferences, async (_event, preferences: Partial<NotificationPreferences>) => {
     await store.setNotificationPreferences(preferences);
@@ -1194,7 +1592,22 @@ void app.whenReady().then(async () => {
     if (result.canceled || result.filePaths.length === 0) {
       return;
     }
-    const attachments = await Promise.all(result.filePaths.map(readComposerAttachment));
+    const attachments = await Promise.all(result.filePaths.map(async (filePath) => {
+      try {
+        return await readComposerAttachment(filePath);
+      } catch (error) {
+        return {
+          id: randomUUID(),
+          kind: "file" as const,
+          name: path.basename(filePath),
+          mimeType: mimeTypeForPath(filePath),
+          fsPath: filePath,
+          source: "workspace-reference" as const,
+          status: "failed" as const,
+          error: error instanceof Error ? error.message : "Attachment processing failed.",
+        };
+      }
+    }));
     await store.addComposerAttachments(attachments);
   });
   handleMainFrameIpc(desktopIpc.readClipboardImage, () => readClipboardImageAttachment());
@@ -1220,9 +1633,34 @@ void app.whenReady().then(async () => {
   handleMainFrameIpc(desktopIpc.steerQueuedComposerMessage, async (_event, messageId: string) => {
     await store.steerQueuedComposerMessage(messageId);
   });
-  handleMainFrameIpc(desktopIpc.updateComposerDraft, async (_event, target: WorkspaceSessionTarget, composerDraft: string) => {
-    await store.updateComposerDraft(target, composerDraft);
+  handleMainFrameIpc(desktopIpc.setQueuedComposerMessageDelivery, async (
+    _event,
+    messageId: string,
+    mode: "steer" | "followUp",
+  ) => {
+    await store.setQueuedComposerMessageDelivery(messageId, mode);
   });
+  handleMainFrameIpc(desktopIpc.moveQueuedComposerMessage, async (
+    _event,
+    messageId: string,
+    direction: "up" | "down",
+  ) => {
+    await store.moveQueuedComposerMessage(messageId, direction);
+  });
+  handleMainFrameIpc(desktopIpc.sendNextQueuedComposerMessage, async (_event, messageId: string) => {
+    await store.sendNextQueuedComposerMessage(messageId);
+  });
+  handleMainFrameIpc(
+    desktopIpc.updateComposerDraft,
+    async (
+      _event,
+      target: WorkspaceSessionTarget,
+      composerDraft: string,
+      options?: { readonly syncToEditor?: boolean },
+    ) => {
+      await store.updateComposerDraft(target, composerDraft, options);
+    },
+  );
   handleMainFrameIpc(
     desktopIpc.submitComposer,
     async (_event, text: string, options?: { readonly deliverAs?: "steer" | "followUp"; readonly messageMetadata?: unknown }) => {
@@ -1231,8 +1669,21 @@ void app.whenReady().then(async () => {
   );
   handleMainFrameIpc(
     desktopIpc.submitComposerToSession,
-    async (_event, target: WorkspaceSessionTarget, text: string, options?: { readonly deliverAs?: "steer" | "followUp"; readonly messageMetadata?: unknown }) => {
-      await store.submitComposerToSession(target, text, options);
+    async (
+      _event,
+      target: WorkspaceSessionTarget,
+      text: string,
+      options?: {
+        readonly attachments?: readonly ComposerAttachment[];
+        readonly deliverAs?: "steer" | "followUp";
+        readonly messageMetadata?: unknown;
+      },
+    ) => {
+      const attachments = options?.attachments?.flatMap(validateComposerAttachmentPayload) ?? [];
+      await store.submitComposerToSession(target, text, {
+        ...options,
+        attachments,
+      });
     },
   );
   handleMainFrameIpc(desktopIpc.getSessionTree, (_event, target: WorkspaceSessionTarget) =>
@@ -1249,6 +1700,56 @@ void app.whenReady().then(async () => {
       return [];
     }
     return listWorkspaceFiles(workspacePath);
+  });
+  handleMainFrameIpc(desktopIpc.inspectWorkspaceArtifact, async (_event, workspaceId: string, filePath: string) => {
+    const workspacePath = store.getWorkspacePath(workspaceId);
+    if (!workspacePath) throw new Error("Workspace is unavailable.");
+    const metadata = await stat(resolvePathInsideWorkspace(workspacePath, filePath));
+    if (!metadata.isFile()) throw new Error("Artifact is not a file.");
+    return {
+      sizeBytes: metadata.size,
+      modifiedAt: metadata.mtime.toISOString(),
+    };
+  });
+  handleMainFrameIpc(desktopIpc.snapshotWorkspaceArtifact, async (_event, workspaceId: string, filePath: string) => {
+    const workspacePath = store.getWorkspacePath(workspaceId);
+    if (!workspacePath) throw new Error("Workspace is unavailable.");
+    const sourcePath = resolvePathInsideWorkspace(workspacePath, filePath);
+    const [realWorkspacePath, realSourcePath] = await Promise.all([realpath(workspacePath), realpath(sourcePath)]);
+    if (realSourcePath !== realWorkspacePath && !realSourcePath.startsWith(`${realWorkspacePath}${path.sep}`)) {
+      throw new Error("Artifact symlink resolves outside the workspace.");
+    }
+    const metadata = await stat(realSourcePath);
+    if (!metadata.isFile()) throw new Error("Artifact is not a file.");
+    const snapshotDir = path.join(app.getPath("userData"), "artifact-snapshots", encodeURIComponent(workspaceId));
+    await mkdir(snapshotDir, { recursive: true });
+    const safeName = path.basename(realSourcePath).replace(/[^A-Za-z0-9._-]+/g, "-") || "artifact";
+    const snapshotPath = path.join(snapshotDir, `${Date.now()}-${randomUUID()}-${safeName}`);
+    await copyFile(realSourcePath, snapshotPath, fsConstants.COPYFILE_FICLONE);
+    return {
+      fsPath: snapshotPath,
+      sizeBytes: metadata.size,
+      modifiedAt: metadata.mtime.toISOString(),
+    };
+  });
+  handleMainFrameIpc(desktopIpc.revealWorkspacePath, async (_event, workspaceId: string, filePath: string) => {
+    const workspacePath = store.getWorkspacePath(workspaceId);
+    if (!workspacePath) throw new Error("Workspace is unavailable.");
+    const resolved = resolvePathInsideWorkspace(workspacePath, filePath);
+    shell.showItemInFolder(resolved);
+  });
+  handleMainFrameIpc(desktopIpc.saveWorkspaceHandoff, async (_event, workspaceId: string, content: string) => {
+    const workspacePath = store.getWorkspacePath(workspaceId);
+    if (!workspacePath) throw new Error("Workspace is unavailable.");
+    if (typeof content !== "string" || !content.trim() || Buffer.byteLength(content, "utf8") > 2 * 1024 * 1024) {
+      throw new Error("Handoff content is empty or too large.");
+    }
+    const handoffDir = resolvePathInsideWorkspace(workspacePath, ".pi-gui/handoffs");
+    await mkdir(handoffDir, { recursive: true });
+    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const relativePath = `.pi-gui/handoffs/handoff-${timestamp}.md`;
+    await writeFile(resolvePathInsideWorkspace(workspacePath, relativePath), content, { encoding: "utf8", flag: "wx" });
+    return relativePath;
   });
   handleMainFrameIpc(desktopIpc.getChangedFiles, async (_event, workspaceId: string) => {
     const workspacePath = store.getWorkspacePath(workspaceId);
@@ -1302,6 +1803,10 @@ void app.whenReady().then(async () => {
       const changedWorkspaceIds = await subagentRuns.applyAuditEvent(event);
       for (const changedWorkspaceId of changedWorkspaceIds) publishSubagentRunsChanged(changedWorkspaceId);
     });
+    await subagentRuns.reconcileInterruptedRuns(
+      workspaceId,
+      (target) => store.sessionFromState(target)?.status === "running",
+    );
     return subagentRuns.listRuns(workspaceId, store.getWorkspacePath(workspaceId));
   });
   handleMainFrameIpc(desktopIpc.runSubagentWorkflow, async (_event, workspaceId: string, input: RunSubagentWorkflowInput) => {
@@ -1458,6 +1963,8 @@ app.on("before-quit", (event) => {
   subagentRunsStore = undefined;
   subagentAuditAdapter?.dispose();
   subagentAuditAdapter = undefined;
+  checkpointObserver = undefined;
+  taskEvidenceObserver = undefined;
   terminalService?.dispose();
   terminalService = undefined;
   if (quittingAfterStoreFlush || !store) {
@@ -1466,10 +1973,19 @@ app.on("before-quit", (event) => {
 
   event.preventDefault();
   quittingAfterStoreFlush = true;
-  void store
-    .flushPersistence()
+  void Promise.all([
+    store.flushPersistence(),
+    taskEvidenceLedger?.flush() ?? Promise.resolve(),
+    executionBoundaryStore?.flush() ?? Promise.resolve(),
+    checkpointStore?.flush() ?? Promise.resolve(),
+    contextManifestStore?.flush() ?? Promise.resolve(),
+  ])
     .catch((error) => logIgnoredError("app.before-quit.flushPersistence", error))
     .finally(() => {
+      taskEvidenceLedger = undefined;
+      executionBoundaryStore = undefined;
+      checkpointStore = undefined;
+      contextManifestStore = undefined;
       app.quit();
     });
 });
@@ -1486,6 +2002,35 @@ function resolveInitialWorkspacePaths(): readonly string[] {
   return [];
 }
 
+function resolvePathInsideWorkspace(workspacePath: string, filePath: string): string {
+  const root = path.resolve(workspacePath);
+  const resolved = path.resolve(root, filePath);
+  if (resolved !== root && !resolved.startsWith(`${root}${path.sep}`)) {
+    throw new Error("Path escapes workspace.");
+  }
+  return resolved;
+}
+
+async function resolveCheckpointWorkspaceIdentity(workspaceId: string) {
+  const state = await store.getState();
+  const workspace = state.workspaces.find((candidate) => candidate.id === workspaceId);
+  if (!workspace) return undefined;
+  const rootWorkspace = state.workspaces.find(
+    (candidate) => candidate.id === workspace.rootWorkspaceId,
+  );
+  return {
+    workspaceId,
+    rootPath: rootWorkspace?.path ?? workspace.path,
+    checkoutPath: workspace.path,
+  };
+}
+
+function assertSessionTargetAvailable(workspaceId: string, sessionId: string): void {
+  if (!store.sessionFromState({ workspaceId, sessionId })) {
+    throw new Error("The execution boundary thread is no longer available.");
+  }
+}
+
 async function readComposerAttachment(filePath: string): Promise<ComposerAttachment> {
   const mimeType = mimeTypeForPath(filePath);
   if (mimeType.startsWith("image/")) {
@@ -1500,6 +2045,8 @@ async function readComposerAttachment(filePath: string): Promise<ComposerAttachm
     mimeType,
     fsPath: filePath,
     ...(typeof stats.size === "number" ? { sizeBytes: stats.size } : {}),
+    source: "workspace-reference",
+    status: "ready",
   };
 }
 
@@ -1511,6 +2058,8 @@ async function readComposerImageAttachment(filePath: string, mimeType: string): 
     name: path.basename(filePath),
     mimeType,
     data: buffer.toString("base64"),
+    source: "copied",
+    status: "ready",
   };
 }
 
@@ -1532,6 +2081,10 @@ function validateComposerAttachmentPayload(attachment: ComposerAttachment): Comp
       {
         ...attachment,
         kind: "image",
+        source: "copied",
+        status: attachment.status === "pending" || attachment.status === "failed"
+          ? attachment.status
+          : "ready",
       },
     ];
   }
@@ -1550,6 +2103,10 @@ function validateComposerAttachmentPayload(attachment: ComposerAttachment): Comp
     kind: "file",
     fsPath: attachment.fsPath.trim(),
     name: attachment.name.trim() || path.basename(attachment.fsPath),
+    source: "workspace-reference",
+    status: attachment.status === "pending" || attachment.status === "missing" || attachment.status === "failed"
+      ? attachment.status
+      : "ready",
   };
   if (!normalized.fsPath) {
     return [];

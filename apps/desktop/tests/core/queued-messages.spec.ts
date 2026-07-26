@@ -1,4 +1,6 @@
 import { expect, test } from "@playwright/test";
+import { readFile, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import type { SessionDriverEvent, SessionQueuedMessage, SessionRef, WorkspaceRef } from "@pi-gui/session-driver";
 import {
   TINY_PNG_BASE64,
@@ -143,6 +145,114 @@ test("shows queued messages while running and preserves attachments through inli
     await expect(window.locator(".composer-attachment__name")).toContainText("local-draft.png");
   } finally {
     await harness.close();
+  }
+});
+
+test("recovers queue order, edits, attachments, context, and invalid items across relaunch", async () => {
+  test.setTimeout(90_000);
+  const userDataDir = await makeUserDataDir();
+  const workspacePath = await makeWorkspace("queued-messages-relaunch");
+  const first = await launchDesktop(userDataDir, {
+    initialWorkspaces: [workspacePath],
+    testMode: "background",
+  });
+
+  let queueFilePath = "";
+  try {
+    const window = await first.firstWindow();
+    await createNamedThread(window, "Recovered queue");
+    const context = await selectedSessionContext(window);
+    queueFilePath = join(
+      userDataDir,
+      "queued-messages",
+      `${encodeURIComponent(`${context.sessionRef.workspaceId}:${context.sessionRef.sessionId}`)}.json`,
+    );
+    const now = new Date().toISOString();
+    await emitRunningSnapshot(first, window, [
+      {
+        id: "recovered-a",
+        mode: "followUp",
+        text: "First recovered item",
+        attachments: [{
+          kind: "image",
+          mimeType: "image/png",
+          data: TINY_PNG_BASE64,
+          name: "recovered-context.png",
+        }],
+        metadata: { contextManifestSnapshotId: "context-snapshot-a" },
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: "recovered-b",
+        mode: "followUp",
+        text: "Second recovered item",
+        createdAt: now,
+        updatedAt: now,
+      },
+    ]);
+    await expect.poll(async () => {
+      try {
+        return JSON.parse(await readFile(queueFilePath, "utf8")).length;
+      } catch {
+        return 0;
+      }
+    }).toBe(2);
+  } finally {
+    await first.close();
+  }
+  await expect.poll(async () => {
+    const value = JSON.parse(await readFile(queueFilePath, "utf8")) as Array<{ recoveryState?: string }>;
+    return value.map((message) => message.recoveryState);
+  }).toEqual(["stale", "stale"]);
+
+  const second = await launchDesktop(userDataDir, {
+    initialWorkspaces: [workspacePath],
+    testMode: "background",
+  });
+  try {
+    const window = await second.firstWindow();
+    const cards = window.getByTestId("queued-composer-message");
+    await expect(cards).toHaveCount(2, { timeout: 15_000 });
+    await expect(cards.first()).toContainText("Recovered");
+    await expect(cards.first()).toContainText("Context attached");
+    await expect(cards.first()).toContainText("recovered-context.png");
+
+    const secondCard = cards.filter({ hasText: "Second recovered item" });
+    await secondCard.getByRole("button", { name: /Move queued message up/ }).click();
+    await expect(cards.first()).toContainText("Second recovered item");
+    await cards.filter({ hasText: "First recovered item" }).getByRole("button", { name: "Steer" }).click();
+    await expect(cards.filter({ hasText: "First recovered item" })).toContainText("Steer");
+    await expect(cards.filter({ hasText: "First recovered item" }).getByRole("button", { name: "Queue", exact: true })).toBeVisible();
+    await expect(cards.first().getByRole("button", { name: "Send next" })).toBeVisible();
+
+    await cards.first().getByRole("button", { name: "Edit" }).click();
+    await window.getByTestId("composer").fill("Edited recovered item");
+    await window.getByTestId("send").click();
+    await expect(window.getByTestId("queued-composer-editing")).toHaveCount(0);
+    await expect(cards.first()).toContainText("Edited recovered item");
+  } finally {
+    await second.close();
+  }
+
+  const persisted = JSON.parse(await readFile(queueFilePath, "utf8")) as unknown[];
+  persisted.push({ id: "invalid-recovered-item", mode: "not-a-mode" });
+  await writeFile(queueFilePath, `${JSON.stringify(persisted, null, 2)}\n`, "utf8");
+
+  const third = await launchDesktop(userDataDir, {
+    initialWorkspaces: [workspacePath],
+    testMode: "background",
+  });
+  try {
+    const window = await third.firstWindow();
+    const cards = window.getByTestId("queued-composer-message");
+    await expect(cards).toHaveCount(3, { timeout: 15_000 });
+    await expect(cards.first()).toContainText("Edited recovered item");
+    await expect(cards.filter({ hasText: "First recovered item" })).toContainText("Context attached");
+    await expect(cards.filter({ hasText: "First recovered item" })).toContainText("recovered-context.png");
+    await expect(cards.filter({ hasText: "Needs edit" })).toContainText("no sendable text or attachments");
+  } finally {
+    await third.close();
   }
 });
 

@@ -27,6 +27,29 @@ import { FastModeSelector, type FastModeSelection } from "./fast-mode-selector";
 import { ThinkingTraceToggle } from "./thinking-trace-toggle";
 import { DiagnosticReportingOnboardingCard } from "./diagnostic-reporting-onboarding";
 
+const REPO_STARTERS = [
+  {
+    label: "Inspect current changes",
+    description: "Check the worktree first; summarize meaningful changes or say clearly when it is clean.",
+    prompt: "Inspect the current repository changes. Summarize what changed, identify risks or unfinished work, and tell me the most useful next step. If the worktree is clean, say so and inspect recent project context instead.",
+  },
+  {
+    label: "Find failing tests",
+    description: "Discover the project’s test commands and diagnose real failures without assuming any exist.",
+    prompt: "Find the appropriate test commands for this repository and run the narrowest useful checks. Diagnose any failures you find. If the tests pass, summarize what was verified and suggest the next highest-value check.",
+  },
+  {
+    label: "Review the project",
+    description: "Orient to the repository, its current state, and the highest-value improvement.",
+    prompt: "Review this project as it exists now. Read its repository guidance, inspect the current state, and recommend the highest-value improvement with concrete evidence.",
+  },
+  {
+    label: "Explain architecture",
+    description: "Map the main components, boundaries, data flow, and extension points.",
+    prompt: "Explain this repository’s architecture. Map the main components, runtime boundaries, data flow, and extension points, citing the most important files.",
+  },
+] as const;
+
 export interface NewThreadViewProps {
   readonly workspaces: readonly WorkspaceRecord[];
   readonly selectedWorkspaceId: string;
@@ -151,6 +174,11 @@ export function NewThreadView({
     composer.style.height = `${Math.min(composer.scrollHeight, 260)}px`;
   }, [composerRef, prompt]);
 
+  const applyStarter = (starterPrompt: string) => {
+    onChangePrompt(starterPrompt);
+    requestAnimationFrame(() => composerRef.current?.focus());
+  };
+
   if (!workspace) {
     return (
       <section className="canvas canvas--empty">
@@ -158,6 +186,7 @@ export function NewThreadView({
           <div className="session-header__eyebrow">New thread</div>
           <h1>Open a folder to begin</h1>
           <p>Select a repository from the sidebar first, then start a local or worktree-backed thread.</p>
+          <small>Press ⌘K to search commands from anywhere.</small>
         </div>
       </section>
     );
@@ -188,6 +217,27 @@ export function NewThreadView({
           </label>
         </div>
 
+        <div className="new-thread__starters" aria-label={`Starter prompts for ${workspace.name}`}>
+          {REPO_STARTERS.map((starter) => (
+            <button
+              className="new-thread__starter"
+              key={starter.label}
+              type="button"
+              onClick={() => applyStarter(starter.prompt)}
+            >
+              <span className="new-thread__starter-title">{starter.label}</span>
+              <span className="new-thread__starter-description">{starter.description}</span>
+            </button>
+          ))}
+        </div>
+
+        <div className="new-thread__onboarding">
+          <DiagnosticReportingOnboardingCard
+            preferences={diagnosticReporting}
+            onSetPreferences={onSetDiagnosticReportingPreferences}
+          />
+        </div>
+
         <div className="new-thread__composer composer">
           <div className="conversation conversation--composer">
             {checkoutSelector ? (
@@ -205,10 +255,6 @@ export function NewThreadView({
                     guide={modelOnboarding.firstRunGuide}
                     onOpenSettings={onOpenModelSettings}
                     onUsePrompt={onChangePrompt}
-                  />
-                  <DiagnosticReportingOnboardingCard
-                    preferences={diagnosticReporting}
-                    onSetPreferences={onSetDiagnosticReportingPreferences}
                   />
                   <ModelOnboardingNoticeBanner notice={modelOnboarding.notice} onOpenSettings={onOpenModelSettings} />
                 </>
@@ -233,6 +279,9 @@ export function NewThreadView({
               onCancelQueuedEdit={() => undefined}
               onRemoveQueuedMessage={() => undefined}
               onSteerQueuedMessage={() => undefined}
+              onQueueQueuedMessage={() => undefined}
+              onMoveQueuedMessage={() => undefined}
+              onSendNextQueuedMessage={() => undefined}
               onRemoveAttachment={onRemoveAttachment}
               onSelectSlashCommand={onSelectSlashCommand}
               onSelectSlashOption={onSelectSlashOption}

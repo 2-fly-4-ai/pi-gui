@@ -31,6 +31,7 @@ import {
 import { resolveSubagentShinobiFromMap, useSubagentShinobiMap } from "./subagent-shinobi-roster";
 import { resolveSubagentRoleColor, useSubagentRoleColorMap } from "./subagent-role-colors";
 import { SettingsGroup, settingsPill } from "./settings-utils";
+import { LoadingState } from "./loading-state";
 
 interface SettingsAgentsSectionProps {
   readonly runtime?: RuntimeSnapshot;
@@ -113,7 +114,7 @@ export function SettingsAgentsSection({
   });
 
   return (
-    <div data-testid="settings-agents-section">
+    <div className="settings-agents-section" data-testid="settings-agents-section">
       <div aria-label="Subagents" className="settings-tabs" role="tablist">
         {([
           ["roles", "Roles"],
@@ -145,7 +146,7 @@ export function SettingsAgentsSection({
             </div>
           </div>
           {error ? <div className="settings-warning" role="alert">{error}</div> : null}
-          {!snapshot ? <div className="settings-hint">Loading agent definitions…</div> : null}
+          {!snapshot ? <LoadingState compact label="Loading agent definitions" detail="Discovering global and project roles…" /> : null}
           <div className="agent-definitions-list">
             {agents.map((agent) => {
               const legacyAlias = legacyAgentAliasForName(agent.name);
@@ -230,7 +231,7 @@ export function SettingsAgentsSection({
             </div>
           </div>
           {subagentWorkflowsError ? <div className="settings-warning" role="alert">{subagentWorkflowsError}</div> : null}
-          {!subagentWorkflows ? <div className="settings-hint">Loading workflow templates…</div> : null}
+          {!subagentWorkflows ? <LoadingState compact label="Loading workflow templates" detail="Reading reusable role handoffs…" /> : null}
           <div className="subagent-workflow-grid">
             {workflows.map((workflow) => {
               const validation = validateSubagentWorkflowRoles(workflow, agents);
@@ -366,7 +367,7 @@ export function SettingsAgentsSection({
                       className="button button--secondary"
                       disabled={subagentRunsPending}
                       type="button"
-                      onClick={() => onRunWorkflow({ workflowId: run.workflowId, target: run.target })}
+                      onClick={() => onRunWorkflow({ workflowId: run.workflowId, target: run.target, retryOfRunId: run.id })}
                     >
                       Retry workflow
                     </button>
@@ -576,7 +577,8 @@ function parseWorkflowListInput(value: string): readonly string[] {
 }
 
 function isTerminalSubagentRun(run: SubagentRunRecord): boolean {
-  return run.status === "completed" || run.status === "failed" || run.status === "cancelled";
+  return run.status === "completed" || run.status === "partial" || run.status === "failed" ||
+    run.status === "cancelled" || run.status === "interrupted";
 }
 
 function isActiveSubagentRun(run: SubagentRunRecord): boolean {

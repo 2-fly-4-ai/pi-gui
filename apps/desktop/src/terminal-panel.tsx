@@ -389,6 +389,9 @@ export function TerminalPanel({
             </div>
           ))}
         </div>
+        <span className="terminal-panel__origin" title="Commands typed here are user-entered and are not agent tool calls">
+          User terminal
+        </span>
         <div className="terminal-panel__actions">
           <button type="button" className="icon-button terminal-panel__action" title="New terminal" aria-label="New terminal" onClick={() => void createTerminal()}>
             <PlusIcon />

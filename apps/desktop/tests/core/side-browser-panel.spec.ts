@@ -7,6 +7,7 @@ import {
   makeUserDataDir,
   makeWorkspace,
   seedTranscriptMessages,
+  toggleTopbarPanel,
   waitForWorkspaceByPath,
 } from "../helpers/electron-app";
 
@@ -43,9 +44,8 @@ test("opens transcript links in the side browser panel", async () => {
       textFactory: () => `Open [fixture link](${fixture.url}) in the side panel.`,
     });
 
-    const browserToggle = window.getByRole("button", { name: "Toggle browser" });
-    await expect(browserToggle).toBeVisible();
-    await browserToggle.click();
+    await expect(window.getByRole("button", { name: "Open panels menu" })).toBeVisible();
+    await toggleTopbarPanel(window, "Browser");
     await expect(window.getByTestId("thread-browser-panel")).toBeVisible();
     await window.getByTestId("thread-browser-panel").getByRole("button", { name: "Close browser" }).click();
     await expect(window.getByTestId("thread-browser-panel")).toHaveCount(0);
@@ -54,7 +54,11 @@ test("opens transcript links in the side browser panel", async () => {
 
     const panel = window.getByTestId("thread-browser-panel");
     await expect(panel).toBeVisible();
-    await expect(browserToggle).toHaveClass(/icon-button--active/);
+    await window.getByRole("button", { name: "Open panels menu" }).click();
+    await expect(
+      window.getByRole("menu", { name: "Panels and tools" }).getByRole("menuitemcheckbox").filter({ hasText: "Browser" }),
+    ).toHaveAttribute("aria-checked", "true");
+    await window.keyboard.press("Escape");
     await expect(panel.getByLabel("Browser address")).toHaveValue(fixture.url);
     await expect(panel.getByTestId("browser-panel-webview")).toHaveAttribute("src", fixture.url);
 

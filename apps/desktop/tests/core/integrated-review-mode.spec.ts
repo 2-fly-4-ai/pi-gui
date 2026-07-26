@@ -18,10 +18,10 @@ async function seedWorkspace(): Promise<string> {
   const workspacePath = await makeWorkspace("integrated-review-mode");
   await initGitRepo(workspacePath);
   await mkdir(join(workspacePath, "src"), { recursive: true });
-  await writeFile(join(workspacePath, "src", "example.ts"), "export const value = 1;\n", "utf8");
+  await writeFile(join(workspacePath, "src", "example.ts"), "export const value = 1;\nexport const other = 1;\n", "utf8");
   await commitAllInGitRepo(workspacePath, "init");
   await execFileAsync("git", ["checkout", "-b", "feature-review"], { cwd: workspacePath });
-  await writeFile(join(workspacePath, "src", "example.ts"), "export const value = 2;\n", "utf8");
+  await writeFile(join(workspacePath, "src", "example.ts"), "export const value = 2;\nexport const other = 2;\n", "utf8");
   return workspacePath;
 }
 
@@ -82,6 +82,44 @@ test("review drafts persist when leaving and reopening the review surface", asyn
     await composer.fill("/review");
     await composer.press("Enter");
     await expect(window.getByTestId("review-surface").getByText("Persist this review note.")).toBeVisible();
+  } finally {
+    await harness.close();
+  }
+});
+
+test("asks about an exact frozen diff location without copying unrelated content", async () => {
+  test.setTimeout(60_000);
+  const userDataDir = await makeUserDataDir();
+  const workspacePath = await seedWorkspace();
+  const harness = await launchDesktop(userDataDir, {
+    initialWorkspaces: [workspacePath],
+    testMode: "background",
+  });
+  try {
+    const window = await harness.firstWindow();
+    await createNamedThread(window, "Inline review question");
+    const composer = window.getByTestId("composer");
+    await composer.fill("/review");
+    await composer.press("Enter");
+    const review = window.getByTestId("review-surface");
+    await review.locator(".review-mode__line").filter({ hasText: "export const value = 2" }).click();
+    await review.locator(".review-mode__line").filter({ hasText: "export const other = 2" }).click({ modifiers: ["Shift"] });
+    await expect(review.locator(".review-mode__line--in-range")).toHaveCount(2);
+    await review.getByRole("button", { name: "Ask Pi about selected location" }).click();
+    await expect(composer).toHaveValue(/File: src\/example\.ts/);
+    await expect(composer).toHaveValue(/Review snapshot:/);
+    await expect(composer).toHaveValue(/Lines: 1–2/);
+    await expect(composer).toHaveValue(/state if this mapping is stale/);
+    await expect(composer).not.toHaveValue(/unrelated transcript/i);
+    await composer.fill("/review");
+    await composer.press("Enter");
+    const reopened = window.getByTestId("review-surface");
+    const questions = reopened.getByTestId("review-questions");
+    await expect(questions).toContainText("Stale line mapping");
+    await expect(questions.getByRole("button", { name: "Original checkpoint unavailable" })).toBeDisabled();
+    await reopened.locator(".review-mode__line").filter({ hasText: "export const value" }).first().click();
+    await questions.getByRole("button", { name: "Refresh mapping to selected line" }).click();
+    await expect(questions).toContainText("Current mapping");
   } finally {
     await harness.close();
   }

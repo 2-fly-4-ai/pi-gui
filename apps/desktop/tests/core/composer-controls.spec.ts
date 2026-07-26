@@ -66,6 +66,43 @@ test("supports keyboard shortcuts, slash menus, and topbar controls through the 
     await selectSession(window, "Controls session");
     await expect(composer).toBeFocused();
 
+    const composerChrome = await window.evaluate(() => {
+      const textarea = document.querySelector<HTMLElement>("[data-testid='composer']");
+      const surface = textarea?.closest<HTMLElement>(".composer__surface");
+      const toolbar = document.querySelector<HTMLElement>(".composer-control-bar__quick-actions");
+      const send = document.querySelector<HTMLElement>("[data-testid='send']");
+      const toolButtons = toolbar
+        ? Array.from(toolbar.querySelectorAll<HTMLElement>("button")).map((button) => button.getBoundingClientRect())
+        : [];
+      if (!textarea || !surface || !toolbar || !send) {
+        throw new Error("Composer chrome was not rendered");
+      }
+      const textareaStyles = getComputedStyle(textarea);
+      const surfaceStyles = getComputedStyle(surface);
+      const toolbarBox = toolbar.getBoundingClientRect();
+      const sendBox = send.getBoundingClientRect();
+      return {
+        surfaceBoxShadow: surfaceStyles.boxShadow,
+        textareaOutlineStyle: textareaStyles.outlineStyle,
+        toolbarHeight: Math.round(toolbarBox.height),
+        toolbarLabel: toolbar.getAttribute("aria-label"),
+        toolButtonCount: toolButtons.length,
+        toolButtonHeights: toolButtons.map((box) => Math.round(box.height)),
+        toolButtonCenterOffsets: toolButtons.map((box) =>
+          Math.round((box.top + box.height / 2 - (toolbarBox.top + toolbarBox.height / 2)) * 10) / 10),
+        sendCenterOffset:
+          Math.round((sendBox.top + sendBox.height / 2 - (toolbarBox.top + toolbarBox.height / 2)) * 10) / 10,
+      };
+    });
+    expect(composerChrome.textareaOutlineStyle).toBe("none");
+    expect(composerChrome.surfaceBoxShadow).not.toBe("none");
+    expect(composerChrome.toolbarLabel).toBe("Message tools");
+    expect(composerChrome.toolbarHeight).toBe(36);
+    expect(composerChrome.toolButtonCount).toBe(3);
+    expect(composerChrome.toolButtonHeights).toEqual([28, 28, 28]);
+    expect(composerChrome.toolButtonCenterOffsets.every((offset) => Math.abs(offset) <= 0.5)).toBe(true);
+    expect(Math.abs(composerChrome.sendCenterOffset)).toBeLessThanOrEqual(0.5);
+
     const topbarRuntimeStatus = window.getByTestId("topbar-runtime-status");
     await expect(topbarRuntimeStatus).toHaveText("Idle");
     await expect(topbarRuntimeStatus).toHaveAttribute("title", /idle/i);
@@ -214,16 +251,24 @@ test("supports keyboard shortcuts, slash menus, and topbar controls through the 
     expect(topbarChrome.missingLabels).toEqual([]);
     expect(topbarChrome.missingTooltips).toEqual([]);
     expect(topbarChrome.iconMetadata.map((entry) => entry.label)).toEqual(
-      expect.arrayContaining(["Toggle terminal", "Toggle changes", "GitHub actions", "Add folder"]),
+      expect.arrayContaining(["Toggle terminal", "Toggle changes", "GitHub actions", "Open panels menu"]),
     );
     expect(topbarChrome.iconMetadata.map((entry) => entry.tooltip)).toEqual(
       expect.arrayContaining([
         expect.stringMatching(/Toggle terminal\s*(⌘J|Ctrl\+J)/),
         expect.stringMatching(/Toggle changes\s*(⌘D|Ctrl\+D)/),
         "GitHub actions",
-        "Add folder",
+        "Panels and tools",
       ]),
     );
+    await window.getByRole("button", { name: "Open panels menu" }).click();
+    const panelsMenu = window.getByRole("menu", { name: "Panels and tools" });
+    await expect(panelsMenu.getByRole("menuitem", { name: "Add folder" })).toBeVisible();
+    await expect(panelsMenu.getByRole("menuitemcheckbox").filter({ hasText: "Browser" })).toBeVisible();
+    await expect(panelsMenu.getByRole("menuitemcheckbox").filter({ hasText: "App logs" })).toBeVisible();
+    await expect(panelsMenu.getByRole("menuitemcheckbox").filter({ hasText: "VS Code" })).toBeVisible();
+    await window.keyboard.press("Escape");
+    await expect(panelsMenu).toHaveCount(0);
 
     const maximizedBefore = await harness.electronApp.evaluate(({ BrowserWindow }) => {
       return BrowserWindow.getAllWindows()[0]?.isMaximized() ?? false;
@@ -291,7 +336,12 @@ test("run failures appear in the timeline without duplicating inside the compose
     });
 
     await expect(window.locator(".timeline")).toContainText(message);
-    await expect(window.getByTestId("composer-error-banner")).toHaveCount(0);
+    const recovery = window.getByTestId("composer-error-banner");
+    await expect(recovery).toContainText(message);
+    await expect(recovery).toContainText("Run failed");
+    await expect(recovery).toContainText("attempt 1");
+    await expect(recovery.getByRole("button", { name: "Open logs" })).toBeVisible();
+    await expect(recovery.getByRole("button", { name: "Copy redacted details" })).toBeVisible();
   } finally {
     await harness.close();
   }

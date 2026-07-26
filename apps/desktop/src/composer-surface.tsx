@@ -9,6 +9,7 @@ import type {
 import { hasFilesInDataTransfer } from "./composer-attachments";
 import { FileIcon, ModelIcon, ReasoningIcon, SettingsIcon, SkillIcon, SparkIcon, StatusIcon } from "./icons";
 import { QueuedComposerMessages } from "./queued-composer-messages";
+import { attachmentSourceLabel, attachmentStatusLabel, attachmentTypeLabel, formatAttachmentSize, safeAttachmentName } from "./attachment-presentation";
 
 interface ComposerSurfaceProps {
   readonly lastError?: string;
@@ -37,6 +38,9 @@ interface ComposerSurfaceProps {
   readonly onCancelQueuedEdit: () => void;
   readonly onRemoveQueuedMessage: (messageId: string) => void;
   readonly onSteerQueuedMessage: (messageId: string) => void;
+  readonly onQueueQueuedMessage: (messageId: string) => void;
+  readonly onMoveQueuedMessage: (messageId: string, direction: "up" | "down") => void;
+  readonly onSendNextQueuedMessage: (messageId: string) => void;
   readonly onSelectSlashCommand: (command: ComposerSlashCommand) => void;
   readonly onSelectSlashOption: (option: ComposerSlashOption) => void;
   readonly showMentionMenu: boolean;
@@ -78,6 +82,9 @@ export const ComposerSurface = memo(function ComposerSurface({
   onCancelQueuedEdit,
   onRemoveQueuedMessage,
   onSteerQueuedMessage,
+  onQueueQueuedMessage,
+  onMoveQueuedMessage,
+  onSendNextQueuedMessage,
   onSelectSlashCommand,
   onSelectSlashOption,
   showMentionMenu,
@@ -195,25 +202,42 @@ export const ComposerSurface = memo(function ComposerSurface({
         onCancelEdit={onCancelQueuedEdit}
         onRemoveMessage={onRemoveQueuedMessage}
         onSteerMessage={onSteerQueuedMessage}
+        onQueueMessage={onQueueQueuedMessage}
+        onMoveMessage={onMoveQueuedMessage}
+        onSendNextMessage={onSendNextQueuedMessage}
       />
       {attachments.length > 0 ? (
         <div className="composer__attachments">
           {attachments.map((attachment) => (
-            <div className={`composer-attachment composer-attachment--${attachment.kind}`} key={attachment.id}>
+            <div
+              aria-label={`${safeAttachmentName(attachment)}, ${attachmentStatusLabel(attachment)}, ${attachmentSourceLabel(attachment)}`}
+              className={`composer-attachment composer-attachment--${attachment.kind} composer-attachment--${attachment.status ?? "ready"}`}
+              key={attachment.id}
+            >
               {attachment.kind === "image" ? (
                 <img
-                  alt={attachment.name}
+                  alt={safeAttachmentName(attachment)}
                   className="composer-attachment__preview"
                   src={`data:${attachment.mimeType};base64,${attachment.data}`}
                 />
               ) : (
                 <span className="composer-attachment__icon" aria-hidden="true">
                   <FileIcon />
+                  <span>{attachmentTypeLabel(attachment)}</span>
                 </span>
               )}
-              <span className="composer-attachment__name">{attachment.name}</span>
+              <span className="composer-attachment__content">
+                <span className="composer-attachment__name" title={safeAttachmentName(attachment)}>
+                  {safeAttachmentName(attachment)}
+                </span>
+                <span className="composer-attachment__meta">
+                  <span className="composer-attachment__status">{attachmentStatusLabel(attachment)}</span>
+                  <span>{attachmentSourceLabel(attachment)}</span>
+                  {formatAttachmentSize(attachment) ? <span>{formatAttachmentSize(attachment)}</span> : null}
+                </span>
+              </span>
               <button
-                aria-label={`Remove ${attachment.name}`}
+                aria-label={`Remove ${safeAttachmentName(attachment)}`}
                 className="composer-attachment__remove"
                 type="button"
                 onClick={() => onRemoveAttachment(attachment.id)}

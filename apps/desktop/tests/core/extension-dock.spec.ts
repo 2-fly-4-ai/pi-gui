@@ -54,10 +54,26 @@ test("renders and clears extension dock state for the selected session", async (
         placement: "belowComposer",
       },
     });
+    await emitTestSessionEvent(harness, {
+      type: "hostUiRequest",
+      sessionRef,
+      timestamp,
+      request: {
+        kind: "status",
+        requestId: "codex-usage-status",
+        key: "aa-codex-usage",
+        text: "codex ██████▀▀▀▀ 6d",
+      },
+    });
 
     await expect(window.getByTestId("extension-dock-summary")).toHaveText("Extension ready");
     await window.getByTestId("extension-dock-toggle").click();
     await expect(window.getByTestId("extension-dock-body")).toContainText("Widget body line");
+    await window.getByTestId("context-window-button").click();
+    const contextPopover = window.getByTestId("context-window-popover");
+    await expect(contextPopover).toContainText("CODEX PLAN LIMITS");
+    await expect(contextPopover.getByTestId("codex-usage-status")).toContainText("codex ██████▀▀▀▀ 6d");
+    await expect(contextPopover).toContainText("refreshes every 30 seconds");
 
     await emitTestSessionEvent(harness, {
       type: "hostUiRequest",
@@ -95,6 +111,17 @@ test("hides fast-only extension dock state from the topbar", async () => {
     }
     const sessionRef = { workspaceId: selectedWorkspace.id, sessionId: selectedSession.id };
 
+    await emitTestSessionEvent(harness, {
+      type: "hostUiRequest",
+      sessionRef,
+      timestamp: new Date().toISOString(),
+      request: {
+        kind: "status",
+        requestId: "fast-status",
+        key: "fast",
+        text: "● Fast",
+      },
+    });
     await emitTestSessionEvent(harness, {
       type: "hostUiRequest",
       sessionRef,

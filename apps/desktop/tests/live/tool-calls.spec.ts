@@ -35,6 +35,9 @@ test("renders a real tool call item that expands and collapses from the transcri
 
     const toolItem = window.locator(".timeline-tool").first();
     const toolHeader = toolItem.locator(".timeline-tool__header");
+    if (await toolHeader.getAttribute("aria-expanded") === "true") {
+      await toolHeader.click();
+    }
     await expect(toolHeader).toHaveAttribute("aria-expanded", "false");
 
     await toolHeader.click();

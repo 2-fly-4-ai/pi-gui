@@ -23,6 +23,7 @@ const REAL_AUTH_ENV_VAR = "PI_APP_REAL_AUTH";
 const REAL_AUTH_SOURCE_DIR_ENV_VAR = "PI_APP_REAL_AUTH_SOURCE_DIR";
 const REQUIRED_REAL_AUTH_FILES = ["auth.json"] as const;
 const OPTIONAL_REAL_AUTH_FILES = ["settings.json", "models.json"] as const;
+const OPTIONAL_REAL_AUTH_DIRECTORIES = ["agents"] as const;
 const PROVIDER_ENV_VARS = [
   "OPENAI_API_KEY",
   "ANTHROPIC_API_KEY",
@@ -45,6 +46,23 @@ export interface DesktopHarness {
   firstWindow(): Promise<Page>;
   focusWindow(): Promise<void>;
   close(): Promise<void>;
+}
+
+export async function toggleTopbarPanel(
+  window: Page,
+  panel: "Browser" | "App logs" | "Preview panel" | "VS Code",
+): Promise<void> {
+  await window.getByRole("button", { name: "Open panels menu" }).click();
+  await window
+    .getByRole("menu", { name: "Panels and tools" })
+    .getByRole("menuitemcheckbox")
+    .filter({ hasText: panel })
+    .click();
+}
+
+export async function runTopbarTool(window: Page, tool: "Add folder"): Promise<void> {
+  await window.getByRole("button", { name: "Open panels menu" }).click();
+  await window.getByRole("menu", { name: "Panels and tools" }).getByRole("menuitem", { name: tool }).click();
 }
 
 export interface AppDiagnosticsSnapshot {
@@ -181,7 +199,8 @@ function createDesktopHarness(electronApp: ElectronApplication): DesktopHarness 
     electronApp,
     firstWindow: () => getWindow(),
     focusWindow: async () => {
-      await electronApp.evaluate(({ BrowserWindow }) => {
+      await electronApp.evaluate(({ app, BrowserWindow }) => {
+        app.focus({ steal: true });
         const window = BrowserWindow.getAllWindows()[0];
         window?.restore();
         window?.show();
@@ -279,6 +298,15 @@ async function seedAgentDirFromRealAuth(agentDir: string, sourceDir: string): Pr
 
   for (const fileName of OPTIONAL_REAL_AUTH_FILES) {
     await copyAgentFile(resolvedSourceDir, agentDir, fileName, false);
+  }
+
+  for (const directoryName of OPTIONAL_REAL_AUTH_DIRECTORIES) {
+    const sourcePath = join(resolvedSourceDir, directoryName);
+    try {
+      await cp(sourcePath, join(agentDir, directoryName), { recursive: true });
+    } catch (error) {
+      if (!isMissingPathError(error)) throw error;
+    }
   }
 }
 

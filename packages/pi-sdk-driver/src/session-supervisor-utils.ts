@@ -253,7 +253,7 @@ export function transcriptFromMessages(messages: readonly unknown[], fallbackTim
       continue;
     }
 
-    const text = messageText(message);
+    const text = stripExplicitProjectContext(messageText(message), role);
     const attachments = messageAttachments(message);
     if (!text) {
       if (attachments.length === 0) {
@@ -272,6 +272,15 @@ export function transcriptFromMessages(messages: readonly unknown[], fallbackTim
   }
 
   return transcript;
+}
+
+function stripExplicitProjectContext(text: string, role: unknown): string {
+  const start = "<pi-gui-explicit-context version=\"1\">";
+  const end = "</pi-gui-explicit-context>";
+  if (role !== "user" || !text.startsWith(start)) return text;
+  const endIndex = text.indexOf(end, start.length);
+  if (endIndex < 0) return text;
+  return text.slice(endIndex + end.length).replace(/^\s+/, "");
 }
 
 function appendAssistantContentTranscriptItems(

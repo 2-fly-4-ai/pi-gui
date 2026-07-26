@@ -58,10 +58,17 @@ export class SubagentRunStore {
     await this.loadWorkspace(input.target.workspaceId);
     const queuedAtSubmission = store.sessionFromState(input.target)?.status === "running";
     const workspacePath = store.getWorkspacePath(input.target.workspaceId);
+    const retryOfRun = input.retryOfRunId
+      ? this.getRuns(input.target.workspaceId).find((run) => run.id === input.retryOfRunId)
+      : undefined;
+    if (input.retryOfRunId && (!retryOfRun || retryOfRun.target.sessionId !== input.target.sessionId)) {
+      throw new Error("The subagent workflow retry source was not found in this thread.");
+    }
     const workflowRunId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const baseRun = {
       id: workflowRunId,
       workflowRunId,
+      ...(retryOfRun ? { retryOfRunId: retryOfRun.id } : {}),
       workflowId: workflow.id,
       title: workflow.title,
       workspaceId: input.target.workspaceId,
@@ -122,10 +129,57 @@ export class SubagentRunStore {
       updatedAt: timestamp,
       completedAt: timestamp,
       error: "Cancelled by user.",
+      ...(run.childRuns ? {
+        childRuns: run.childRuns.map((child) => isTerminalChildRun(child) ? child : {
+          ...child,
+          status: "cancelled" as const,
+          updatedAt: timestamp,
+          completedAt: timestamp,
+          summary: child.summary ?? "Cancelled with the parent workflow.",
+        }),
+      } : {}),
     }));
     this.refreshLiveArtifactScan(workspaceId);
     this.onRunsChanged?.(workspaceId);
     return this.listRuns(workspaceId, store.getWorkspacePath(workspaceId));
+  }
+
+  async reconcileInterruptedRuns(
+    workspaceId: string,
+    isTargetRunning: (target: SubagentRunRecord["target"]) => boolean,
+  ): Promise<boolean> {
+    await this.loadWorkspace(workspaceId);
+    const runs = this.getRuns(workspaceId);
+    const timestamp = new Date().toISOString();
+    let changed = false;
+
+    for (let index = 0; index < runs.length; index += 1) {
+      const run = runs[index];
+      if (!run || isTerminalSubagentRun(run) || isTargetRunning(run.target)) continue;
+      runs[index] = {
+        ...run,
+        status: "interrupted",
+        updatedAt: timestamp,
+        completedAt: timestamp,
+        error: "Workflow was interrupted when the desktop runtime stopped.",
+        ...(run.childRuns ? {
+          childRuns: run.childRuns.map((child) => child.status === "running" ? {
+            ...child,
+            status: "interrupted" as const,
+            updatedAt: timestamp,
+            completedAt: timestamp,
+            summary: child.summary ?? "Interrupted when the desktop runtime stopped.",
+          } : child),
+        } : {}),
+      };
+      changed = true;
+    }
+
+    if (!changed) return false;
+    await this.persistWorkspace(workspaceId);
+    this.refreshLiveArtifactScan(workspaceId);
+    this.onRunsChanged?.(workspaceId);
+    return true;
   }
 
   async applySessionEvent(event: SessionDriverEvent): Promise<string | undefined> {
@@ -151,7 +205,7 @@ export class SubagentRunStore {
     }
 
     const current = runs[index];
-    if (!current || current.status === "completed" || current.status === "cancelled") {
+    if (!current || current.status === "completed" || current.status === "cancelled" || current.status === "interrupted") {
       return undefined;
     }
 
@@ -166,7 +220,7 @@ export class SubagentRunStore {
     for (const [workspaceId, runs] of this.runsByWorkspace) {
       const index = runs.findIndex((run) => matchesAuditRun(run, event));
       const current = runs[index];
-      if (!current || current.status === "completed" || current.status === "cancelled") continue;
+      if (!current || current.status === "cancelled" || current.status === "interrupted") continue;
 
       const lifecycleId = event.parentToolCallId ?? event.agentId ?? event.workflowRunId;
       if (!lifecycleId) continue;
@@ -398,11 +452,13 @@ function normalizeRuns(value: readonly SubagentRunRecord[] | undefined, workspac
 }
 
 function isSubagentRunStatus(value: unknown): value is SubagentRunRecord["status"] {
-  return value === "submitted" || value === "running" || value === "completed" || value === "failed" || value === "cancelled";
+  return value === "submitted" || value === "running" || value === "completed" || value === "partial" ||
+    value === "failed" || value === "cancelled" || value === "interrupted";
 }
 
 function isTerminalSubagentRun(run: SubagentRunRecord): boolean {
-  return run.status === "completed" || run.status === "failed" || run.status === "cancelled";
+  return run.status === "completed" || run.status === "partial" || run.status === "failed" ||
+    run.status === "cancelled" || run.status === "interrupted";
 }
 
 function matchesLifecycleRun(run: SubagentRunRecord, event: Extract<SessionDriverEvent, { type: "subagentRunUpdated" }>): boolean {
@@ -485,7 +541,7 @@ function applyLifecycleEventToChild(
     ...(event.description !== undefined ? { description: event.description } : {}),
     ...(event.status === "started" && child?.startedAt === undefined ? { startedAt: event.timestamp } : {}),
     ...(status === "completed" || status === "failed" || status === "cancelled" ? { completedAt: event.timestamp } : {}),
-    ...(event.toolUseCount !== undefined ? { toolUseCount: event.toolUseCount } : {}),
+    toolUseCount: event.toolUseCount ?? child?.toolUseCount ?? 0,
     ...(event.elapsedMs !== undefined ? { elapsedMs: event.elapsedMs } : {}),
     ...(event.summary !== undefined ? { summary: event.summary } : {}),
     ...(event.transcriptPath !== undefined ? { transcriptPath: event.transcriptPath } : {}),
@@ -496,10 +552,19 @@ function applyLifecycleEventToChild(
 function aggregateChildRuns(run: SubagentRunRecord): SubagentRunRecord {
   const children = run.childRuns ?? [];
   const expectedCount = Math.max(1, run.roles.length);
+  const hasExcessChildren = children.length > expectedCount;
   const allObservedChildrenTerminal = children.length >= expectedCount && children.every(isTerminalChildRun);
-  const aggregatedStatus: SubagentRunRecord["status"] = !allObservedChildrenTerminal
+  const hasCompletedChild = children.some((child) => child.status === "completed");
+  const hasExceptionalChild = children.some((child) =>
+    child.status === "failed" || child.status === "cancelled" || child.status === "interrupted"
+  );
+  const aggregatedStatus: SubagentRunRecord["status"] = hasExcessChildren
+    ? "failed"
+    : !allObservedChildrenTerminal
     ? "running"
-    : children.some((child) => child.status === "failed")
+    : hasCompletedChild && hasExceptionalChild
+      ? "partial"
+      : children.some((child) => child.status === "failed" || child.status === "interrupted")
       ? "failed"
       : children.some((child) => child.status === "cancelled")
         ? "cancelled"
@@ -507,6 +572,9 @@ function aggregateChildRuns(run: SubagentRunRecord): SubagentRunRecord {
   const parentFailure = run.status === "failed" && run.completedAt !== undefined &&
     (run.error?.startsWith("Workflow turn failed") ?? false);
   const status: SubagentRunRecord["status"] = parentFailure ? "failed" : aggregatedStatus;
+  const excessChildrenError = hasExcessChildren
+    ? `Workflow invoked ${children.length} Agent runs; expected exactly ${expectedCount}.`
+    : undefined;
   const toolUseCounts = children.map((child) => child.toolUseCount).filter((value): value is number => value !== undefined);
   const elapsedValues = children.map((child) => child.elapsedMs).filter((value): value is number => value !== undefined);
   const summaries = uniqueStrings(children.map((child) => child.summary ?? ""));
@@ -518,13 +586,14 @@ function aggregateChildRuns(run: SubagentRunRecord): SubagentRunRecord {
   return {
     ...run,
     status,
-    ...(status === "completed" || status === "failed" || status === "cancelled" ? { completedAt: run.updatedAt } : {}),
+    ...(isTerminalSubagentRun({ ...run, status }) ? { completedAt: run.updatedAt } : {}),
     ...(toolUseCounts.length > 0 ? { toolUseCount: toolUseCounts.reduce((total, count) => total + count, 0) } : {}),
     ...(elapsedValues.length > 0 ? { elapsedMs: Math.max(...elapsedValues) } : {}),
     ...(summaries.length > 0 ? { summary: summaries.join(" · ") } : {}),
     ...(latestTranscriptPath ? { transcriptPath: latestTranscriptPath } : {}),
     ...(artifactPaths.length > 0 ? { artifactPaths } : {}),
-    ...(status === "failed" && summaries.length > 0 && !parentFailure ? { error: summaries.join(" · ") } : {}),
+    ...((status === "failed" || status === "partial") && summaries.length > 0 && !parentFailure ? { error: summaries.join(" · ") } : {}),
+    ...(excessChildrenError ? { error: excessChildrenError } : {}),
   };
 }
 
@@ -652,7 +721,8 @@ function finalizeRunningWorkflow(
 }
 
 function isTerminalChildRun(child: SubagentChildRunRecord): boolean {
-  return child.status === "completed" || child.status === "failed" || child.status === "cancelled";
+  return child.status === "completed" || child.status === "partial" || child.status === "failed" ||
+    child.status === "cancelled" || child.status === "interrupted";
 }
 
 function isStaleOrRegressiveChildEvent(

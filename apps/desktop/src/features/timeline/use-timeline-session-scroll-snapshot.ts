@@ -45,6 +45,12 @@ export function useTimelineSessionScrollSnapshot({
       if (!pane) {
         return;
       }
+      if (
+        pane.dataset.timelineSessionKey
+        && pane.dataset.timelineSessionKey !== selectedSessionKey
+      ) {
+        return;
+      }
       const paneIsNearBottom = isNearBottom(pane);
       const savedPinned = lastTimelinePinnedBySession.get(selectedSessionKey);
       const savedScrollTop = lastTimelineScrollTopBySession.get(selectedSessionKey);
@@ -56,9 +62,18 @@ export function useTimelineSessionScrollSnapshot({
       if (savedOffBottomPositionIsStillHydrating) {
         return;
       }
+      // A virtual list may transiently jump to its initial end position while
+      // React swaps session data. Preserve an explicit off-bottom snapshot
+      // until a real scroll event or Jump to latest records the session as
+      // pinned again.
+      if (savedPinned === false) {
+        if (!paneIsNearBottom) {
+          lastTimelineScrollTopBySession.set(selectedSessionKey, pane.scrollTop);
+        }
+        return;
+      }
       const shouldPreserveSemanticPinnedState =
         !forceActualSnapshotSessionKeys.has(selectedSessionKey) &&
-        savedPinned !== false &&
         shouldPreservePinnedState();
       lastTimelineScrollTopBySession.set(selectedSessionKey, pane.scrollTop);
       lastTimelinePinnedBySession.set(

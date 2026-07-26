@@ -3,7 +3,7 @@ import type { RuntimeSkillMode, RuntimeSkillProfileRecord, RuntimeSkillRecord, R
 import type { WorkspaceRecord } from "./desktop-state";
 import { CloseIcon, RefreshIcon, SkillIcon } from "./icons";
 import type { SkillUsageByPath, SkillUsageRecord } from "./skill-usage";
-import { formatRelativeTime, titleCase } from "./string-utils";
+import { formatExactLocalTime, formatRelativeTime, titleCase } from "./string-utils";
 
 type SkillCategory = "all" | "project" | "pi" | "cloudflare" | "frontend" | "code" | "docs" | "debug" | "verification" | "planning" | "review" | "git" | "workflow";
 
@@ -39,7 +39,7 @@ interface SkillsViewProps {
   readonly workspace?: WorkspaceRecord;
   readonly runtime?: RuntimeSnapshot;
   readonly usageByPath?: SkillUsageByPath;
-  readonly onRefresh: () => void;
+  readonly onRefresh: () => Promise<string | undefined>;
   readonly onOpenSkillFolder: (filePath: string) => void;
   readonly onSetSkillMode: (filePath: string, mode: RuntimeSkillMode) => void;
   readonly onSetActiveProfile: (profileId: string) => void;
@@ -68,6 +68,7 @@ export function SkillsView({
   const [profileDialog, setProfileDialog] = useState<"new" | "rename" | undefined>();
   const [profileName, setProfileName] = useState("");
   const [profileDescription, setProfileDescription] = useState("");
+  const [refreshState, setRefreshState] = useState<"idle" | "loading" | "error">("idle");
   const skills = runtime?.skills;
   const visibleSkills = skills ?? EMPTY_SKILLS;
   const profiles = runtime?.skillProfiles ?? [{ id: "default", name: "Default", description: "Use default skill modes from Pi and the local catalog.", skills: {} }];
@@ -114,6 +115,24 @@ export function SkillsView({
     );
   }
 
+  const createNewSkill = () =>
+    onTrySkill({
+      name: "new-skill",
+      description: "Create a new skill for this workspace",
+      filePath: "",
+      baseDir: workspace.path,
+      source: "project",
+      enabled: true,
+      disableModelInvocation: false,
+      slashCommand: "/skill:new-skill",
+      mode: "auto",
+    });
+  const refresh = async () => {
+    setRefreshState("loading");
+    const error = await onRefresh();
+    setRefreshState(error ? "error" : "idle");
+  };
+
   return (
     <section className="canvas">
       <div className="conversation skills-view">
@@ -134,26 +153,14 @@ export function SkillsView({
                 </span>
               </div>
             ) : null}
-            <button className="button button--secondary" type="button" onClick={onRefresh}>
+            <button className="button button--secondary" disabled={refreshState === "loading"} type="button" onClick={() => void refresh()}>
               <RefreshIcon />
-              <span>Refresh</span>
+              <span>{refreshState === "loading" ? "Refreshing…" : "Refresh"}</span>
             </button>
             <button
               className="button button--primary"
               type="button"
-              onClick={() =>
-                onTrySkill({
-                  name: "new-skill",
-                  description: "Create a new skill for this workspace",
-                  filePath: "",
-                  baseDir: workspace.path,
-                  source: "project",
-                  enabled: true,
-                  disableModelInvocation: false,
-                  slashCommand: "/skill:new-skill",
-                  mode: "auto",
-                })
-              }
+              onClick={createNewSkill}
             >
               New skill
             </button>
@@ -244,7 +251,26 @@ export function SkillsView({
         <div className={`skills-layout ${isPanelOpen ? "skills-layout--panel-open" : ""} ${hasFilteredSkills ? "" : "skills-layout--empty"}`}>
           <div className="skills-grid" data-testid="skills-list">
             {filteredSkills.length === 0 ? (
-              <SkillsEmptyState message="No skills discovered in this workspace context. Global profiles still apply wherever those skills are available." />
+              <SkillsEmptyState
+                actionLabel={skillModels.length === 0 ? (refreshState === "error" ? "Retry discovery" : "Create skill") : "Clear filters"}
+                message={
+                  skillModels.length === 0
+                    ? refreshState === "error"
+                      ? "Skill discovery failed. Existing global profiles still apply; retry when the runtime is available."
+                      : "No skills are available in this workspace context yet. Global profiles still apply wherever their skills are discovered."
+                    : "No skills match the current search and category filters."
+                }
+                onAction={
+                  skillModels.length === 0
+                    ? refreshState === "error"
+                      ? () => void refresh()
+                      : createNewSkill
+                    : () => {
+                        setQuery("");
+                        setCategory("all");
+                      }
+                }
+              />
             ) : (
               filteredSkills.map((model) => (
                 <div
@@ -563,10 +589,20 @@ function SkillUsageStats({ usage, compact = false }: { readonly usage?: SkillUsa
   const count = usage?.count ?? 0;
   const countLabel = count === 1 ? "1 slash use" : `${count} slash uses`;
   const lastUsedLabel = usage?.lastUsedAt ? `Last used ${formatRelativeTime(usage.lastUsedAt)}` : "Never used";
+  const exactLastUsed = usage?.lastUsedAt ? formatExactLocalTime(usage.lastUsedAt) : undefined;
   return (
     <span className={compact ? "skill-usage skill-usage--compact" : "skill-usage"}>
       <span>{countLabel}</span>
-      <span>{lastUsedLabel}</span>
+      {usage?.lastUsedAt ? (
+        <time
+          aria-label={`Last used ${exactLastUsed}`}
+          dateTime={usage.lastUsedAt}
+          tabIndex={0}
+          title={exactLastUsed}
+        >
+          {lastUsedLabel}
+        </time>
+      ) : <span>{lastUsedLabel}</span>}
     </span>
   );
 }
@@ -585,11 +621,24 @@ function SkillDetailPlaceholder({ title, body }: { readonly title: string; reado
   );
 }
 
-function SkillsEmptyState({ message }: { readonly message: string }) {
+function SkillsEmptyState({
+  message,
+  actionLabel,
+  onAction,
+}: {
+  readonly message: string;
+  readonly actionLabel: string;
+  readonly onAction: () => void;
+}) {
   return (
     <div className="empty-state">
       <h2>No skills found</h2>
       <p>{message}</p>
+      <div className="empty-state__actions">
+        <button className="button button--primary" type="button" onClick={onAction}>
+          {actionLabel}
+        </button>
+      </div>
     </div>
   );
 }

@@ -27,6 +27,7 @@ test("settings agents page saves built-in subagent model overrides", async () =>
 
   try {
     const window = await harness.firstWindow();
+    await window.setViewportSize({ width: 1600, height: 900 });
     await createNamedThread(window, "Agent settings session");
 
     await window.getByRole("button", { name: "Settings", exact: true }).click();
@@ -47,6 +48,29 @@ test("settings agents page saves built-in subagent model overrides", async () =>
     await expect(window.getByTestId("agent-definition-row-general-purpose")).toHaveCount(0);
     await expect(window.getByTestId("agent-definition-row-Explore")).toHaveCount(0);
     await expect(window.getByTestId("agent-definition-row-Plan")).toHaveCount(0);
+    const settingsLayout = await window.evaluate(() => {
+      const content = document.querySelector<HTMLElement>(".secondary-surface__content");
+      const search = document.querySelector<HTMLElement>(".settings-search");
+      const view = document.querySelector<HTMLElement>(".settings-view");
+      const role = document.querySelector<HTMLElement>('[data-testid="agent-definition-row-scout"]');
+      if (!content || !search || !view || !role) {
+        return undefined;
+      }
+      const contentBox = content.getBoundingClientRect();
+      const searchBox = search.getBoundingClientRect();
+      const viewBox = view.getBoundingClientRect();
+      const roleBox = role.getBoundingClientRect();
+      return {
+        contentWidth: contentBox.width,
+        viewWidth: viewBox.width,
+        alignmentDelta: Math.abs(searchBox.left - viewBox.left),
+        roleWidth: roleBox.width,
+      };
+    });
+    expect(settingsLayout).toBeDefined();
+    expect(settingsLayout!.viewWidth).toBeGreaterThan(settingsLayout!.contentWidth * 0.85);
+    expect(settingsLayout!.alignmentDelta).toBeLessThanOrEqual(2);
+    expect(settingsLayout!.roleWidth).toBeGreaterThan(560);
 
     await window.getByTestId("agent-definition-row-delegate").getByRole("button", { name: "Edit" }).click();
     const dialog = window.getByTestId("agent-definition-editor");
@@ -659,6 +683,15 @@ test("settings subagents submits a built-in workflow and persists the run record
     const timelineCard = window.getByTestId("subagent-timeline-card");
     await expect(timelineCard).toContainText("Scout then plan");
     await expect(timelineCard).toHaveAttribute("data-workflow-run-id", workflowRunId);
+    await timelineCard.locator(".subagent-timeline-card__header").click();
+    await expect(timelineCard).toContainText("scoutcompleted2s2 tools");
+    await expect(timelineCard).toContainText("plannercompleted2s1 tools");
+    await expect(timelineCard.getByRole("button", { name: "Related activity" })).toHaveCount(2);
+    await expect(timelineCard.getByRole("button", { name: "Related evidence" })).toHaveCount(2);
+    await expect(timelineCard.getByRole("button", { name: "context.md" })).toBeVisible();
+    await expect(timelineCard.getByRole("button", { name: "plan.md" })).toBeVisible();
+    await expect(timelineCard).toContainText("Outcome:");
+    await expect(timelineCard).toContainText("Nested parentage remains unavailable");
   } finally {
     await harness.close();
   }

@@ -19,6 +19,10 @@ export function useReviewSurface({
 }: UseReviewSurfaceOptions) {
   const [reviewSnapshot, setReviewSnapshot] = useState<ReviewSnapshot | undefined>();
   const [reviewLoading, setReviewLoading] = useState(false);
+  const [reviewRefreshNonce, setReviewRefreshNonce] = useState(0);
+  const reviewBase = reviewRequest?.base;
+  const reviewAgent = reviewRequest?.agent;
+  const reviewRequestNonce = reviewRequest?.nonce;
 
   const resetReviewSurface = useCallback(() => {
     setReviewSnapshot(undefined);
@@ -32,7 +36,10 @@ export function useReviewSurface({
     let cancelled = false;
     setReviewLoading(true);
     setReviewSnapshot(undefined);
-    void api.createReviewSnapshot(selectedWorkspaceId, reviewRequest)
+    void api.createReviewSnapshot(selectedWorkspaceId, {
+      ...(reviewBase ? { base: reviewBase } : {}),
+      ...(reviewAgent !== undefined ? { agent: reviewAgent } : {}),
+    })
       .then((next) => {
         if (cancelled) {
           return;
@@ -41,7 +48,7 @@ export function useReviewSurface({
         setReviewSnapshot(next);
         setReviewLoading(false);
 
-        if (!reviewRequest?.agent || !selectedSessionId) {
+        if (!reviewAgent || !selectedSessionId) {
           return;
         }
 
@@ -61,10 +68,20 @@ export function useReviewSurface({
     return () => {
       cancelled = true;
     };
-  }, [activeView, api, reviewRequest, selectedSessionId, selectedWorkspaceId]);
+  }, [
+    activeView,
+    api,
+    reviewAgent,
+    reviewBase,
+    reviewRefreshNonce,
+    reviewRequestNonce,
+    selectedSessionId,
+    selectedWorkspaceId,
+  ]);
 
   return {
     resetReviewSurface,
+    refreshReviewSurface: () => setReviewRefreshNonce((value) => value + 1),
     reviewLoading,
     reviewSnapshot,
   };

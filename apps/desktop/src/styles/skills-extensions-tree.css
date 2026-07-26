@@ -105,6 +105,8 @@
 
 .skills-layout--empty .skills-grid {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  justify-items: center;
   min-height: 240px;
   place-items: center;
 }
@@ -113,6 +115,12 @@
   width: min(460px, 100%);
   padding: 28px;
   text-align: center;
+}
+
+.skills-layout--empty .empty-state__actions {
+  display: flex;
+  justify-content: center;
+  margin-top: 18px;
 }
 
 .skills-grid {
@@ -995,6 +1003,88 @@
 .tree-modal__summary-step {
   display: grid;
   gap: 16px;
+}
+
+.tree-modal__compare {
+  display: grid;
+  gap: 14px;
+  min-height: 0;
+  overflow: auto;
+  padding: 16px;
+}
+
+.branch-compare__selectors,
+.branch-compare__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.branch-compare__selectors label {
+  display: grid;
+  gap: 6px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.branch-compare__selectors select {
+  min-width: 0;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: var(--surface-raised);
+  color: var(--text-primary);
+  padding: 8px;
+}
+
+.branch-compare__grid section,
+.branch-compare__recommendation {
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  background: var(--surface-subtle);
+  padding: 12px;
+}
+
+.branch-compare__grid h3 {
+  margin: 0 0 8px;
+}
+
+.branch-compare__grid dl {
+  display: grid;
+  gap: 7px;
+  margin: 0;
+}
+
+.branch-compare__grid dl > div {
+  display: grid;
+  grid-template-columns: minmax(96px, 0.35fr) minmax(0, 1fr);
+  gap: 8px;
+}
+
+.branch-compare__grid dt {
+  color: var(--text-secondary);
+}
+
+.branch-compare__grid dd,
+.branch-compare__recommendation p,
+.branch-compare__checkout {
+  margin: 0;
+}
+
+.branch-compare__recommendation strong {
+  display: block;
+  margin-bottom: 5px;
+}
+
+.branch-compare__checkout {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+@media (max-width: 720px) {
+  .branch-compare__selectors,
+  .branch-compare__grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .tree-summary-options {

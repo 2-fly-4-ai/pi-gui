@@ -28,10 +28,21 @@ test("typing in a long bottom-pinned thread keeps the composer and timeline stab
   try {
     const window = await harness.firstWindow();
     await createNamedThread(window, "Typing stability");
+    await window.evaluate(() => {
+      globalThis.localStorage.setItem("pi-gui:appearance-preferences:v1", JSON.stringify({
+        density: "compact",
+        transcriptFontSize: 13,
+        monoFontSize: 11,
+      }));
+      document.documentElement.dataset.density = "compact";
+      document.documentElement.style.setProperty("--transcript-font-size", "13px");
+      document.documentElement.style.setProperty("--mono-font-size", "11px");
+    });
     await seedTranscriptMessages(harness, window, {
-      count: 80,
+      count: 180,
       textFactory: (index) => `seeded transcript row ${index} with enough text to fill the visible conversation pane`,
     });
+    expect(await window.locator("[data-timeline-row-id]").count()).toBeLessThan(170);
     await window.evaluate(() => {
       const pane = document.querySelector<HTMLElement>(".timeline-pane");
       if (pane) {
@@ -69,6 +80,7 @@ test("typing in a long bottom-pinned thread keeps the composer and timeline stab
     const afterComposerHeight = await composer.evaluate((element) => element.getBoundingClientRect().height);
     expect(afterComposerHeight).toBeGreaterThan(before.composerHeight);
     expect(Math.max(...remainingAfterEachKey)).toBeLessThanOrEqual(before.remaining + 4);
+    await expect(window.locator("html")).toHaveAttribute("data-density", "compact");
   } finally {
     await harness.close();
   }
@@ -101,6 +113,13 @@ test("existing thread highlights and accepts dropped images and files", async ()
     await expect(window.locator(".composer-attachment--image")).toHaveCount(1);
     await expect(window.locator(".composer-attachment--file")).toHaveCount(1);
     await expect(window.locator(".composer-attachment__name")).toContainText(["drop-image.png", "notes.txt"]);
+    await expect(window.locator(".composer-attachment--image .composer-attachment__meta")).toContainText("Ready");
+    await expect(window.locator(".composer-attachment--image .composer-attachment__meta")).toContainText("Copied attachment");
+    await expect(window.locator(".composer-attachment--file .composer-attachment__meta")).toContainText("Workspace reference");
+    await expect(window.locator(".composer-attachment--file .composer-attachment__icon")).toContainText("TXT");
+    await expect(window.locator(".composer-attachment--file .composer-attachment__meta")).toContainText("27 B");
+    await window.locator(".composer-attachment--file .composer-attachment__remove").focus();
+    await expect(window.locator(".composer-attachment--file .composer-attachment__remove")).toBeFocused();
   } finally {
     await harness.close();
   }

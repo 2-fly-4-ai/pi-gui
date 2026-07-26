@@ -10,6 +10,7 @@ import {
   makeWorkspace,
   seedTranscriptMessages,
   selectSession,
+  toggleTopbarPanel,
   waitForWorkspaceByPath,
 } from "../helpers/electron-app";
 
@@ -49,6 +50,13 @@ async function expectVSCodePanelSettled(panel: Locator): Promise<void> {
   await expect(webview).toHaveAttribute("title", "VS Code");
 }
 
+async function runDisplayTileAction(tile: Locator, actionName: string): Promise<void> {
+  await tile.getByRole("button", { name: "Thread actions" }).click();
+  const menu = tile.getByRole("menu", { name: "Thread actions" });
+  await expect(menu).toBeVisible();
+  await menu.getByRole("menuitem", { name: actionName, exact: true }).click();
+}
+
 test("opens a Display Mode tile back into Threads with its transcript hydrated", async () => {
   const userDataDir = await makeUserDataDir();
   const workspacePath = await makeWorkspace("display-mode-open-thread");
@@ -72,7 +80,8 @@ test("opens a Display Mode tile back into Threads with its transcript hydrated",
 
     const tile = window.getByTestId("display-mode-thread-tile").filter({ hasText: "Display mode open thread" });
     await expect(tile).toContainText("Display mode open thread transcript sentinel");
-    await tile.getByRole("button", { name: "Open thread", exact: true }).click();
+    await expect(tile.locator(".display-mode-tile__actions")).toHaveCount(0);
+    await runDisplayTileAction(tile, "Open thread");
 
     await expect.poll(async () => window.evaluate(() => window.piApp?.getState().then((state) => state.activeView) ?? "missing")).toBe("threads");
     await expect(window.locator(".topbar__session")).toHaveText("Display mode open thread");
@@ -120,13 +129,13 @@ test("loads Display Mode with clipped recent transcript rows", async () => {
 test("summarizes durable workflow runs when transcript lifecycle rows are absent", async () => {
   const userDataDir = await makeUserDataDir();
   const workspacePath = await makeWorkspace("display-mode-durable-workflow");
-  const harness = await launchDesktop(userDataDir, {
+  let harness = await launchDesktop(userDataDir, {
     initialWorkspaces: [workspacePath],
     testMode: "background",
   });
 
   try {
-    const window = await harness.firstWindow();
+    let window = await harness.firstWindow();
     await waitForWorkspaceByPath(window, workspacePath);
     await createNamedThread(window, "Display mode durable workflow");
 
@@ -160,6 +169,32 @@ test("summarizes durable workflow runs when transcript lifecycle rows are absent
       ], null, 2)}\n`,
       "utf8",
     );
+    await harness.close();
+    harness = await launchDesktop(userDataDir, {
+      initialWorkspaces: [workspacePath],
+      testMode: "background",
+    });
+    window = await harness.firstWindow();
+    const runningTimestamp = new Date().toISOString();
+    await emitTestSessionEvent(harness, {
+      type: "sessionUpdated",
+      sessionRef,
+      timestamp: runningTimestamp,
+      runId: "display-mode-durable-parent-run",
+      snapshot: {
+        ref: sessionRef,
+        workspace: {
+          workspaceId: sessionRef.workspaceId,
+          path: workspacePath,
+          displayName: basename(workspacePath),
+        },
+        title: "Display mode durable workflow",
+        status: "running",
+        updatedAt: runningTimestamp,
+        preview: "Workflow running",
+        runningRunId: "display-mode-durable-parent-run",
+      },
+    });
 
     await window.locator(".sidebar__nav").getByRole("button", { name: "Display Mode" }).click();
     await expect.poll(async () => window.evaluate(() => window.piApp?.getState().then((state) => state.activeView) ?? "missing")).toBe("display-mode");
@@ -169,10 +204,10 @@ test("summarizes durable workflow runs when transcript lifecycle rows are absent
         const records = await window.piApp?.getDisplayModeThreads();
         return records?.find((record) => record.session.title === "Display mode durable workflow")?.subagentActivity?.label ?? "";
       }))
-      .toBe("1 Workflow running · scout, planner");
+      .toBe("1 Workflow needs attention · scout, planner");
 
     const tile = window.getByTestId("display-mode-thread-tile").filter({ hasText: "Display mode durable workflow" });
-    await expect(tile).toContainText("1 Workflow running");
+    await expect(tile).toContainText("1 Workflow needs attention");
   } finally {
     await harness.close();
   }
@@ -314,6 +349,11 @@ test("summarizes running subagents on Display Mode tiles", async () => {
     const activity = tile.getByTestId("display-mode-subagent-activity");
     await expect(activity).toBeVisible();
     await expect(activity).toHaveText("1 Agent running · reviewer");
+    await expect(tile.locator(".display-mode-tile__head").getByTestId("display-mode-subagent-activity")).toHaveCount(0);
+    await expect
+      .poll(() => activity.evaluate((element) =>
+        element.nextElementSibling?.classList.contains("display-mode-tile__reply") ?? false))
+      .toBe(true);
   } finally {
     await harness.close();
   }
@@ -332,6 +372,8 @@ test("uses the thread composer input in Display Mode tiles", async () => {
     await waitForWorkspaceByPath(window, workspacePath);
     await createNamedThread(window, "Display mode composer parity");
 
+    await window.getByTestId("composer").evaluate((textarea) => textarea.blur());
+    await window.waitForTimeout(200);
     const threadComposerStyles = await window.getByTestId("composer-surface").evaluate(readComposerSurfaceStyles);
 
     await window.locator(".sidebar__nav").getByRole("button", { name: "Display Mode" }).click();
@@ -342,13 +384,18 @@ test("uses the thread composer input in Display Mode tiles", async () => {
     await expect(tile).not.toContainText("No messages yet");
     await expect(tile).toContainText("Transcript not loaded yet");
     const displayComposerStyles = await tile.locator(".display-mode-tile__reply .composer__surface").evaluate(readComposerSurfaceStyles);
-    const widthDelta = await tile.evaluate((tileElement) => {
+    const replySurfaceDelta = await tile.evaluate((tileElement) => {
       const reply = tileElement.querySelector<HTMLElement>(".display-mode-tile__reply");
       const surface = tileElement.querySelector<HTMLElement>(".display-mode-tile__reply .composer__surface");
       if (!reply || !surface) {
-        return Number.POSITIVE_INFINITY;
+        return { height: Number.POSITIVE_INFINITY, width: Number.POSITIVE_INFINITY };
       }
-      return Math.abs(reply.getBoundingClientRect().width - surface.getBoundingClientRect().width);
+      const replyBox = reply.getBoundingClientRect();
+      const surfaceBox = surface.getBoundingClientRect();
+      return {
+        height: Math.abs(replyBox.height - surfaceBox.height),
+        width: Math.abs(replyBox.width - surfaceBox.width),
+      };
     });
     const replyOffsetRatio = await tile.evaluate((tileElement) => {
       const reply = tileElement.querySelector<HTMLElement>(".display-mode-tile__reply");
@@ -360,12 +407,56 @@ test("uses the thread composer input in Display Mode tiles", async () => {
       return (replyBox.top - tileBox.top) / tileBox.height;
     });
 
-    expect(displayComposerStyles).toEqual(threadComposerStyles);
-    expect(widthDelta).toBeLessThanOrEqual(2);
+    expect(displayComposerStyles.textarea).toEqual(threadComposerStyles.textarea);
+    expect(displayComposerStyles.surface).toMatchObject({
+      backgroundColor: threadComposerStyles.surface.backgroundColor,
+      boxShadow: threadComposerStyles.surface.boxShadow,
+      padding: threadComposerStyles.surface.padding,
+    });
+    expect(displayComposerStyles.surface.borderRadius).toMatch(/^0px 0px /);
+    expect(replySurfaceDelta.width).toBeLessThanOrEqual(2);
+    expect(replySurfaceDelta.height).toBeLessThanOrEqual(2);
     expect(replyOffsetRatio).toBeGreaterThan(0.55);
 
+    const composerBar = tile.locator(".composer-control-bar");
+    await expect(composerBar).toBeVisible();
+    const modelButton = composerBar.locator(".model-selector__badge").first();
+    await modelButton.click();
+    const modelMenu = composerBar.locator(".model-selector__dropdown--models");
+    await expect(modelMenu).toBeVisible();
+    await expect(modelMenu.getByPlaceholder("Search models...")).toBeVisible();
+    await window.keyboard.press("Escape");
+
+    await expect(tile.getByTestId("composer-more-controls")).toBeVisible();
+    await tile.getByTestId("composer-more-controls").click();
+    const composerMenu = tile.getByTestId("composer-control-menu");
+    await expect(composerMenu).toContainText("Reasoning");
+    await expect(composerMenu).toContainText("Skills");
+    await expect(composerMenu).toContainText("Access");
+    await expect(composerMenu).toContainText("Thinking");
+    await expect(composerMenu).toContainText("Context");
+    await expect(composerMenu).toContainText("Attach files");
+    await composerMenu.getByRole("button", { name: /^Skills profile:/ }).click();
+    const skillProfileMenu = composerMenu.locator(".skill-profile-selector__popover");
+    await expect(skillProfileMenu).toBeVisible();
+    await expect(skillProfileMenu.getByRole("button", { name: "Manage profiles…" })).toBeVisible();
+    await window.keyboard.press("Escape");
+
+    const attachmentPath = join(workspacePath, "display-mode-note.txt");
+    await writeFile(attachmentPath, "Display Mode attachment parity");
+    await tile.locator('input[type="file"]').setInputFiles(attachmentPath);
+    await expect(tile.locator(".composer-attachment")).toContainText("display-mode-note.txt");
+    await tile.locator("textarea").fill("Review the attached Display Mode note.");
+    await tile.getByRole("button", { name: "Send reply" }).click();
+    await expect(tile.locator(".composer-attachment")).toHaveCount(0);
+    await expect.poll(async () => window.evaluate(async () => {
+      const records = await window.piApp?.getDisplayModeThreads();
+      const record = records?.find((entry) => entry.session.title === "Display mode composer parity");
+      return JSON.stringify(record?.transcript ?? []).includes("display-mode-note.txt");
+    })).toBe(true);
+
     await window.setViewportSize({ width: 860, height: 760 });
-    await window.getByRole("button", { name: "4 columns" }).click();
+    await window.getByLabel("Grid columns").selectOption("4");
     await expect.poll(async () => window.evaluate(() => {
       const main = document.querySelector<HTMLElement>(".display-mode__main");
       const grid = document.querySelector<HTMLElement>(".display-mode__grid");
@@ -464,7 +555,7 @@ test("opens Display Mode from the sidebar and renders thread command-center tile
       output: "README contents visible in display tile",
     } satisfies Extract<SessionDriverEvent, { type: "toolFinished" }>);
 
-    await window.getByRole("button", { name: "Toggle VS Code panel" }).click();
+    await toggleTopbarPanel(window, "VS Code");
     const threadVsCodePanel = window.getByTestId("thread-vscode-panel");
     await expect(threadVsCodePanel).toBeVisible();
     await expect(threadVsCodePanel.getByRole("button", { name: "Hard close" })).toHaveCount(0);
@@ -472,6 +563,8 @@ test("opens Display Mode from the sidebar and renders thread command-center tile
     await expectVSCodePanelSettled(threadVsCodePanel);
 
     await selectSession(window, "Second workspace seed thread");
+    await expect(threadVsCodePanel).toHaveCount(0);
+    await toggleTopbarPanel(window, "VS Code");
     await expect(threadVsCodePanel).toBeVisible();
     await expect(threadVsCodePanel).toHaveAttribute("data-vscode-folder-path", secondWorkspacePath);
     await expectVSCodePanelSettled(threadVsCodePanel);
@@ -480,11 +573,11 @@ test("opens Display Mode from the sidebar and renders thread command-center tile
     await expect(threadVsCodePanel).toBeVisible();
     await expect(threadVsCodePanel).toHaveAttribute("data-vscode-folder-path", workspacePath);
     await expectVSCodePanelSettled(threadVsCodePanel);
-    await window.getByRole("button", { name: "Toggle VS Code panel" }).click();
+    await toggleTopbarPanel(window, "VS Code");
     await expect(window.getByTestId("thread-vscode-panel")).toHaveCount(0);
-    await window.getByRole("button", { name: "Toggle VS Code panel" }).click();
+    await toggleTopbarPanel(window, "VS Code");
     await expect(window.getByTestId("thread-vscode-panel")).toBeVisible();
-    await window.getByRole("button", { name: "Toggle VS Code panel" }).click();
+    await toggleTopbarPanel(window, "VS Code");
     await expect(window.getByTestId("thread-vscode-panel")).toHaveCount(0);
 
     await selectSession(window, "Second workspace seed thread");
@@ -496,6 +589,9 @@ test("opens Display Mode from the sidebar and renders thread command-center tile
     await expect.poll(async () => window.evaluate(() => window.piApp?.getState().then((state) => state.activeView) ?? "missing")).toBe("display-mode");
     await expect(window.getByTestId("display-mode-surface")).toBeVisible();
     await expect(window.getByRole("heading", { name: "Command center" })).toBeVisible();
+    await expect(window.locator(".display-mode-drawer")).toHaveAttribute("aria-hidden", "true");
+    await window.getByRole("button", { name: "Preview", exact: true }).click();
+    await expect(window.locator(".display-mode-drawer")).toHaveAttribute("aria-hidden", "false");
     await expect(window.locator(".display-mode-drawer")).toContainText("Preview");
     await expect(window.locator(".display-mode-preview iframe")).toHaveCount(0);
     await expect(window.locator(".display-mode-drawer__meta").first()).toContainText("Second workspace seed thread");
@@ -537,24 +633,24 @@ test("opens Display Mode from the sidebar and renders thread command-center tile
     await expect(firstTile).not.toContainText("You need to type");
     await firstTile.locator("textarea").fill("");
 
-    await window.getByTestId("display-mode-thread-tile").first().getByRole("button", { name: "Terminal" }).click();
+    await runDisplayTileAction(window.getByTestId("display-mode-thread-tile").first(), "Terminal");
     await expect(window.locator(".display-mode-tile__terminal").first()).toBeVisible();
     await expect(window.locator(".terminal-stack")).toHaveCount(0);
 
-    await window.getByRole("button", { name: "Automatic columns" }).click();
+    await window.getByLabel("Grid columns").selectOption("auto");
     await expect.poll(async () => window.evaluate(() => {
       const grid = document.querySelector<HTMLElement>(".display-mode__grid");
       return grid ? window.getComputedStyle(grid).gridTemplateColumns : "";
     })).toContain("px");
 
-    await window.getByTestId("display-mode-thread-tile").first().getByRole("button", { name: "VS Code" }).click();
+    await runDisplayTileAction(window.getByTestId("display-mode-thread-tile").first(), "VS Code");
     await expect(window.locator(".display-mode-vscode")).toBeVisible();
     const displayVsCodePanel = window.getByTestId("display-mode-vscode-panel");
     await expect(displayVsCodePanel).toHaveAttribute("data-vscode-folder-path", workspacePath);
     await expectVSCodePanelSettled(displayVsCodePanel);
 
     const secondWorkspaceTile = window.getByTestId("display-mode-thread-tile").filter({ hasText: "Second workspace seed thread" });
-    await secondWorkspaceTile.getByRole("button", { name: "Pin" }).click();
+    await runDisplayTileAction(secondWorkspaceTile, "Pin preview");
     await expect(window.locator(".display-mode-drawer__meta").first()).toContainText("Second workspace seed thread");
     await expect(displayVsCodePanel).toHaveAttribute("data-vscode-folder-path", secondWorkspacePath);
     await expectVSCodePanelSettled(displayVsCodePanel);

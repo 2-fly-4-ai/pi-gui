@@ -11,13 +11,14 @@ export function matchesFilter(session: SessionRecord, filter: DisplayModeFilter)
   if (filter === "all") return true;
   if (filter === "running") return session.status === "running";
   if (filter === "error") return session.status === "failed";
+  if (filter === "waiting") return session.status !== "running" && session.status !== "failed" && session.hasUnseenUpdate;
   return false;
 }
 
 export function filterLabel(filter: DisplayModeFilter): string {
   if (filter === "running") return "Running";
   if (filter === "waiting") return "Waiting";
-  if (filter === "error") return "Error";
+  if (filter === "error") return "Failed";
   return "All";
 }
 
@@ -32,7 +33,7 @@ export function statusLabel(session: SessionRecord): string {
   const tone = statusTone(session);
   if (tone === "running") return "Running";
   if (tone === "waiting") return "Needs reply";
-  if (tone === "error") return "Error";
+  if (tone === "error") return "Failed";
   return "Idle";
 }
 

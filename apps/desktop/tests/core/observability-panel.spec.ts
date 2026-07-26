@@ -2,7 +2,7 @@ import { appendFile, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promise
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { expect, test } from "@playwright/test";
-import { createSessionViaIpc, desktopShortcut, emitTestSessionEvent, type DesktopHarness, getDesktopState, launchDesktop } from "../helpers/electron-app";
+import { createSessionViaIpc, desktopShortcut, emitTestSessionEvent, type DesktopHarness, getDesktopState, launchDesktop, toggleTopbarPanel } from "../helpers/electron-app";
 
 interface CatalogSessionRecord {
   readonly sessionRef?: {
@@ -121,7 +121,7 @@ test("logs panel opens on threads and splits task/app seeded failures", async ()
 
   try {
     const page = await app.firstWindow();
-    await page.getByLabel("Toggle logs panel").click();
+    await toggleTopbarPanel(page, "App logs");
     await expect(page.getByTestId("logs-panel")).toBeVisible();
     const logsPanelBox = await page.getByTestId("logs-panel").boundingBox();
     expect(logsPanelBox?.width).toBeGreaterThanOrEqual(430);
@@ -178,7 +178,7 @@ test("logs panel renders object payloads as useful messages", async () => {
 
   try {
     const page = await app.firstWindow();
-    await page.getByLabel("Toggle logs panel").click();
+    await toggleTopbarPanel(page, "App logs");
     await page.getByRole("tab", { name: "App logs" }).click();
     await page.getByLabel("Log severity").selectOption("all");
     await expect(page.locator(".logs-panel__event-message", { hasText: "Timeline render took 120ms" })).toBeVisible();
@@ -217,7 +217,7 @@ test("app logs can open a redacted diagnostic issue draft", async () => {
     await page.getByRole("checkbox", { name: "Enable diagnostic issue drafts" }).click();
     await expect(page.getByRole("checkbox", { name: "Enable diagnostic issue drafts" })).toBeChecked();
     await page.getByRole("button", { name: "Back to app", exact: true }).click();
-    await page.getByLabel("Toggle logs panel").click();
+    await toggleTopbarPanel(page, "App logs");
     await page.getByRole("tab", { name: "App logs" }).click();
     await page.getByRole("button", { name: "Draft issue" }).click();
 
@@ -252,7 +252,7 @@ test("app logs include local native crash artifacts only after opt-in", async ()
     await writeFile(join(crashDumpsPath, "completed", "local-native-crash.dmp"), "minidump", "utf8");
 
     const page = await app.firstWindow();
-    await page.getByLabel("Toggle logs panel").click();
+    await toggleTopbarPanel(page, "App logs");
     await page.getByRole("tab", { name: "App logs" }).click();
     await expect(page.locator(".logs-panel__event-title", { hasText: "Native crash report artifact" })).toHaveCount(0);
 
@@ -286,7 +286,7 @@ test("logs panel can opt into global subagent audit history", async () => {
 
   try {
     const page = await app.firstWindow();
-    await page.getByLabel("Toggle logs panel").click();
+    await toggleTopbarPanel(page, "App logs");
     await page.getByRole("tab", { name: "Task logs" }).click();
     await page.getByLabel("Log scope").selectOption("global");
     await expect(page.locator(".logs-panel__event-message", { hasText: "Other repo failure" })).toBeVisible();
@@ -341,7 +341,7 @@ test("logs panel includes current thread tool failures", async () => {
       },
     })}\n`, "utf8");
 
-    await page.getByLabel("Toggle logs panel").click();
+    await toggleTopbarPanel(page, "App logs");
     await page.getByRole("tab", { name: "Task logs" }).click();
     await expect(page.locator(".logs-panel__event-title", { hasText: "Tool failed: bash" })).toBeVisible();
     await expect(page.locator(".logs-panel__event-message", { hasText: "Command failed with exit code 1" })).toBeVisible();
@@ -359,7 +359,7 @@ test("logs panel stays open when switching threads and display mode", async () =
 
   try {
     const page = await app.firstWindow();
-    await page.getByLabel("Toggle logs panel").click();
+    await toggleTopbarPanel(page, "App logs");
     await expect(page.getByTestId("logs-panel")).toBeVisible();
     await page.getByRole("button", { name: "Display Mode" }).click();
     await expect(page.getByTestId("logs-panel")).toBeVisible();

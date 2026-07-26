@@ -7,6 +7,10 @@ import {
   type ProjectActionRecord,
   type ProjectActionsByWorkspace,
 } from "../../project-actions";
+import {
+  buildCommandPreview,
+  type CommandPreview,
+} from "../../product-experience/command-preview";
 
 interface SaveProjectActionInput {
   readonly name: string;
@@ -37,6 +41,10 @@ export function useProjectActions({
   const [projectActionsByWorkspace, setProjectActionsByWorkspace] =
     useState<ProjectActionsByWorkspace>(() => loadProjectActions());
   const [addActionDialogOpen, setAddActionDialogOpen] = useState(false);
+  const [pendingCommandPreview, setPendingCommandPreview] = useState<{
+    readonly action: ProjectActionRecord;
+    readonly preview: CommandPreview;
+  }>();
 
   const selectedProjectActions = selectedWorkspace
     ? projectActionsByWorkspace[selectedWorkspace.rootWorkspaceId || selectedWorkspace.id] ?? []
@@ -73,7 +81,7 @@ export function useProjectActions({
     setAddActionDialogOpen(false);
   }, [activeView, newThreadWorkspace, selectedWorkspace]);
 
-  const runProjectAction = useCallback((action: ProjectActionRecord) => {
+  const executeProjectAction = useCallback((action: ProjectActionRecord) => {
     if (!api || !selectedWorkspace || !selectedSession) {
       return;
     }
@@ -82,24 +90,107 @@ export function useProjectActions({
     void api.ensureTerminalPanel(selectedWorkspace.id, selectedSession.id, { cols: 80, rows: 24 }).then((panel) => {
       const terminalId = panel.activeSessionId;
       if (terminalId) {
-        void api.writeTerminal(terminalId, `${action.command.trim()}\n`);
+        void api.writeTerminal(terminalId, `${action.command.trim()}\n`).then(() =>
+          api.recordProjectActionEvidence({
+            workspaceId: selectedWorkspace.id,
+            sessionId: selectedSession.id,
+            actionId: action.id,
+            actionName: action.name,
+            command: action.command,
+          }));
       }
     });
   }, [api, onOpenTerminalForSession, selectedSession, selectedSessionKey, selectedWorkspace]);
 
+  const runProjectAction = useCallback((action: ProjectActionRecord) => {
+    if (!selectedWorkspace) return;
+    const preview = buildCommandPreview({
+      id: action.id,
+      origin: "saved-project-action",
+      command: action.command,
+      cwd: selectedWorkspace.path,
+    });
+    if (preview.requiresConfirmation) {
+      setPendingCommandPreview({ action, preview });
+      return;
+    }
+    executeProjectAction(action);
+  }, [executeProjectAction, selectedWorkspace]);
+
+  const previewAgentCommand = useCallback((command: string) => {
+    if (!selectedWorkspace || !command.trim()) return;
+    const action: ProjectActionRecord = {
+      id: `agent-command-${crypto.randomUUID()}`,
+      workspaceId: selectedWorkspace.id,
+      name: "Assistant shell snippet",
+      command: command.trim(),
+      runOnWorktreeCreation: false,
+    };
+    setPendingCommandPreview({
+      action,
+      preview: buildCommandPreview({
+        id: action.id,
+        origin: "agent-proposed",
+        command: action.command,
+        cwd: selectedWorkspace.path,
+        confirmationThreshold: "routine",
+      }),
+    });
+  }, [selectedWorkspace]);
+
+  const confirmCommandPreview = useCallback(() => {
+    const pending = pendingCommandPreview;
+    if (!pending || !api || !selectedWorkspace || !selectedSession) return;
+    setPendingCommandPreview(undefined);
+    void api.recordCommandPreviewDecision({
+      workspaceId: selectedWorkspace.id,
+      sessionId: selectedSession.id,
+      previewId: pending.preview.id,
+      origin: pending.preview.origin,
+      risk: pending.preview.risk,
+      decision: "approved",
+      command: pending.preview.command,
+      cwd: pending.preview.cwd,
+    }).then(() => executeProjectAction(pending.action));
+  }, [api, executeProjectAction, pendingCommandPreview, selectedSession, selectedWorkspace]);
+
+  const denyCommandPreview = useCallback(() => {
+    const pending = pendingCommandPreview;
+    if (!pending || !api || !selectedWorkspace || !selectedSession) return;
+    setPendingCommandPreview(undefined);
+    void api.recordCommandPreviewDecision({
+      workspaceId: selectedWorkspace.id,
+      sessionId: selectedSession.id,
+      previewId: pending.preview.id,
+      origin: pending.preview.origin,
+      risk: pending.preview.risk,
+      decision: "denied",
+      command: pending.preview.command,
+      cwd: pending.preview.cwd,
+    });
+  }, [api, pendingCommandPreview, selectedSession, selectedWorkspace]);
+
   return useMemo(() => ({
     addActionDialogOpen,
     closeAddActionDialog,
+    confirmCommandPreview,
+    denyCommandPreview,
     openAddActionDialog,
+    previewAgentCommand,
     runProjectAction,
     saveProjectAction,
     topbarProjectActions,
+    pendingCommandPreview: pendingCommandPreview?.preview,
   }), [
     addActionDialogOpen,
     closeAddActionDialog,
+    confirmCommandPreview,
+    denyCommandPreview,
     openAddActionDialog,
+    previewAgentCommand,
     runProjectAction,
     saveProjectAction,
     topbarProjectActions,
+    pendingCommandPreview,
   ]);
 }

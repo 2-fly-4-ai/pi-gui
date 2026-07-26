@@ -330,10 +330,10 @@ export function toSessionAttachments(
 export function toSessionQueuedMessages(
   messages: readonly QueuedComposerMessage[],
 ): SessionQueuedMessage[] {
-  return messages.map((message) => ({
+  return messages.filter((message) => !message.recoveryState).map((message) => ({
     id: message.id,
     mode: message.mode,
-    text: message.text,
+    text: toProviderMessageText(message.text, message.metadata),
     ...(message.attachments.length > 0
       ? {
           attachments: toSessionAttachments(message.attachments),
@@ -343,6 +343,25 @@ export function toSessionQueuedMessages(
     createdAt: message.createdAt,
     updatedAt: message.updatedAt,
   }));
+}
+
+const PROVIDER_CONTEXT_START = "<pi-gui-explicit-context version=\"1\">";
+const PROVIDER_CONTEXT_END = "</pi-gui-explicit-context>";
+
+export function toProviderMessageText(text: string, metadata: unknown): string {
+  if (
+    typeof metadata !== "object"
+    || metadata === null
+    || !("providerContextPreamble" in metadata)
+    || typeof metadata.providerContextPreamble !== "string"
+    || !metadata.providerContextPreamble.trim()
+  ) return text;
+  return [
+    PROVIDER_CONTEXT_START,
+    metadata.providerContextPreamble.trim(),
+    PROVIDER_CONTEXT_END,
+    text,
+  ].join("\n");
 }
 
 export function mergeQueuedComposerMessages(
@@ -364,6 +383,39 @@ export function mergeQueuedComposerMessages(
       ...(message.metadata !== undefined ? { metadata: message.metadata } : {}),
       createdAt: message.createdAt,
       updatedAt: message.updatedAt,
+    };
+  });
+}
+
+export function restorePersistedQueuedComposerMessages(value: unknown): QueuedComposerMessage[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  const timestamp = new Date().toISOString();
+  return value.map((entry, index) => {
+    const record = typeof entry === "object" && entry !== null ? entry as Record<string, unknown> : {};
+    const id = typeof record.id === "string" && record.id.trim() ? record.id : `recovered-queue-${index + 1}`;
+    const text = typeof record.text === "string" ? record.text : "";
+    const mode = record.mode === "steer" || record.mode === "followUp" ? record.mode : "followUp";
+    const createdAt = typeof record.createdAt === "string" ? record.createdAt : timestamp;
+    const updatedAt = typeof record.updatedAt === "string" ? record.updatedAt : createdAt;
+    const attachments = Array.isArray(record.attachments)
+      ? cloneComposerAttachments(record.attachments as readonly ComposerAttachment[])
+      : [];
+    const invalidReason = !text.trim() && attachments.length === 0
+      ? "This recovered item has no sendable text or attachments. Edit it before sending."
+      : undefined;
+    return {
+      id,
+      mode,
+      text,
+      attachments,
+      ...(record.metadata !== undefined ? { metadata: record.metadata } : {}),
+      createdAt,
+      updatedAt,
+      recoveryState: invalidReason ? "invalid" as const : "stale" as const,
+      recoveryReason: invalidReason ?? "Recovered after the previous app session ended. Review or send it again.",
     };
   });
 }
@@ -436,6 +488,8 @@ function mergeQueuedComposerAttachments(
         name: attachment.name ?? `Image ${index + 1}`,
         mimeType: attachment.mimeType,
         data: attachment.data,
+        source: "copied",
+        status: "ready",
       } satisfies ComposerAttachment;
     }
 
@@ -446,6 +500,8 @@ function mergeQueuedComposerAttachments(
       mimeType: attachment.mimeType,
       fsPath: attachment.fsPath,
       ...(attachment.sizeBytes !== undefined ? { sizeBytes: attachment.sizeBytes } : {}),
+      source: "workspace-reference",
+      status: "ready",
     } satisfies ComposerAttachment;
   });
 }
@@ -464,6 +520,9 @@ function normalizeComposerAttachment(value: Record<string, unknown>): ComposerAt
       name: value.name,
       mimeType: value.mimeType,
       data: value.data,
+      source: "copied",
+      status: normalizeImageAttachmentStatus(value.status),
+      ...(typeof value.error === "string" ? { error: value.error } : {}),
     };
   }
 
@@ -474,6 +533,7 @@ function normalizeComposerAttachment(value: Record<string, unknown>): ComposerAt
     typeof value.mimeType === "string" &&
     typeof value.fsPath === "string"
   ) {
+    const artifactReference = normalizeArtifactReference(value.artifactReference);
     return {
       id: value.id,
       kind: "file",
@@ -481,10 +541,58 @@ function normalizeComposerAttachment(value: Record<string, unknown>): ComposerAt
       mimeType: value.mimeType,
       fsPath: value.fsPath,
       ...(typeof value.sizeBytes === "number" ? { sizeBytes: value.sizeBytes } : {}),
+      source: "workspace-reference",
+      status: normalizeFileAttachmentStatus(value.status),
+      ...(typeof value.error === "string" ? { error: value.error } : {}),
+      ...(artifactReference ? { artifactReference } : {}),
     };
   }
 
   return null;
+}
+
+function normalizeArtifactReference(value: unknown): Extract<ComposerAttachment, { kind: "file" }>["artifactReference"] {
+  if (
+    typeof value !== "object"
+    || value === null
+    || !("workspaceId" in value)
+    || typeof value.workspaceId !== "string"
+    || !("relativePath" in value)
+    || typeof value.relativePath !== "string"
+    || !("observedAt" in value)
+    || typeof value.observedAt !== "string"
+  ) {
+    return undefined;
+  }
+  return {
+    workspaceId: value.workspaceId,
+    relativePath: value.relativePath,
+    observedAt: value.observedAt,
+    ...("version" in value
+      && typeof value.version === "object"
+      && value.version !== null
+      && "sizeBytes" in value.version
+      && typeof value.version.sizeBytes === "number"
+      && "modifiedAt" in value.version
+      && typeof value.version.modifiedAt === "string"
+      ? {
+          version: {
+            sizeBytes: value.version.sizeBytes,
+            modifiedAt: value.version.modifiedAt,
+          },
+        }
+      : {}),
+    sensitivity: "sensitivity" in value && value.sensitivity === "private" ? "private" : "normal",
+    includeInHandoff: "includeInHandoff" in value && value.includeInHandoff === true,
+  };
+}
+
+function normalizeImageAttachmentStatus(value: unknown): "pending" | "ready" | "failed" {
+  return value === "pending" || value === "failed" ? value : "ready";
+}
+
+function normalizeFileAttachmentStatus(value: unknown): "pending" | "ready" | "missing" | "failed" {
+  return value === "pending" || value === "missing" || value === "failed" ? value : "ready";
 }
 
 export function makeActivityItem(

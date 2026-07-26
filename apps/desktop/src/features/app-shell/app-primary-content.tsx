@@ -7,6 +7,7 @@ import type {
   WorkspaceRecord,
   WorkspaceSessionTarget,
 } from "../../desktop-state";
+import { codexUsageStatusFrom } from "../../codex-usage-status";
 import type { MentionMenuState } from "../../hooks/use-mention-menu";
 import type { SlashMenuState } from "../../hooks/use-slash-menu";
 import type { SettingsSection } from "../../settings-utils";
@@ -27,6 +28,7 @@ import type { TranscriptMessage } from "../../timeline-types";
 import type { ThreadSurfaceProps } from "../thread/thread-surface";
 
 interface AppPrimaryContentProps {
+  readonly branchFromMessage: (messageId: string, role: "user" | "assistant", text: string) => Promise<void>;
   readonly activeExtensionDialog: ThreadSurfaceProps["extensionDialog"];
   readonly activeTranscript: readonly TranscriptMessage[];
   readonly api: NonNullable<typeof window.piApp>;
@@ -88,6 +90,7 @@ interface AppPrimaryContentProps {
 }
 
 export function AppPrimaryContent({
+  branchFromMessage,
   activeExtensionDialog,
   activeTranscript,
   api,
@@ -153,14 +156,19 @@ export function AppPrimaryContent({
         commandCompatibilityByWorkspace: snapshot.extensionCommandCompatibilityByWorkspace,
         displayModeInitialPinnedThreadKey,
         dmDrawerOpen: panelLayout.dmDrawerOpen,
+        fastMode: fastModeSelection,
+        fastModeAvailable,
         handleSelectSession,
         openSettings,
+        openSkillProfiles,
         openVsCodeForWorkspace: panelLayout.openVsCodeForWorkspace,
         runtimeByWorkspace: snapshot.runtimeByWorkspace,
         sessionCommandsBySession: snapshot.sessionCommandsBySession,
+        sessionExtensionUiBySession: snapshot.sessionExtensionUiBySession,
         setSharedVsCodeWidth: panelLayout.setSharedVsCodeWidth,
         setSnapshot,
         setVsCodeSlotElement: panelLayout.setVsCodeSlotElement,
+        showThinking,
         threadVsCodeWidth: panelLayout.threadVsCodeWidth,
         toggleDmDrawer: panelLayout.toggleDmDrawer,
         toggleVsCode: panelLayout.toggleVsCode,
@@ -212,6 +220,8 @@ export function AppPrimaryContent({
       })}
       selectedWorkspace={selectedWorkspace}
       threadProps={selectedWorkspace && selectedSession ? createThreadSurfaceProps({
+        api,
+        branchFromMessage,
         activeExtensionDialog,
         activeTranscript,
         askPiToImplementLatestPlan,
@@ -221,6 +231,9 @@ export function AppPrimaryContent({
         composerAttachments: sessionComposer.composerAttachments,
         composerDraft: sessionComposer.composerDraft,
         composerRef,
+        codexUsageStatus: codexUsageStatusFrom(
+          snapshot.sessionExtensionUiBySession[selectedSessionKey],
+        ),
         createCheckoutSelector,
         editingQueuedMessageId: sessionComposer.editingQueuedMessageId,
         fastModeAvailable,
@@ -248,6 +261,9 @@ export function AppPrimaryContent({
         handleSetSessionThinking: sessionComposer.handleSetSessionThinking,
         handleSetSessionToolAccess: sessionComposer.handleSetSessionToolAccess,
         handleSteerQueuedMessage: sessionComposer.handleSteerQueuedMessage,
+        handleQueueQueuedMessage: sessionComposer.handleQueueQueuedMessage,
+        handleMoveQueuedMessage: sessionComposer.handleMoveQueuedMessage,
+        handleSendNextQueuedMessage: sessionComposer.handleSendNextQueuedMessage,
         handleToggleShowThinking: sessionComposer.handleToggleShowThinking,
         handleViewFileInDiff,
         isTranscriptLoading,
@@ -256,6 +272,8 @@ export function AppPrimaryContent({
         mentionMenu,
         navigateTreeSelection,
         openSettings,
+        onOpenLogs: panelLayout.toggleLogsPanel,
+        onOpenCommit: () => gitActions.openGitDialog("commit"),
         openSkillProfiles,
         openUrl,
         planPanelOpen,

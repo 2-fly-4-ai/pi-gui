@@ -33,6 +33,7 @@ export interface AppStoreInternals {
   readonly catalogStore: JsonCatalogStore;
   readonly worktreeManager: GitWorktreeManager;
   readonly attachmentStore: JsonFileStore<ComposerAttachment[]>;
+  readonly queueStore: JsonFileStore<unknown>;
 
   /* ── Shared helpers (called by extracted method groups) ── */
   initialize(): Promise<void>;
@@ -60,6 +61,7 @@ export interface AppStoreInternals {
   cancelPendingDialogsForSession(sessionRef: SessionRef): Promise<void>;
   persistUiState(): Promise<void>;
   persistComposerAttachments(key: string, attachments: readonly ComposerAttachment[]): Promise<void>;
+  persistQueuedComposerMessages(sessionRef: SessionRef): Promise<void>;
   persistTranscriptCacheForSession(sessionRef: SessionRef): void;
   schedulePersistUiState(): void;
   updateSessionConfig(sessionRef: SessionRef, config: SessionConfig | undefined): void;
@@ -69,6 +71,7 @@ export interface AppStoreInternals {
   updateQueuedComposerMessages(
     sessionRef: SessionRef,
     queuedMessages: readonly import("@pi-gui/session-driver").SessionQueuedMessage[] | undefined,
+    options?: { readonly preserveRecoveredWhenEmpty?: boolean },
   ): void;
   getQueuedComposerMessages(sessionRef: SessionRef): readonly QueuedComposerMessage[];
   setQueuedComposerEditState(sessionRef: SessionRef, editState: QueuedComposerEditState | undefined): void;

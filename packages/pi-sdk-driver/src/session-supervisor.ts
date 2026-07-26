@@ -84,7 +84,7 @@ import {
   type RuntimeJobRegistryState,
 } from "./runtime-job-registry.js";
 import { logIgnoredError } from "./ignored-error.js";
-import { isProcessAlive, signalProcessGroup, snapshotProcessTree, type ProcessInfo } from "./runtime-process-inspector.js";
+import { inspectProcess, isProcessAlive, signalProcessGroup, snapshotProcessTree, type ProcessInfo } from "./runtime-process-inspector.js";
 import { createPtyBashToolDefinition, type PtyBashLifecycleEvent } from "./pty-bash-tool.js";
 
 export interface PiSdkDriverOptions {
@@ -124,6 +124,7 @@ interface ManagedSessionRecord {
     cwd: string;
     startedAt: string;
   }>;
+  pendingSubagentToolInputs: Map<string, unknown>;
   bashTokenToToolCallId: Map<string, string>;
   observedBashChildrenByToolCall: Map<string, Map<number, ProcessInfo>>;
   bashLifecycleGeneration: number;
@@ -884,6 +885,7 @@ export class SessionSupervisor {
       queuedMessages: [],
       runtimeJobs: createRuntimeJobRegistryState(),
       pendingBashToolCalls: new Map(),
+      pendingSubagentToolInputs: new Map(),
       bashTokenToToolCallId: new Map(),
       observedBashChildrenByToolCall: new Map(),
       bashLifecycleGeneration: 0,
@@ -1720,6 +1722,7 @@ export class SessionSupervisor {
         }
 
         if (isAgentToolName(event.toolName)) {
+          record.pendingSubagentToolInputs.set(event.toolCallId, event.args);
           insertBeforeSessionUpdated(events, buildSubagentRunUpdatedEvent(record, {
             timestamp,
             subagentRunId: event.toolCallId,
@@ -1750,6 +1753,7 @@ export class SessionSupervisor {
           ...(typeof event.partialResult === "number" ? { progress: event.partialResult } : {}),
         }, record);
         if (isAgentToolName(event.toolName)) {
+          const subagentInput = record.pendingSubagentToolInputs.get(event.toolCallId) ?? event.args;
           const progress = typeof event.partialResult === "number" ? event.partialResult : undefined;
           const transcriptPath = text ? extractSubagentTranscriptPath(text) : undefined;
           insertBeforeSessionUpdated(events, buildSubagentRunUpdatedEvent(record, {
@@ -1757,7 +1761,7 @@ export class SessionSupervisor {
             subagentRunId: event.toolCallId,
             toolCallId: event.toolCallId,
             status: "progress",
-            input: event.args,
+            input: subagentInput,
             ...(text ? { summary: truncate(text, 500) } : {}),
             ...(progress !== undefined ? { progress } : {}),
             ...(transcriptPath !== undefined ? { transcriptPath } : {}),
@@ -1777,16 +1781,20 @@ export class SessionSupervisor {
           output: event.result,
         }, record);
         if (isAgentToolName(event.toolName)) {
+          const subagentInput = record.pendingSubagentToolInputs.get(event.toolCallId) ?? {};
           const transcriptPath = outputText ? extractSubagentTranscriptPath(outputText) : undefined;
+          const lifecycleMetadata = subagentLifecycleMetadataFromToolResult(event.result);
           insertBeforeSessionUpdated(events, buildSubagentRunUpdatedEvent(record, {
             timestamp,
             subagentRunId: event.toolCallId,
             toolCallId: event.toolCallId,
             status: event.isError ? "failed" : "completed",
-            input: {},
+            input: subagentInput,
+            ...lifecycleMetadata,
             ...(outputText ? { summary: truncate(outputText, 500) } : {}),
             ...(transcriptPath !== undefined ? { transcriptPath } : {}),
           }));
+          record.pendingSubagentToolInputs.delete(event.toolCallId);
         }
         return events;
       }
@@ -1891,7 +1899,7 @@ export class SessionSupervisor {
     if (event.event === "output") {
       await this.observeBashChildren(record, callId, event.pid, generation);
       if (event.outputText) {
-        await this.recordClaimedPidJobs(record, callId, event.outputText, timestamp, event.cwd, generation);
+        await this.recordClaimedPidJobs(record, callId, event.outputText, timestamp, event.cwd, event.pid, generation);
       }
       return;
     }
@@ -1952,6 +1960,7 @@ export class SessionSupervisor {
     outputText: string,
     timestamp: string,
     cwd: string,
+    toolProcessGroupId: number | undefined,
     generation: number,
   ): Promise<void> {
     for (const line of outputText.split(/\r?\n/)) {
@@ -1970,6 +1979,9 @@ export class SessionSupervisor {
       }
 
       const alive = isProcessAlive(pid);
+      const processInfo = alive ? await inspectProcess(pid) : undefined;
+      const survivedToolProcess = processInfo?.processGroupId !== undefined
+        && processInfo.processGroupId === toolProcessGroupId;
       const title = (match[1] ?? "").trim();
       if (!title) {
         continue;
@@ -1981,10 +1993,12 @@ export class SessionSupervisor {
         message: `Reported by tool call ${callId}`,
         process: {
           pid,
-          command: title,
+          command: processInfo?.command ?? title,
           cwd,
           status: alive ? "running" : "unknown",
-          confidence: alive ? "claimed" : "unknown",
+          confidence: survivedToolProcess ? "survived" : alive ? "claimed" : "unknown",
+          ...(processInfo?.parentPid !== undefined ? { parentPid: processInfo.parentPid } : {}),
+          ...(processInfo?.processGroupId !== undefined ? { processGroupId: processInfo.processGroupId } : {}),
           updatedAt: timestamp,
         },
       }));
@@ -2766,12 +2780,40 @@ function subagentMetadataFromToolInput(input: unknown): {
   };
 }
 
+function subagentLifecycleMetadataFromToolResult(result: unknown): {
+  readonly toolUseCount?: number;
+  readonly elapsedMs?: number;
+  readonly artifacts?: readonly string[];
+} {
+  if (!isUnknownRecord(result)) return {};
+  const details = isUnknownRecord(result.details) ? result.details : result;
+  const toolUseCount = numberField(details, ["toolUses", "toolUseCount"]);
+  const elapsedMs = numberField(details, ["durationMs", "elapsedMs"]);
+  const artifactsValue = details.artifacts ?? details.artifactPaths;
+  const artifacts = Array.isArray(artifactsValue)
+    ? artifactsValue.filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+    : [];
+  return {
+    ...(toolUseCount !== undefined ? { toolUseCount } : {}),
+    ...(elapsedMs !== undefined ? { elapsedMs } : {}),
+    ...(artifacts.length > 0 ? { artifacts } : {}),
+  };
+}
+
 function stringField(record: Record<string, unknown>, keys: readonly string[]): string | undefined {
   for (const key of keys) {
     const value = record[key];
     if (typeof value === "string" && value.trim()) {
       return value.trim();
     }
+  }
+  return undefined;
+}
+
+function numberField(record: Record<string, unknown>, keys: readonly string[]): number | undefined {
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === "number" && Number.isFinite(value) && value >= 0) return value;
   }
   return undefined;
 }

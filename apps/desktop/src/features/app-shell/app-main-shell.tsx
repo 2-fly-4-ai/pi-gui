@@ -121,6 +121,59 @@ export function AppMainShell({
   visibleWorkspaces,
   wsMenu,
 }: AppMainShellProps) {
+  const [focusMode, setFocusMode] = useState(() => {
+    try {
+      return localStorage.getItem("pi-gui:focus-mode:keep") === "true";
+    } catch {
+      return false;
+    }
+  });
+  const [keepFocusMode, setKeepFocusMode] = useState(focusMode);
+  const focusModeActive = focusMode && snapshot.activeView === "threads";
+  const exitFocusMode = () => {
+    setFocusMode(false);
+    setKeepFocusMode(false);
+    try {
+      localStorage.removeItem("pi-gui:focus-mode:keep");
+    } catch {
+      // Focus mode still exits for the current window.
+    }
+  };
+  const toggleFocusMode = () => {
+    if (focusModeActive) {
+      exitFocusMode();
+    } else {
+      setFocusMode(true);
+    }
+  };
+  const setFocusModePersistence = (keep: boolean) => {
+    setKeepFocusMode(keep);
+    try {
+      if (keep) localStorage.setItem("pi-gui:focus-mode:keep", "true");
+      else localStorage.removeItem("pi-gui:focus-mode:keep");
+    } catch {
+      // The current-window focus state remains usable.
+    }
+  };
+  useEffect(() => {
+    const handleFocusShortcut = (event: KeyboardEvent) => {
+      const toggleShortcut = (event.metaKey || event.ctrlKey) && event.shiftKey && event.key.toLowerCase() === "f";
+      if (toggleShortcut && snapshot.activeView === "threads") {
+        event.preventDefault();
+        toggleFocusMode();
+        return;
+      }
+      if (
+        event.key === "Escape" &&
+        focusModeActive &&
+        !document.querySelector("[role='dialog'], [data-testid='command-palette']")
+      ) {
+        exitFocusMode();
+      }
+    };
+    document.addEventListener("keydown", handleFocusShortcut, true);
+    return () => document.removeEventListener("keydown", handleFocusShortcut, true);
+  });
   const {
     isTerminalVisible,
     isVisibleTerminalTakeover,
@@ -128,7 +181,7 @@ export function AppMainShell({
     visibleTerminalKey,
     visibleTerminalTarget,
   } = visibleTerminal;
-  const showTerminalTakeover = isTerminalVisible && isVisibleTerminalTakeover && Boolean(visibleTerminalTarget);
+  const showTerminalTakeover = !focusModeActive && isTerminalVisible && isVisibleTerminalTakeover && Boolean(visibleTerminalTarget);
   const threadVsCodeTarget = selectedWorkspace
     ? { workspaceId: selectedWorkspace.id, folderPath: selectedWorkspace.path }
     : panelLayout.vsCodeWorkspaceId && panelLayout.vsCodeFolderPath
@@ -142,9 +195,9 @@ export function AppMainShell({
     : snapshot.activeView === "display-mode"
       ? displayVsCodeTarget
       : null;
-  const showPersistentVsCodePanel = panelLayout.vsCodeOpen && persistentVsCodeTarget !== null && (snapshot.activeView === "threads" || snapshot.activeView === "display-mode");
+  const showPersistentVsCodePanel = !focusModeActive && panelLayout.vsCodeOpen && persistentVsCodeTarget !== null && (snapshot.activeView === "threads" || snapshot.activeView === "display-mode");
   const showThreadVsCodePanel = snapshot.activeView === "threads" && !panelLayout.showThreadBrowserPanel && showPersistentVsCodePanel && threadVsCodeTarget !== null;
-  const showPlanPanel = planPanelOpen && planSurfaceAvailable;
+  const showPlanPanel = !focusModeActive && planPanelOpen && planSurfaceAvailable;
   const [updateStatus, setUpdateStatus] = useState<DesktopUpdateStatus | undefined>();
   useEffect(() => {
     let disposed = false;
@@ -171,17 +224,17 @@ export function AppMainShell({
   };
   const mainClassName = [
     "main",
-    showDiffPanel ? "main--with-diff" : "",
+    showDiffPanel && !focusModeActive ? "main--with-diff" : "",
     showThreadVsCodePanel ? "main--with-vscode" : "",
-    panelLayout.showThreadBrowserPanel ? "main--with-browser" : "",
+    panelLayout.showThreadBrowserPanel && !focusModeActive ? "main--with-browser" : "",
     showPlanPanel ? "main--with-plan" : "",
-    panelLayout.showLogsPanel ? "main--with-logs" : "",
-    isTerminalVisible ? "main--with-terminal" : "",
+    panelLayout.showLogsPanel && !focusModeActive ? "main--with-logs" : "",
+    isTerminalVisible && !focusModeActive ? "main--with-terminal" : "",
     showTerminalTakeover ? "main--terminal-takeover" : "",
   ].filter(Boolean).join(" ");
   const threadVsCodeBounds = panelLayout.getThreadVsCodePanelBounds();
   const threadBrowserBounds = panelLayout.getThreadBrowserPanelBounds();
-  const terminalPanel = isTerminalVisible && visibleTerminalTarget ? (
+  const terminalPanel = !focusModeActive && isTerminalVisible && visibleTerminalTarget ? (
     <TerminalStack
       targets={openTerminalTargets}
       visibleTarget={visibleTerminalTarget}
@@ -221,10 +274,10 @@ export function AppMainShell({
         persistentVsCodeTarget,
         selectedSession,
         selectedWorkspace,
-        showDiffPanel,
-        showLogsPanel: panelLayout.showLogsPanel,
+        showDiffPanel: showDiffPanel && !focusModeActive,
+        showLogsPanel: panelLayout.showLogsPanel && !focusModeActive,
         showPersistentVsCodePanel,
-        showThreadBrowserPanel: panelLayout.showThreadBrowserPanel,
+        showThreadBrowserPanel: panelLayout.showThreadBrowserPanel && !focusModeActive,
         showThreadVsCodePanel,
         threadBrowserMaxWidth: threadBrowserBounds.maxWidth,
         threadBrowserMinWidth: threadBrowserBounds.minWidth,
@@ -243,10 +296,10 @@ export function AppMainShell({
         onThreadVsCodeResizePointerDown: panelLayout.startThreadVsCodeResize,
         setVsCodeSlotElement: panelLayout.setVsCodeSlotElement,
       }}
-      primarySidebarToggleVisible={primarySidebarToggleVisible}
-      shellClassName={`shell${snapshot.sidebarCollapsed ? " shell--sidebar-collapsed" : ""}`}
+      primarySidebarToggleVisible={primarySidebarToggleVisible && !focusModeActive}
+      shellClassName={`shell${snapshot.sidebarCollapsed || focusModeActive ? " shell--sidebar-collapsed" : ""}${focusModeActive ? " shell--focus-mode" : ""}`}
       showTerminalTakeover={showTerminalTakeover}
-      sidebarCollapsed={snapshot.sidebarCollapsed}
+      sidebarCollapsed={snapshot.sidebarCollapsed || focusModeActive}
       sidebarProps={{
         activeView: snapshot.activeView,
         selectedWorkspace,
@@ -268,7 +321,7 @@ export function AppMainShell({
         getRuntimeBadgeCount: runtimeBadgeCount,
       }}
       sidebarToggleProps={{
-        collapsed: snapshot.sidebarCollapsed,
+        collapsed: snapshot.sidebarCollapsed || focusModeActive,
         shortcutLabel: sidebarToggleShortcutLabel,
         onToggle: handleTogglePrimarySidebar,
       }}
@@ -315,6 +368,12 @@ export function AppMainShell({
         updateStatus,
         onCheckForUpdates: handleCheckForUpdates,
         onInstallUpdate: handleInstallUpdate,
+        state: snapshot,
+        onOpenThread: handleSelectSession,
+        focusMode: focusModeActive,
+        keepFocusMode,
+        onToggleFocusMode: toggleFocusMode,
+        onSetKeepFocusMode: setFocusModePersistence,
       }}
       onCloseAddActionDialog={closeAddActionDialog}
       onSaveProjectAction={onSaveProjectAction}

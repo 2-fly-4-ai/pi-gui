@@ -6,6 +6,12 @@ import type {
   SessionTreeSnapshot,
 } from "@pi-gui/session-driver/types";
 import { ChevronDownIcon, ChevronRightIcon } from "./icons";
+import {
+  branchRecommendation,
+  compareBranch,
+  listComparableBranches,
+} from "./product-experience/branch-comparison";
+import { LoadingState } from "./loading-state";
 
 interface TreeModalProps {
   readonly tree?: SessionTreeSnapshot;
@@ -51,12 +57,13 @@ export function TreeModal({
   onClose,
   onNavigate,
 }: TreeModalProps) {
-  const [step, setStep] = useState<"select" | "summary">("select");
+  const [step, setStep] = useState<"select" | "summary" | "compare">("select");
   const [search, setSearch] = useState("");
   const [expandedIds, setExpandedIds] = useState<Record<string, boolean>>({});
   const [selectedId, setSelectedId] = useState<string>("");
   const [summaryMode, setSummaryMode] = useState<TreeSummaryMode>("none");
   const [customInstructions, setCustomInstructions] = useState("");
+  const [compareIds, setCompareIds] = useState<readonly [string, string]>(["", ""]);
   const [autoScrollRequest, setAutoScrollRequest] = useState(0);
   const dialogRef = useRef<HTMLDivElement | null>(null);
   const listRef = useRef<HTMLDivElement | null>(null);
@@ -73,6 +80,11 @@ export function TreeModal({
     setSelectedId(tree.leafId ?? findFirstSelectableNodeId(tree.roots) ?? "");
     setSummaryMode("none");
     setCustomInstructions("");
+    const branches = listComparableBranches(tree);
+    setCompareIds([
+      branches.find((branch) => branch.id !== tree.leafId)?.id ?? branches[0]?.id ?? "",
+      branches.find((branch) => branch.id === tree.leafId)?.id ?? branches[1]?.id ?? branches[0]?.id ?? "",
+    ]);
     setAutoScrollRequest((value) => value + 1);
   }, [tree]);
 
@@ -81,6 +93,7 @@ export function TreeModal({
       searchRef.current?.focus();
       return;
     }
+    if (step === "compare") return;
     if (summaryMode === "custom") {
       customInstructionsRef.current?.focus();
       return;
@@ -157,7 +170,7 @@ export function TreeModal({
       if (submitting) {
         return;
       }
-      if (step === "summary") {
+      if (step !== "select") {
         setStep("select");
         return;
       }
@@ -230,6 +243,9 @@ export function TreeModal({
       ...(summaryMode === "custom" ? { customInstructions: customInstructions.trim() } : {}),
     });
   };
+  const comparableBranches = tree ? listComparableBranches(tree) : [];
+  const leftComparison = tree ? compareBranch(tree, compareIds[0]) : undefined;
+  const rightComparison = tree ? compareBranch(tree, compareIds[1]) : undefined;
 
   const setListElement = (node: HTMLDivElement | null) => {
     listRef.current = node;
@@ -261,7 +277,9 @@ export function TreeModal({
         <div className="tree-modal__header">
           <div>
             <div className="tree-modal__eyebrow">Session tree</div>
-            <h2 className="tree-modal__title">{step === "summary" ? "Switch branch" : "Browse branches"}</h2>
+            <h2 className="tree-modal__title">
+              {step === "summary" ? "Switch branch" : step === "compare" ? "Compare branches" : "Browse branches"}
+            </h2>
           </div>
           <button
             aria-label="Close tree modal"
@@ -269,7 +287,7 @@ export function TreeModal({
             disabled={submitting}
             type="button"
             onClick={() => {
-              if (step === "summary") {
+              if (step !== "select") {
                 setStep("select");
                 return;
               }
@@ -287,9 +305,12 @@ export function TreeModal({
         ) : null}
 
         {loading ? (
-          <div className="tree-modal__loading" data-testid="tree-modal-loading">
-            Loading session tree…
-          </div>
+          <LoadingState
+            compact
+            label="Loading session tree"
+            detail="Mapping branches and checkpoints…"
+            testId="tree-modal-loading"
+          />
         ) : null}
 
         {!loading && tree && step === "select" ? (
@@ -370,6 +391,14 @@ export function TreeModal({
                 Selecting a user prompt reopens it in the composer. Selecting any other node jumps directly there.
               </div>
               <div className="tree-modal__actions">
+                <button
+                  className="button button--secondary"
+                  disabled={comparableBranches.length < 2}
+                  type="button"
+                  onClick={() => setStep("compare")}
+                >
+                  Compare branches
+                </button>
                 <button className="button button--secondary" type="button" onClick={onClose}>
                   Cancel
                 </button>
@@ -460,8 +489,132 @@ export function TreeModal({
             </div>
           </div>
         ) : null}
+
+        {!loading && tree && step === "compare" ? (
+          <div className="tree-modal__compare" data-testid="branch-comparison">
+            <p className="tree-modal__summary-copy">
+              These are observed session-tree metrics. Files, verification, and other fields stay unknown when the
+              runtime cannot attribute them to one branch.
+            </p>
+            <div className="branch-compare__selectors">
+              <BranchSelector
+                label="Branch A"
+                branches={comparableBranches}
+                value={compareIds[0]}
+                onChange={(id) => setCompareIds([id, compareIds[1]])}
+              />
+              <BranchSelector
+                label="Branch B"
+                branches={comparableBranches}
+                value={compareIds[1]}
+                onChange={(id) => setCompareIds([compareIds[0], id])}
+              />
+            </div>
+            {leftComparison && rightComparison ? (
+              <>
+                <div className="branch-compare__grid">
+                  <BranchMetrics title="Branch A" metrics={leftComparison} />
+                  <BranchMetrics title="Branch B" metrics={rightComparison} />
+                </div>
+                <aside className="branch-compare__recommendation">
+                  <strong>Narrative recommendation</strong>
+                  <p>{branchRecommendation(leftComparison, rightComparison)}</p>
+                </aside>
+                <p className="branch-compare__checkout">
+                  Both branches belong to this durable session and current checkout. Checkout changes made after these
+                  entries may be stale; Review changes always re-reads the current worktree. Pi will not merge branches.
+                </p>
+              </>
+            ) : (
+              <div className="tree-modal__empty">Choose two available branch leaves.</div>
+            )}
+            <div className="tree-modal__footer">
+              <button className="button button--secondary" type="button" onClick={() => setStep("select")}>Back</button>
+              <div className="tree-modal__actions">
+                <button
+                  className="button button--secondary"
+                  type="button"
+                  onClick={() => {
+                    onClose();
+                    void window.piApp?.setActiveView("review");
+                  }}
+                >
+                  Review current changes
+                </button>
+                <button
+                  className="button button--secondary"
+                  disabled={!compareIds[0] || compareIds[0] === tree.leafId}
+                  type="button"
+                  onClick={() => onNavigate(compareIds[0], { summarize: false })}
+                >
+                  Open branch A
+                </button>
+                <button
+                  className="button button--primary"
+                  disabled={!compareIds[1] || compareIds[1] === tree.leafId}
+                  type="button"
+                  onClick={() => onNavigate(compareIds[1], { summarize: false })}
+                >
+                  Continue branch B
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
       </div>
     </div>
+  );
+}
+
+function BranchSelector({
+  label,
+  branches,
+  value,
+  onChange,
+}: {
+  readonly label: string;
+  readonly branches: readonly SessionTreeNodeSnapshot[];
+  readonly value: string;
+  readonly onChange: (value: string) => void;
+}) {
+  return (
+    <label>
+      <span>{label}</span>
+      <select aria-label={label} value={value} onChange={(event) => onChange(event.target.value)}>
+        {branches.map((branch) => (
+          <option key={branch.id} value={branch.id}>{branch.preview || branch.title}</option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+function BranchMetrics({
+  title,
+  metrics,
+}: {
+  readonly title: string;
+  readonly metrics: NonNullable<ReturnType<typeof compareBranch>>;
+}) {
+  const rows: readonly [string, string][] = [
+    ["Outcome", metrics.outcome],
+    ["Files changed", metrics.filesChanged],
+    ["Verification", metrics.verification],
+    ["Duration", metrics.duration],
+    ["Model", metrics.model],
+    ["Boundaries", metrics.boundaries],
+    ["Subagents", metrics.subagents],
+    ["Blockers", metrics.blockers],
+  ];
+  return (
+    <section>
+      <h3>{title}</h3>
+      <dl>
+        {rows.map(([label, value]) => (
+          <div key={label}><dt>{label}</dt><dd>{value}</dd></div>
+        ))}
+      </dl>
+    </section>
   );
 }
 

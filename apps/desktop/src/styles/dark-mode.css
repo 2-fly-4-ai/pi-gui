@@ -191,6 +191,13 @@ mark.thread-find-active {
   box-shadow: 0 10px 24px rgba(0, 0, 0, 0.3);
 }
 
+:root.dark .composer__surface:has(textarea:focus) {
+  border-color: color-mix(in srgb, var(--text-strong) 24%, var(--line));
+  box-shadow:
+    0 0 0 3px rgba(255, 255, 255, 0.055),
+    0 14px 32px rgba(0, 0, 0, 0.34);
+}
+
 :root.dark .composer__surface--drag-active {
   border-color: #8fa0ff;
   background: rgba(78, 90, 140, 0.18);
@@ -220,6 +227,11 @@ mark.thread-find-active {
 :root.dark .composer-control-bar__more {
   border-color: var(--line);
   background: var(--surface-muted);
+}
+
+:root.dark .composer-control-bar__quick-actions {
+  border-color: var(--line);
+  background: color-mix(in srgb, var(--surface-muted) 78%, transparent);
 }
 
 :root.dark .composer-control-bar__overflow-menu {

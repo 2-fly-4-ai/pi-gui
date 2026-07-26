@@ -32,6 +32,34 @@ import type {
   SubagentWorkflowSnapshot,
 } from "./subagent-workflows";
 import type { ObservabilityEventPage, ObservabilityQuery } from "./observability-types";
+import type {
+  TaskEvidenceDelta,
+  TaskEvidencePage,
+  TaskEvidenceQuery,
+} from "./product-experience/task-evidence";
+import type {
+  CheckpointManifest,
+  CheckpointRestorePreview,
+  CheckpointRestoreRequest,
+  CheckpointRestoreResult,
+  CheckpointRetentionInput,
+  CheckpointRetentionPolicy,
+} from "./product-experience/checkpoint-contract";
+import type {
+  ContextManifest,
+  ContextManifestSnapshot,
+} from "./product-experience/context-manifest";
+import type {
+  ExecutionBoundary,
+  ExecutionBoundaryInput,
+  ExecutionBoundaryPreflight,
+} from "./product-experience/execution-boundary";
+import type { CommandOrigin, CommandRisk } from "./product-experience/command-preview";
+import type {
+  CheckpointHunkPreview,
+  RejectCheckpointHunksRequest,
+  RejectCheckpointHunksResult,
+} from "./product-experience/hunk-restoration";
 
 export type DesktopNotificationPermissionStatus =
   | "granted"
@@ -49,6 +77,24 @@ export const desktopIpc = {
   transcriptResetRequest: "pi-gui:transcript-reset-request",
   displayModeThreadsRequest: "pi-gui:display-mode-threads-request",
   listObservabilityEvents: "pi-gui:list-observability-events",
+  listTaskEvidence: "pi-gui:list-task-evidence",
+  recordProjectActionEvidence: "pi-gui:record-project-action-evidence",
+  taskEvidenceDelta: "pi-gui:task-evidence-delta",
+  listCheckpoints: "pi-gui:list-checkpoints",
+  previewCheckpointRestore: "pi-gui:preview-checkpoint-restore",
+  restoreCheckpoint: "pi-gui:restore-checkpoint",
+  previewCheckpointHunks: "pi-gui:preview-checkpoint-hunks",
+  rejectCheckpointHunks: "pi-gui:reject-checkpoint-hunks",
+  getCheckpointRetention: "pi-gui:get-checkpoint-retention",
+  setCheckpointRetention: "pi-gui:set-checkpoint-retention",
+  releaseCheckpointRestorePreview: "pi-gui:release-checkpoint-restore-preview",
+  snapshotContextManifest: "pi-gui:snapshot-context-manifest",
+  listContextManifests: "pi-gui:list-context-manifests",
+  getExecutionBoundary: "pi-gui:get-execution-boundary",
+  setExecutionBoundary: "pi-gui:set-execution-boundary",
+  preflightExecutionBoundary: "pi-gui:preflight-execution-boundary",
+  recordExecutionBoundaryException: "pi-gui:record-execution-boundary-exception",
+  recordCommandPreviewDecision: "pi-gui:record-command-preview-decision",
   appCommand: "pi-gui:app-command",
   workspacePicked: "pi-gui:workspace-picked",
   clipboardImagePasted: "pi-gui:clipboard-image-pasted",
@@ -145,6 +191,9 @@ export const desktopIpc = {
   cancelQueuedComposerEdit: "pi-gui:cancel-queued-composer-edit",
   removeQueuedComposerMessage: "pi-gui:remove-queued-composer-message",
   steerQueuedComposerMessage: "pi-gui:steer-queued-composer-message",
+  setQueuedComposerMessageDelivery: "pi-gui:set-queued-composer-message-delivery",
+  moveQueuedComposerMessage: "pi-gui:move-queued-composer-message",
+  sendNextQueuedComposerMessage: "pi-gui:send-next-queued-composer-message",
   updateComposerDraft: "pi-gui:update-composer-draft",
   submitComposer: "pi-gui:submit-composer",
   submitComposerToSession: "pi-gui:submit-composer-to-session",
@@ -152,6 +201,10 @@ export const desktopIpc = {
   navigateSessionTree: "pi-gui:navigate-session-tree",
   toggleWindowMaximize: "pi-gui:toggle-window-maximize",
   listWorkspaceFiles: "pi-gui:list-workspace-files",
+  inspectWorkspaceArtifact: "pi-gui:inspect-workspace-artifact",
+  snapshotWorkspaceArtifact: "pi-gui:snapshot-workspace-artifact",
+  revealWorkspacePath: "pi-gui:reveal-workspace-path",
+  saveWorkspaceHandoff: "pi-gui:save-workspace-handoff",
   getChangedFiles: "pi-gui:get-changed-files",
   getCurrentBranch: "pi-gui:get-current-branch",
   getFileDiff: "pi-gui:get-file-diff",
@@ -240,6 +293,15 @@ export interface StatePatchEvent {
 
 export type PiDesktopTranscriptEventListener = (event: TranscriptSyncEvent) => void;
 export type PiDesktopStatePatchListener = (event: StatePatchEvent) => void;
+export type PiDesktopTaskEvidenceListener = (event: TaskEvidenceDelta) => void;
+
+export interface RecordProjectActionEvidenceInput {
+  readonly workspaceId: string;
+  readonly sessionId: string;
+  readonly actionId: string;
+  readonly actionName: string;
+  readonly command: string;
+}
 
 export type DesktopUpdateStatus =
   | {
@@ -413,6 +475,55 @@ export interface PiDesktopApi {
   requestTranscriptReset(input: TranscriptResetRequest): Promise<SelectedTranscriptRecord | null>;
   getDisplayModeThreads(): Promise<readonly DisplayModeThreadRecord[]>;
   listObservabilityEvents(input?: ObservabilityQuery): Promise<ObservabilityEventPage>;
+  listTaskEvidence(input: TaskEvidenceQuery): Promise<TaskEvidencePage>;
+  recordProjectActionEvidence(input: RecordProjectActionEvidenceInput): Promise<void>;
+  onTaskEvidenceDelta(listener: PiDesktopTaskEvidenceListener): () => void;
+  listCheckpoints(workspaceId: string): Promise<readonly CheckpointManifest[]>;
+  previewCheckpointRestore(
+    checkpointId: string,
+    workspaceId: string,
+  ): Promise<CheckpointRestorePreview>;
+  restoreCheckpoint(input: CheckpointRestoreRequest): Promise<CheckpointRestoreResult>;
+  previewCheckpointHunks(
+    checkpointId: string,
+    workspaceId: string,
+    path: string,
+  ): Promise<CheckpointHunkPreview>;
+  rejectCheckpointHunks(input: RejectCheckpointHunksRequest): Promise<RejectCheckpointHunksResult>;
+  getCheckpointRetention(): Promise<CheckpointRetentionPolicy>;
+  setCheckpointRetention(input: CheckpointRetentionInput): Promise<CheckpointRetentionPolicy>;
+  releaseCheckpointRestorePreview(checkpointId: string): Promise<CheckpointRetentionPolicy>;
+  snapshotContextManifest(manifest: ContextManifest): Promise<ContextManifestSnapshot>;
+  listContextManifests(
+    workspaceId: string,
+    sessionId?: string,
+  ): Promise<readonly ContextManifestSnapshot[]>;
+  getExecutionBoundary(workspaceId: string, sessionId: string): Promise<ExecutionBoundary>;
+  setExecutionBoundary(
+    workspaceId: string,
+    sessionId: string,
+    input: ExecutionBoundaryInput,
+  ): Promise<ExecutionBoundary>;
+  preflightExecutionBoundary(
+    workspaceId: string,
+    sessionId: string,
+    prompt: string,
+  ): Promise<ExecutionBoundaryPreflight>;
+  recordExecutionBoundaryException(
+    workspaceId: string,
+    sessionId: string,
+    violationIds: readonly string[],
+  ): Promise<void>;
+  recordCommandPreviewDecision(input: {
+    readonly workspaceId: string;
+    readonly sessionId: string;
+    readonly previewId: string;
+    readonly origin: CommandOrigin;
+    readonly risk: CommandRisk;
+    readonly decision: "approved" | "denied";
+    readonly command: string;
+    readonly cwd: string;
+  }): Promise<void>;
   onCommand(listener: (command: PiDesktopCommand) => void): () => void;
   onWorkspacePicked(listener: (workspaceId: string) => void): () => void;
   onClipboardImagePasted(listener: (attachment: ComposerImageAttachment) => void): () => void;
@@ -547,12 +658,23 @@ export interface PiDesktopApi {
   cancelQueuedComposerEdit(): Promise<void>;
   removeQueuedComposerMessage(messageId: string): Promise<void>;
   steerQueuedComposerMessage(messageId: string): Promise<void>;
-  updateComposerDraft(target: WorkspaceSessionTarget, composerDraft: string): Promise<void>;
+  setQueuedComposerMessageDelivery(messageId: string, mode: "steer" | "followUp"): Promise<void>;
+  moveQueuedComposerMessage(messageId: string, direction: "up" | "down"): Promise<void>;
+  sendNextQueuedComposerMessage(messageId: string): Promise<void>;
+  updateComposerDraft(
+    target: WorkspaceSessionTarget,
+    composerDraft: string,
+    options?: { readonly syncToEditor?: boolean },
+  ): Promise<void>;
   submitComposer(text: string, options?: { readonly deliverAs?: "steer" | "followUp"; readonly messageMetadata?: unknown }): Promise<void>;
   submitComposerToSession(
     target: WorkspaceSessionTarget,
     text: string,
-    options?: { readonly deliverAs?: "steer" | "followUp"; readonly messageMetadata?: unknown },
+    options?: {
+      readonly attachments?: readonly ComposerAttachment[];
+      readonly deliverAs?: "steer" | "followUp";
+      readonly messageMetadata?: unknown;
+    },
   ): Promise<void>;
   getSessionTree(target: WorkspaceSessionTarget): Promise<SessionTreeSnapshot>;
   navigateSessionTree(
@@ -561,6 +683,17 @@ export interface PiDesktopApi {
     options?: NavigateSessionTreeOptions,
   ): Promise<{ readonly state: DesktopAppState; readonly result: NavigateSessionTreeResult }>;
   listWorkspaceFiles(workspaceId: string): Promise<string[]>;
+  inspectWorkspaceArtifact(workspaceId: string, filePath: string): Promise<{
+    readonly sizeBytes: number;
+    readonly modifiedAt: string;
+  }>;
+  snapshotWorkspaceArtifact(workspaceId: string, filePath: string): Promise<{
+    readonly fsPath: string;
+    readonly sizeBytes: number;
+    readonly modifiedAt: string;
+  }>;
+  revealWorkspacePath(workspaceId: string, filePath: string): Promise<void>;
+  saveWorkspaceHandoff(workspaceId: string, content: string): Promise<string>;
   getChangedFiles(workspaceId: string): Promise<{ path: string; status: "added" | "modified" | "deleted" | "untracked"; staged: boolean }[]>;
   getCurrentBranch(workspaceId: string): Promise<string | undefined>;
   getFileDiff(workspaceId: string, filePath: string): Promise<string>;

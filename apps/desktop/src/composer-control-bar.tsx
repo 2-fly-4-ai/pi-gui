@@ -90,8 +90,9 @@ export function ComposerControlBar({
   const sendButton = (
     <button
       aria-label={sendLabel}
-      className="button button--primary button--cta-icon"
+      className="button button--primary button--cta-icon composer-control-bar__send"
       data-testid="send"
+      title={sendLabel}
       type="button"
       disabled={sendDisabled}
       onClick={onSubmit}
@@ -169,11 +170,19 @@ export function ComposerControlBar({
         {supervisionControl}
       </div>
       <div className="composer-control-bar__right">
-        {thinkingTraceControl}
-        {contextControl}
-        <button aria-label="Attach files" className="icon-button composer__attach" type="button" onClick={onAttach}>
-          <PlusIcon />
-        </button>
+        <div className="composer-control-bar__quick-actions" aria-label="Message tools" role="toolbar">
+          {thinkingTraceControl}
+          {contextControl}
+          <button
+            aria-label="Attach files"
+            className="icon-button composer__attach"
+            title="Attach files"
+            type="button"
+            onClick={onAttach}
+          >
+            <PlusIcon />
+          </button>
+        </div>
         {sendButton}
       </div>
     </div>

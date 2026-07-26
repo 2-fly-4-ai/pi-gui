@@ -15,7 +15,64 @@ The current app-state source of truth is `DesktopAppStore` in Electron main. Mai
 
 Selected transcript hydration is separate: main loads the selected session transcript, caches it by session key, and publishes `desktopIpc.selectedTranscriptChanged`. Renderer materializes the active transcript and timeline, while persistence stays in main.
 
-Phase 4 will replace the full-snapshot transport with typed delta channels. Until then, use the existing store and IPC contracts rather than adding parallel state paths.
+Queued composer items are also main-owned. The live runtime queue remains authoritative while a session is running; Electron main mirrors each item, including attachments and context-manifest metadata, into a per-session file under the app user-data directory. Persisted items are always treated as recovered after process restart and are never silently replayed. The renderer exposes edit, reorder, cancel, delivery-mode conversion, and explicit send-next actions; malformed or unavailable recovered content remains visible until the user repairs or cancels it.
+
+User-controlled decisions and project memory live in the Electron profile, outside the repository. Nothing is derived
+silently from transcript bodies. A user may create a decision or assumption directly, or confirm an assistant
+proposal. Decision state changes (`active`, `superseded`, `withdrawn`) keep a compact revision audit.
+
+Memory precedence is thread over workspace over global for the same key. Disabled, temporarily excluded, unconfirmed,
+or out-of-scope entries are not injected. The Context inspector shows exact stored text and the next-message manifest
+before submission; submitted user messages disclose when memory or decisions influenced the provider request.
+Secret-shaped input (common API keys, tokens, bearer credentials, and secret/password assignments) is rejected before
+storage, and malformed or secret-like persisted records are ignored. Missing workspace scopes remain visible as stale
+records but are not injected.
+
+## Change Intelligence And Review Safety
+
+The durable evidence, checkpoint/restore, context/memory, hunk-rejection, artifact, and handoff boundaries are specified in
+[`product-experience-safety.md`](product-experience-safety.md). This section summarizes how those contracts fit the desktop architecture.
+
+The task-evidence ledger is the durable metadata source for change review. Structured file-write observations may
+associate a changed path with a run, tool call, subagent, checkpoint, ownership, intent, and originating user request.
+The renderer groups the current frozen review snapshot by the latest observed intent for each path. Missing evidence is
+shown as unknown/external; proximity and unrelated passing tests are never treated as provenance or coverage.
+
+Selective rejection is main-owned. It is available only when a Pi-owned text checkpoint contains both the before and
+expected-after content and the current file still matches the safe hunk context. Binary files, renames, creations,
+deletions, ambiguous ownership, and overlapping later edits do not receive a one-click hunk action. Main creates a
+rollback checkpoint and rechecks current content before an atomic write. “Accept as reviewed” remains renderer review
+state and never mutates the filesystem.
+
+Inline review questions and recent-file history are local UI metadata. Questions retain frozen snapshot and line/range
+anchors, report stale mappings after the snapshot changes, and attach an assistant answer explicitly. Recent files are
+recorded only after an in-app open/inspect action; arbitrary shell output is not indexed as open history.
+
+## Workspace Productivity, Artifacts, And Local Adaptation
+
+Panel visibility and dimensions are renderer-owned preferences stored per workspace. Terminal, Changes, Browser,
+Logs, Plan, Display Mode drawer, and VS Code restore independently; unavailable Plan state stays closed, narrow
+windows clamp or overlay utility panels, Focus mode remains a temporary presentation override, and Reset clears every
+layout owner together.
+
+The artifact shelf is an index of references, not a content cache or repository writer. Main exposes only narrow
+workspace-bounded inspect, reveal, handoff-save, and attachment-snapshot IPC. Private/log paths remain visible as
+metadata but are excluded from handoff export. Absolute external paths, secret-shaped values, transcript bodies,
+environment values, and binary/log contents are not exported. Attachment snapshots live under Electron user data,
+use copy-on-write cloning where the platform supports it, reject symlinks escaping the workspace, and preserve the
+observed size/mtime so delayed or queued sends cannot silently substitute a later file version.
+
+Command-palette adaptation is local renderer metadata scoped by workspace. It stores only command IDs and bounded
+coarse counts. A recommendation appears after repeated use, explains its reason, and requires Apply; Dismiss and Reset
+are explicit. No usage telemetry is emitted and controls are never reordered silently.
+
+Product personality is derived from structured evidence into a small empty/working/waiting/success/failure/subagent
+state vocabulary. The decorative accent reuses the curated shuriken assets and stays secondary to existing status
+content. Success moments require an observed completed outcome plus every declared required verification record to be
+trusted and green. Partial, failed, blocked, cancelled, interrupted, or assistant-narrative completion cannot trigger
+them. The renderer suppresses motion for reduced-motion users, active text selection, Review, and focused writing.
+
+State and transcript updates use typed delta channels. Extend the existing store/event contracts rather than adding parallel state paths.
 
 ## Driver Stack
 

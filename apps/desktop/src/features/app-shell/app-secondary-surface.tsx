@@ -15,8 +15,8 @@ interface AppSecondarySurfaceProps {
   readonly agents: ReturnType<typeof useAgents>;
   readonly commandPalette: ReactNode;
   readonly extensionsWorkspace: WorkspaceRecord | undefined;
-  readonly onRefreshExtensionsRuntime: () => void;
-  readonly onRefreshSkillsRuntime: () => void;
+  readonly onRefreshExtensionsRuntime: () => Promise<string | undefined>;
+  readonly onRefreshSkillsRuntime: () => Promise<string | undefined>;
   readonly onOpenSubagentRunTarget: (target: WorkspaceSessionTarget) => void;
   readonly onOpenSubagentRunArtifact: (input: { readonly target: WorkspaceSessionTarget; readonly path: string }) => void;
   readonly onSelectExtensionsWorkspace: (workspaceId: string) => void;
@@ -28,6 +28,7 @@ interface AppSecondarySurfaceProps {
   readonly onTrySkill: (skill: RuntimeSkillRecord) => void;
   readonly reviewLoading: boolean;
   readonly reviewSnapshot: ReviewSnapshot | undefined;
+  readonly refreshReviewSurface: () => void;
   readonly rootWorkspaceOptions: readonly WorkspaceRecord[];
   readonly runtimeSelections: ReturnType<typeof useRuntimeSelections>;
   readonly selectedSession: SessionRecord | undefined;
@@ -59,6 +60,7 @@ export function AppSecondarySurface({
   onTrySkill,
   reviewLoading,
   reviewSnapshot,
+  refreshReviewSurface,
   rootWorkspaceOptions,
   runtimeSelections,
   selectedSession,
@@ -140,6 +142,7 @@ export function AppSecondarySurface({
         review: {
           loading: reviewLoading,
           snapshot: reviewSnapshot,
+          onRefresh: refreshReviewSurface,
           onBack: () => onSetActiveView("threads"),
           onSubmitPrompt: onSubmitReviewPrompt,
         },

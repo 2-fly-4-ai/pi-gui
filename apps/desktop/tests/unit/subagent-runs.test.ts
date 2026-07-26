@@ -102,7 +102,49 @@ describe("SubagentRunStore multi-child aggregation", () => {
 
     const [cancelled] = await runStore.listRuns(target.workspaceId);
     expect(cancelled?.status).toBe("cancelled");
-    expect(cancelled?.childRuns?.[0]?.status).toBe("running");
+    expect(cancelled?.childRuns?.[0]?.status).toBe("cancelled");
+    runStore.dispose();
+  });
+
+  it("marks a hydrated active workflow interrupted when its parent session is no longer running", async () => {
+    const { runStore, target } = await createSubmittedWorkflow();
+    await runStore.applySessionEvent(subagentEvent(target, "scout-call", "scout", "started"));
+
+    expect(await runStore.reconcileInterruptedRuns(target.workspaceId, () => false)).toBe(true);
+
+    const [interrupted] = await runStore.listRuns(target.workspaceId);
+    expect(interrupted?.status).toBe("interrupted");
+    expect(interrupted?.error).toBe("Workflow was interrupted when the desktop runtime stopped.");
+    expect(interrupted?.childRuns).toMatchObject([{ role: "scout", status: "interrupted" }]);
+    runStore.dispose();
+  });
+
+  it("reports partial when completed child work is followed by a failed child", async () => {
+    const { runStore, target } = await createSubmittedWorkflow();
+    await runStore.applySessionEvent(subagentEvent(target, "scout-call", "scout", "completed", 2));
+    await runStore.applySessionEvent(subagentEvent(target, "planner-call", "planner", "failed", 1));
+
+    const [partial] = await runStore.listRuns(target.workspaceId);
+    expect(partial?.status).toBe("partial");
+    expect(partial?.childRuns?.map((child) => child.status)).toEqual(["completed", "failed"]);
+    expect(partial?.toolUseCount).toBe(3);
+    runStore.dispose();
+  });
+
+  it("persists a retry relationship to the prior terminal workflow", async () => {
+    const { runStore, store, target, workflow } = await createSubmittedWorkflow();
+    await runStore.applySessionEvent(subagentEvent(target, "scout-call", "scout", "completed", 1));
+    await runStore.applySessionEvent(subagentEvent(target, "planner-call", "planner", "failed", 1));
+    const [original] = await runStore.listRuns(target.workspaceId);
+    if (!original) throw new Error("Expected the original workflow run.");
+
+    const runs = await runStore.runWorkflow(store, {
+      workflowId: workflow.id,
+      target,
+      retryOfRunId: original.id,
+    }, workflow);
+    expect(runs[0]?.retryOfRunId).toBe(original.id);
+    expect(runs[0]?.status).toBe("submitted");
     runStore.dispose();
   });
 
@@ -125,6 +167,30 @@ describe("SubagentRunStore multi-child aggregation", () => {
     expect(run?.error).toContain("Provider unavailable");
     expect(run?.toolUseCount).toBe(5);
     expect(run?.childRuns?.map((child) => child.status)).toEqual(["completed", "completed"]);
+    runStore.dispose();
+  });
+
+  it("fails a workflow honestly when exact audit correlation reveals excess Agent invocations", async () => {
+    const { runStore, target } = await createSubmittedWorkflow();
+    await runStore.applySessionEvent(subagentEvent(target, "scout-call", "scout", "completed", 1));
+    await runStore.applySessionEvent(subagentEvent(target, "planner-call", "planner", "completed", 1));
+    const [completed] = await runStore.listRuns(target.workspaceId);
+    if (!completed?.workflowRunId) throw new Error("Expected a correlated workflow run.");
+
+    await runStore.applyAuditEvent({
+      timestamp: "2026-07-20T00:00:03.000Z",
+      status: "started",
+      workflowRunId: completed.workflowRunId,
+      parentToolCallId: "extra-agent-call",
+      agentId: "extra-agent-id",
+      role: "planner",
+      toolUseCount: 0,
+    });
+
+    const [failed] = await runStore.listRuns(target.workspaceId);
+    expect(failed?.status).toBe("failed");
+    expect(failed?.childRuns).toHaveLength(3);
+    expect(failed?.error).toBe("Workflow invoked 3 Agent runs; expected exactly 2.");
     runStore.dispose();
   });
 });

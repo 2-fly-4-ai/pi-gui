@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type Dispatch, type RefObject, type SetStateAction } from "react";
 import type { TranscriptMessage } from "../../desktop-state";
 import { buildImplementPlanPrompt, detectLatestPlan } from "../../plan-panel-model";
+import { readWorkspacePanelLayout, updateWorkspacePanelLayout } from "../../product-experience/workspace-layout";
 
 interface UsePlanPanelOptions {
   readonly activeView: string | undefined;
@@ -8,6 +9,7 @@ interface UsePlanPanelOptions {
   readonly rawTranscript: readonly TranscriptMessage[];
   readonly composerRef: RefObject<HTMLTextAreaElement | null>;
   readonly setComposerDraft: Dispatch<SetStateAction<string>>;
+  readonly workspaceId: string;
 }
 
 export function usePlanPanel({
@@ -16,10 +18,15 @@ export function usePlanPanel({
   rawTranscript,
   composerRef,
   setComposerDraft,
+  workspaceId,
 }: UsePlanPanelOptions) {
-  const [planPanelOpen, setPlanPanelOpen] = useState(false);
+  const [planPanelOpen, setPlanPanelOpen] = useState(() => readWorkspacePanelLayout(workspaceId).planOpen);
   const latestPlan = useMemo(() => detectLatestPlan(rawTranscript), [rawTranscript]);
   const planSurfaceAvailable = activeView === "threads" && hasSelectedThread && Boolean(latestPlan);
+
+  useEffect(() => {
+    setPlanPanelOpen(planSurfaceAvailable && readWorkspacePanelLayout(workspaceId).planOpen);
+  }, [planSurfaceAvailable, workspaceId]);
 
   useEffect(() => {
     if (!planSurfaceAvailable) {
@@ -40,11 +47,20 @@ export function usePlanPanel({
 
   const closePlanPanel = useCallback(() => {
     setPlanPanelOpen(false);
-  }, []);
+    updateWorkspacePanelLayout(workspaceId, { planOpen: false });
+  }, [workspaceId]);
 
   const togglePlanPanel = useCallback(() => {
-    setPlanPanelOpen((open) => !open);
-  }, []);
+    setPlanPanelOpen((open) => {
+      const next = !open;
+      updateWorkspacePanelLayout(workspaceId, { planOpen: next });
+      return next;
+    });
+  }, [workspaceId]);
+  const resetPlanPanel = useCallback(() => {
+    setPlanPanelOpen(false);
+    updateWorkspacePanelLayout(workspaceId, { planOpen: false });
+  }, [workspaceId]);
 
   return {
     askPiToImplementLatestPlan,
@@ -52,6 +68,7 @@ export function usePlanPanel({
     latestPlan,
     planPanelOpen,
     planSurfaceAvailable,
+    resetPlanPanel,
     togglePlanPanel,
   };
 }

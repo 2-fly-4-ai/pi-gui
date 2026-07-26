@@ -1,12 +1,17 @@
-import type { MouseEvent as ReactMouseEvent, Dispatch, SetStateAction } from "react";
+import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type Dispatch, type SetStateAction } from "react";
 import type { AppView, DesktopAppState, SessionRecord, WorkspaceRecord, WorktreeRecord } from "./desktop-state";
 import type { ProjectActionRecord } from "./project-actions";
-import { BrowserIcon, DiffIcon, FolderIcon, LogsIcon, PlusIcon, SidebarToggleIcon, TerminalIcon, VSCodeIcon } from "./icons";
+import { BrowserIcon, DiffIcon, FolderIcon, LogsIcon, MaximizeIcon, PlusIcon, SidebarToggleIcon, TerminalIcon, VSCodeIcon } from "./icons";
 import { getDesktopShortcutLabel, type DesktopUpdateStatus, type PiDesktopApi } from "./ipc";
 import { GitQuickActions } from "./git-quick-actions";
 import type { WorkspaceMenuState } from "./hooks/use-workspace-menu";
 import { runtimeStatusLabel, topbarRuntimeStatusLabel } from "./runtime-status";
 import { ExtensionDock, type ExtensionDockModel } from "./extension-session-ui";
+import { useTaskEvidence } from "./features/evidence/use-task-evidence";
+import { deriveTaskEvidencePresentation } from "./features/evidence/task-evidence-presentation";
+import { ApprovalCenter } from "./features/evidence/approval-center";
+import { useStableTaskActivity } from "./features/evidence/use-stable-task-activity";
+import type { WorkspaceSessionTarget } from "./desktop-state";
 
 interface TopbarProps {
   readonly activeView: AppView;
@@ -50,6 +55,12 @@ interface TopbarProps {
   readonly updateStatus?: DesktopUpdateStatus;
   readonly onCheckForUpdates?: () => void;
   readonly onInstallUpdate?: () => void;
+  readonly state: DesktopAppState;
+  readonly onOpenThread: (target: WorkspaceSessionTarget) => void;
+  readonly focusMode: boolean;
+  readonly keepFocusMode: boolean;
+  readonly onToggleFocusMode: () => void;
+  readonly onSetKeepFocusMode: (keep: boolean) => void;
 }
 
 export function Topbar(props: TopbarProps) {
@@ -95,15 +106,70 @@ export function Topbar(props: TopbarProps) {
     updateStatus,
     onCheckForUpdates,
     onInstallUpdate,
+    state,
+    onOpenThread,
+    focusMode,
+    keepFocusMode,
+    onToggleFocusMode,
+    onSetKeepFocusMode,
   } = props;
   const terminalShortcut = getDesktopShortcutLabel(api.platform, "J");
   const diffShortcut = getDesktopShortcutLabel(api.platform, "D");
   const showGitQuickActions = activeView === "threads" && Boolean(selectedWorkspace && selectedSession && onGitCommit && onGitPush && onGitCreatePr);
-  const showExternalActions = showGitQuickActions || onToggleVsCode !== undefined;
+  const showExternalActions = showGitQuickActions;
+  const hasPanelsMenu = Boolean(
+    (browserAvailable && onToggleBrowser) ||
+    onToggleLogs ||
+    onToggleDrawer ||
+    onToggleVsCode ||
+    selectedWorkspace,
+  );
+  const anyUtilityPanelOpen = Boolean(browserOpen || logsOpen || drawerOpen || vsCodeOpen);
   const updateAction = getTopbarUpdateAction(updateStatus);
   const runtimeLabel = runtimeStatusLabel(selectedSession);
   const topbarRuntimeLabel = topbarRuntimeStatusLabel(selectedSession);
+  const { records: taskEvidence } = useTaskEvidence(api, selectedWorkspace?.id, selectedSession?.id);
+  const taskPresentation = deriveTaskEvidencePresentation(
+    taskEvidence,
+    selectedSession?.status ?? "idle",
+  );
+  const topbarActivity = useStableTaskActivity(
+    taskPresentation.activity,
+    selectedSession?.status ?? "idle",
+  );
+  const topbarActivityLabel = topbarActivity?.label;
   const topbarExtensionDock = extensionDock && !isTopbarNoisyExtensionDock(extensionDock) ? extensionDock : undefined;
+  const [panelsMenuOpen, setPanelsMenuOpen] = useState(false);
+  const panelsMenuRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!panelsMenuOpen) return;
+    const closeOnPointerDown = (event: MouseEvent) => {
+      if (!panelsMenuRef.current?.contains(event.target as Node)) {
+        setPanelsMenuOpen(false);
+      }
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setPanelsMenuOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", closeOnPointerDown);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("mousedown", closeOnPointerDown);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [panelsMenuOpen]);
+
+  useEffect(() => {
+    setPanelsMenuOpen(false);
+  }, [activeView]);
+
+  const runPanelAction = (action: () => void) => {
+    setPanelsMenuOpen(false);
+    action();
+  };
 
   const handleDoubleClick = (event: ReactMouseEvent<HTMLElement>) => {
     const target = event.target;
@@ -181,9 +247,14 @@ export function Topbar(props: TopbarProps) {
               {topbarRuntimeLabel}
             </span>
             {selectedSession.status === "running" && selectedSessionRunningLabel ? (
-              <span className="topbar__running" aria-label={selectedSessionRunningLabel}>
+              <span
+                className="topbar__running"
+                aria-label={topbarActivityLabel
+                  ? `${topbarActivityLabel}, ${selectedSessionRunningLabel}`
+                  : selectedSessionRunningLabel}
+              >
                 <span className="topbar__running-dot" aria-hidden="true" />
-                <span>{selectedSessionRunningLabel}</span>
+                <span>{topbarActivityLabel ? `${topbarActivityLabel} · ` : ""}{selectedSessionRunningLabel}</span>
               </span>
             ) : null}
             {topbarExtensionDock && onToggleExtensionDock ? (
@@ -201,6 +272,37 @@ export function Topbar(props: TopbarProps) {
       </div>
 
       <div className="topbar__actions">
+        <ApprovalCenter
+          api={api}
+          state={state}
+          setSnapshot={setSnapshot}
+          onOpenThread={onOpenThread}
+        />
+        {activeView === "threads" ? (
+          <div className="topbar__action-group topbar__action-group--focus" data-testid="topbar-focus-actions">
+            <button
+              aria-label={focusMode ? "Exit Focus mode" : "Enter Focus mode"}
+              aria-pressed={focusMode}
+              className={`topbar__action-button${focusMode ? " topbar__action-button--active" : ""}`}
+              type="button"
+              title="Focus mode · Shift+⌘F"
+              onClick={onToggleFocusMode}
+            >
+              <MaximizeIcon />
+              <span>{focusMode ? "Focused" : "Focus"}</span>
+            </button>
+            {focusMode ? (
+              <label className="topbar__focus-persist">
+                <input
+                  type="checkbox"
+                  checked={keepFocusMode}
+                  onChange={(event) => onSetKeepFocusMode(event.currentTarget.checked)}
+                />
+                Keep
+              </label>
+            ) : null}
+          </div>
+        ) : null}
         {updateAction ? (
           <div className="topbar__action-group topbar__action-group--update" data-testid="topbar-update-actions">
             <button
@@ -269,21 +371,6 @@ export function Topbar(props: TopbarProps) {
               </span>
             </div>
           ) : null}
-          {browserAvailable && onToggleBrowser ? (
-            <div className="shortcut-tooltip-wrap topbar__tooltip-wrap">
-              <button
-                aria-label="Toggle browser"
-                className={`icon-button topbar__icon ${browserOpen ? "icon-button--active" : ""}`}
-                type="button"
-                onClick={onToggleBrowser}
-              >
-                <BrowserIcon />
-              </button>
-              <span className="shortcut-tooltip topbar__tooltip" role="tooltip">
-                <span>Toggle browser</span>
-              </span>
-            </div>
-          ) : null}
           <div className="shortcut-tooltip-wrap topbar__tooltip-wrap">
             <button
               aria-label="Toggle terminal"
@@ -313,36 +400,73 @@ export function Topbar(props: TopbarProps) {
               <kbd>{diffShortcut}</kbd>
             </span>
           </div>
-          {onToggleLogs !== undefined && (
-            <div className="shortcut-tooltip-wrap topbar__tooltip-wrap">
-              <button
-                aria-label="Toggle logs panel"
-                className={`icon-button topbar__icon ${logsOpen ? "icon-button--active" : ""}`}
-                type="button"
-                onClick={onToggleLogs}
-              >
-                <LogsIcon />
-              </button>
-              <span className="shortcut-tooltip topbar__tooltip" role="tooltip">
-                <span>Toggle logs</span>
-              </span>
+          {hasPanelsMenu ? (
+            <div className="topbar__panels-menu-wrap" ref={panelsMenuRef}>
+              <div className="shortcut-tooltip-wrap topbar__tooltip-wrap">
+                <button
+                  aria-expanded={panelsMenuOpen}
+                  aria-haspopup="menu"
+                  aria-label="Open panels menu"
+                  className={`icon-button topbar__icon ${anyUtilityPanelOpen ? "icon-button--active" : ""}`}
+                  type="button"
+                  onClick={() => setPanelsMenuOpen((open) => !open)}
+                >
+                  <SidebarToggleIcon />
+                </button>
+                <span className="shortcut-tooltip topbar__tooltip" role="tooltip">
+                  <span>Panels and tools</span>
+                </span>
+              </div>
+              {panelsMenuOpen ? (
+                <div aria-label="Panels and tools" className="topbar__panels-menu" role="menu">
+                  {browserAvailable && onToggleBrowser ? (
+                    <button className="topbar__panels-menu-item" role="menuitemcheckbox" aria-checked={Boolean(browserOpen)} type="button" onClick={() => runPanelAction(onToggleBrowser)}>
+                      <BrowserIcon />
+                      <span>Browser</span>
+                      <span className="topbar__panels-menu-state">{browserOpen ? "Open" : "Closed"}</span>
+                    </button>
+                  ) : null}
+                  {onToggleLogs ? (
+                    <button className="topbar__panels-menu-item" role="menuitemcheckbox" aria-checked={Boolean(logsOpen)} type="button" onClick={() => runPanelAction(onToggleLogs)}>
+                      <LogsIcon />
+                      <span>App logs</span>
+                      <span className="topbar__panels-menu-state">{logsOpen ? "Open" : "Closed"}</span>
+                    </button>
+                  ) : null}
+                  {onToggleDrawer ? (
+                    <button className="topbar__panels-menu-item" role="menuitemcheckbox" aria-checked={Boolean(drawerOpen)} type="button" onClick={() => runPanelAction(onToggleDrawer)}>
+                      <SidebarToggleIcon />
+                      <span>Preview panel</span>
+                      <span className="topbar__panels-menu-state">{drawerOpen ? "Open" : "Closed"}</span>
+                    </button>
+                  ) : null}
+                  {onToggleVsCode ? (
+                    <button className="topbar__panels-menu-item" role="menuitemcheckbox" aria-checked={Boolean(vsCodeOpen)} type="button" onClick={() => runPanelAction(onToggleVsCode)}>
+                      <VSCodeIcon />
+                      <span>VS Code</span>
+                      <span className="topbar__panels-menu-state">{vsCodeOpen ? "Open" : "Closed"}</span>
+                    </button>
+                  ) : null}
+                  {selectedWorkspace ? (
+                    <>
+                      <div className="topbar__panels-menu-separator" role="separator" />
+                      <button
+                        className="topbar__panels-menu-item"
+                        role="menuitem"
+                        type="button"
+                        onClick={() => runPanelAction(() => {
+                          void api.pickWorkspace().then(() => api.getState()).then(setSnapshot);
+                        })}
+                      >
+                        <FolderIcon />
+                        <span>Add folder</span>
+                      </button>
+                    </>
+                  ) : null}
+                </div>
+              ) : null}
             </div>
-          )}
-          {onToggleDrawer !== undefined && (
-            <div className="shortcut-tooltip-wrap topbar__tooltip-wrap">
-              <button
-                aria-label="Toggle side panel"
-                className={`icon-button topbar__icon ${drawerOpen ? "icon-button--active" : ""}`}
-                type="button"
-                onClick={onToggleDrawer}
-              >
-                <SidebarToggleIcon />
-              </button>
-              <span className="shortcut-tooltip topbar__tooltip" role="tooltip">
-                <span>Toggle side panel</span>
-              </span>
-            </div>
-          )}
+          ) : null}
         </div>
         {showExternalActions ? (
           <div className="topbar__action-group topbar__action-group--external" data-testid="topbar-external-actions">
@@ -353,47 +477,21 @@ export function Topbar(props: TopbarProps) {
                 onCreatePr={onGitCreatePr}
               />
             ) : null}
-            {onToggleVsCode !== undefined && (
-              <div className="shortcut-tooltip-wrap topbar__tooltip-wrap">
-                <button
-                  aria-label="Toggle VS Code panel"
-                  className={`icon-button topbar__icon ${vsCodeOpen ? "icon-button--active" : ""}`}
-                  type="button"
-                  onClick={onToggleVsCode}
-                >
-                  <VSCodeIcon />
-                </button>
-                <span className="shortcut-tooltip topbar__tooltip" role="tooltip">
-                  <span>Toggle VS Code</span>
-                </span>
-              </div>
-            )}
           </div>
         ) : null}
-        <div className="topbar__action-group topbar__action-group--workspace" data-testid="topbar-workspace-actions">
-          <div className="shortcut-tooltip-wrap topbar__tooltip-wrap">
-            <button
-              aria-label="Add folder"
-              className="icon-button topbar__icon"
-              type="button"
-              onClick={() => {
-                void api.pickWorkspace().then(() => api.getState()).then(setSnapshot);
-              }}
-            >
-              <FolderIcon />
-            </button>
-            <span className="shortcut-tooltip topbar__tooltip" role="tooltip">
-              <span>Add folder</span>
-            </span>
-          </div>
-        </div>
       </div>
     </header>
   );
 }
 
 function isTopbarNoisyExtensionDock(dock: ExtensionDockModel): boolean {
-  return dock.summaryText.trim().toLowerCase() === "fast";
+  const summary = dock.summaryText
+    .trim()
+    .toLowerCase()
+    .replace(/^[\s●•○◉∙·]+/u, "")
+    .replace(/\s+/g, " ");
+
+  return summary === "fast" || summary === "fast mode" || /^fast:\s*(?:on|off)$/.test(summary);
 }
 
 function getTopbarUpdateAction(status: DesktopUpdateStatus | undefined): {

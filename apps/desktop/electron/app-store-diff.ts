@@ -19,7 +19,7 @@ export function getChangedFiles(workspacePath: string): Promise<ChangedFileEntry
   return new Promise((resolve) => {
     execFile(
       "git",
-      ["status", "--porcelain"],
+      ["status", "--porcelain", "--untracked-files=all"],
       { cwd: workspacePath, maxBuffer: 2 * 1024 * 1024 },
       (error, stdout) => {
         if (error) {

@@ -140,8 +140,8 @@ export function SettingsView({
   }
 
   return (
-    <section className="canvas">
-      <div className="conversation settings-view">
+    <section className="canvas canvas--settings">
+      <div className={`conversation settings-view settings-view--${section}`}>
         <header className="view-header settings-view__header">
           <div>
             <div className="chat-header__eyebrow">Settings</div>

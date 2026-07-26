@@ -16,6 +16,7 @@ import type { DetectedPlan } from "../../plan-panel-model";
 import type { TranscriptMessage } from "../../timeline-types";
 import { SkillProfileSelector } from "../../skill-profile-selector";
 import type { ThreadSurfaceProps } from "../thread/thread-surface";
+import type { PiDesktopApi } from "../../ipc";
 
 interface TimelineViewportProps {
   readonly timelinePaneRef: ThreadSurfaceProps["timelineProps"]["timelinePaneRef"];
@@ -23,12 +24,15 @@ interface TimelineViewportProps {
   readonly shouldDisableTimelineVirtualization: ThreadSurfaceProps["timelineProps"]["disableVirtualization"];
   readonly finalizeTimelineVirtualizationDisable: ThreadSurfaceProps["timelineProps"]["onDisableVirtualizationReady"];
   readonly handleTimelineScroll: ThreadSurfaceProps["timelineProps"]["onTimelineScroll"];
+  readonly handleTimelineNavigate: ThreadSurfaceProps["timelineProps"]["onTimelineNavigate"];
   readonly showJumpToLatest: ThreadSurfaceProps["timelineProps"]["showJumpToLatest"];
   readonly jumpToLatest: ThreadSurfaceProps["timelineProps"]["onJumpToLatest"];
   readonly handleTimelineContentHeightChange: ThreadSurfaceProps["timelineProps"]["onContentHeightChange"];
 }
 
 interface CreateThreadSurfacePropsOptions {
+  readonly api: PiDesktopApi;
+  readonly branchFromMessage: ThreadSurfaceProps["timelineProps"]["onBranchFromMessage"];
   readonly activeExtensionDialog: ThreadSurfaceProps["extensionDialog"];
   readonly activeTranscript: readonly TranscriptMessage[];
   readonly closeGitDialog: () => void;
@@ -37,6 +41,7 @@ interface CreateThreadSurfacePropsOptions {
   readonly composerAttachments: readonly ComposerAttachment[];
   readonly composerDraft: string;
   readonly composerRef: RefObject<HTMLTextAreaElement | null>;
+  readonly codexUsageStatus?: string;
   readonly createCheckoutSelector: (workspace: WorkspaceRecord) => React.ReactNode;
   readonly editingQueuedMessageId: string | undefined;
   readonly fastModeAvailable: boolean;
@@ -64,6 +69,9 @@ interface CreateThreadSurfacePropsOptions {
   readonly handleSetSessionThinking: ThreadSurfaceProps["composerProps"]["onSetThinking"];
   readonly handleSetSessionToolAccess: ThreadSurfaceProps["composerProps"]["onSetToolAccess"];
   readonly handleSteerQueuedMessage: ThreadSurfaceProps["composerProps"]["onSteerQueuedMessage"];
+  readonly handleQueueQueuedMessage: ThreadSurfaceProps["composerProps"]["onQueueQueuedMessage"];
+  readonly handleMoveQueuedMessage: ThreadSurfaceProps["composerProps"]["onMoveQueuedMessage"];
+  readonly handleSendNextQueuedMessage: ThreadSurfaceProps["composerProps"]["onSendNextQueuedMessage"];
   readonly handleToggleShowThinking: ThreadSurfaceProps["composerProps"]["onToggleShowThinking"];
   readonly handleViewFileInDiff: ThreadSurfaceProps["timelineProps"]["onViewFileInDiff"];
   readonly isTranscriptLoading: boolean;
@@ -72,6 +80,8 @@ interface CreateThreadSurfacePropsOptions {
   readonly mentionMenu: MentionMenuState;
   readonly navigateTreeSelection: (targetId: string, options?: NavigateSessionTreeOptions) => void;
   readonly openSettings: (workspaceId?: string, section?: ModelOnboardingSettingsSection) => void;
+  readonly onOpenLogs: () => void;
+  readonly onOpenCommit: () => void;
   readonly openSkillProfiles: (workspaceId?: string) => void;
   readonly openUrl: ThreadSurfaceProps["timelineProps"]["onOpenUrl"];
   readonly planPanelOpen: boolean;
@@ -100,6 +110,8 @@ interface CreateThreadSurfacePropsOptions {
 }
 
 export function createThreadSurfaceProps({
+  api,
+  branchFromMessage,
   activeExtensionDialog,
   activeTranscript,
   askPiToImplementLatestPlan,
@@ -109,6 +121,7 @@ export function createThreadSurfaceProps({
   composerAttachments,
   composerDraft,
   composerRef,
+  codexUsageStatus,
   createCheckoutSelector,
   editingQueuedMessageId,
   fastModeAvailable,
@@ -136,6 +149,9 @@ export function createThreadSurfaceProps({
   handleSetSessionThinking,
   handleSetSessionToolAccess,
   handleSteerQueuedMessage,
+  handleQueueQueuedMessage,
+  handleMoveQueuedMessage,
+  handleSendNextQueuedMessage,
   handleToggleShowThinking,
   handleViewFileInDiff,
   isTranscriptLoading,
@@ -144,6 +160,8 @@ export function createThreadSurfaceProps({
   mentionMenu,
   navigateTreeSelection,
   openSettings,
+  onOpenLogs,
+  onOpenCommit,
   openSkillProfiles,
   openUrl,
   planPanelOpen,
@@ -171,6 +189,9 @@ export function createThreadSurfaceProps({
 }: CreateThreadSurfacePropsOptions): ThreadSurfaceProps {
   return {
     timelineProps: {
+      api,
+      workspaceId: selectedWorkspace.id,
+      sessionId: selectedSession.id,
       timelineSessionKey: selectedSessionKey,
       transcript: activeTranscript,
       isTranscriptLoading,
@@ -179,15 +200,25 @@ export function createThreadSurfaceProps({
       disableVirtualization: timelineViewport.shouldDisableTimelineVirtualization,
       onDisableVirtualizationReady: timelineViewport.finalizeTimelineVirtualizationDisable,
       onTimelineScroll: timelineViewport.handleTimelineScroll,
+      onTimelineNavigate: timelineViewport.handleTimelineNavigate,
       threadSearch,
       showJumpToLatest: timelineViewport.showJumpToLatest,
       onJumpToLatest: timelineViewport.jumpToLatest,
       onContentHeightChange: timelineViewport.handleTimelineContentHeightChange,
       onViewFileInDiff: handleViewFileInDiff,
       onOpenUrl: openUrl,
+      onBranchFromMessage: branchFromMessage,
     },
     composerKey: selectedSessionKey,
     composerProps: {
+      api,
+      workspaceId: selectedWorkspace.id,
+      sessionId: selectedSession.id,
+      onOpenLogs,
+      onReviewChanges: (path) => handleViewFileInDiff?.(path),
+      onCommit: onOpenCommit,
+      onOpenErrorSettings: () =>
+        openSettings(selectedWorkspace.rootWorkspaceId ?? selectedWorkspace.id, "providers"),
       activeSlashCommand: slashMenu.activeSlashFlow?.command,
       activeSlashCommandMeta: slashMenu.activeSlashFlow?.command?.description,
       attachments: composerAttachments,
@@ -201,6 +232,7 @@ export function createThreadSurfaceProps({
       thinkingLevel: resolvedSessionThinkingLevel,
       showThinking,
       thinkingActive,
+      codexUsageStatus,
       toolAccess: resolvedSessionToolAccess,
       sessionCommands: selectedSessionCommands,
       onSetToolAccess: handleSetSessionToolAccess,
@@ -214,6 +246,9 @@ export function createThreadSurfaceProps({
       onCancelQueuedEdit: handleCancelQueuedEdit,
       onRemoveQueuedMessage: handleRemoveQueuedMessage,
       onSteerQueuedMessage: handleSteerQueuedMessage,
+      onQueueQueuedMessage: handleQueueQueuedMessage,
+      onMoveQueuedMessage: handleMoveQueuedMessage,
+      onSendNextQueuedMessage: handleSendNextQueuedMessage,
       onSelectSlashCommand: (command) => {
         slashMenu.applySlashCommandSelection(command, "click");
       },

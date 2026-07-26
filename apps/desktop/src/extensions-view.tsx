@@ -20,7 +20,7 @@ interface ExtensionsViewProps {
   readonly workspace?: WorkspaceRecord;
   readonly runtime?: RuntimeSnapshot;
   readonly commandCompatibility?: readonly ExtensionCommandCompatibilityRecord[];
-  readonly onRefresh: () => void;
+  readonly onRefresh: () => Promise<string | undefined>;
   readonly onOpenExtensionFolder: (filePath: string) => void;
   readonly onToggleExtension: (filePath: string, enabled: boolean) => void;
 }
@@ -35,6 +35,7 @@ export function ExtensionsView({
 }: ExtensionsViewProps) {
   const [query, setQuery] = useState("");
   const [selectedGroupId, setSelectedGroupId] = useState<string | undefined>();
+  const [refreshState, setRefreshState] = useState<"idle" | "loading" | "error">("idle");
   const extensions = runtime?.extensions;
   const extensionGroups = useMemo(() => groupExtensions(extensions ?? []), [extensions]);
   const filteredGroups = useMemo(() => {
@@ -83,6 +84,11 @@ export function ExtensionsView({
       </section>
     );
   }
+  const refresh = async () => {
+    setRefreshState("loading");
+    const error = await onRefresh();
+    setRefreshState(error ? "error" : "idle");
+  };
 
   return (
     <section className="canvas">
@@ -96,9 +102,9 @@ export function ExtensionsView({
             </p>
           </div>
           <div className="view-header__actions">
-            <button className="button button--secondary" type="button" onClick={onRefresh}>
+            <button className="button button--secondary" disabled={refreshState === "loading"} type="button" onClick={() => void refresh()}>
               <RefreshIcon />
-              <span>Refresh</span>
+              <span>{refreshState === "loading" ? "Refreshing…" : "Refresh"}</span>
             </button>
           </div>
         </header>
@@ -131,7 +137,17 @@ export function ExtensionsView({
         <div className={`skills-layout ${isPanelOpen ? "skills-layout--panel-open" : ""} ${hasFilteredGroups ? "" : "skills-layout--empty"}`}>
           <div className="skills-grid" data-testid="extensions-list">
             {filteredGroups.length === 0 ? (
-              <ExtensionsEmptyState message="Refresh runtime discovery to load workspace and user-level extensions." />
+              <ExtensionsEmptyState
+                actionLabel={extensionGroups.length === 0 ? (refreshState === "error" ? "Retry discovery" : "Refresh extensions") : "Clear search"}
+                message={
+                  extensionGroups.length === 0
+                    ? refreshState === "error"
+                      ? "Extension discovery failed. Retry when the runtime is available."
+                      : "Refresh runtime discovery to load workspace and user-level extensions."
+                    : "No extensions match the current search."
+                }
+                onAction={extensionGroups.length === 0 ? () => void refresh() : () => setQuery("")}
+              />
             ) : (
               filteredGroups.map((group) => (
                 <div
@@ -442,11 +458,24 @@ function ExtensionDetailPlaceholder() {
   );
 }
 
-function ExtensionsEmptyState({ message }: { readonly message: string }) {
+function ExtensionsEmptyState({
+  message,
+  actionLabel,
+  onAction,
+}: {
+  readonly message: string;
+  readonly actionLabel: string;
+  readonly onAction: () => void;
+}) {
   return (
     <div className="empty-state">
       <h2>No extensions found</h2>
       <p>{message}</p>
+      <div className="empty-state__actions">
+        <button className="button button--primary" type="button" onClick={onAction}>
+          {actionLabel}
+        </button>
+      </div>
     </div>
   );
 }
