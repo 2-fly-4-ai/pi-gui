@@ -1,6 +1,7 @@
 import type { BrowserWindow } from "electron";
 import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { LRUCache } from "lru-cache";
 import {
   applyHostUiRequestToExtensionUiState,
   type GenerateThreadTitleOptions,
@@ -39,6 +40,7 @@ import type {
 import {
   type AppView,
   type ComposerAttachment,
+  type SessionComposerState,
   type ComposerDraftSyncSource,
   type DiagnosticReportingPreferences,
   type ExtensionCommandCompatibilityRecord,
@@ -48,7 +50,9 @@ import {
   type CreateWorktreeInput,
   type DesktopAppState,
   type DesktopCustomInstructionsRecord,
-  type DisplayModeThreadRecord,
+  type DisplayModeProjectionChangedEvent,
+  type DisplayModeProjectionResponse,
+  type DisplayModeThreadProjection,
   type NotificationPreferences,
   type QueuedComposerMessage,
   type RemoveWorktreeInput,
@@ -96,6 +100,9 @@ import {
 } from "./app-store-utils";
 import { resolveRepoWorkspaceId } from "../src/workspace-roots";
 import {
+  buildDisplayModeThreadProjection,
+} from "../src/display-mode-projection";
+import {
   mergeDisplayModeSubagentActivity,
   summarizeDisplayModeSubagentRuns,
   summarizeDisplayModeSubagents,
@@ -116,6 +123,7 @@ import type { TranscriptResetRequest, TranscriptSyncEvent } from "../src/ipc";
 type StateListener = (state: DesktopAppState) => void;
 type SelectedTranscriptListener = (payload: SelectedTranscriptRecord | null) => void;
 type TranscriptEventListener = (event: TranscriptSyncEvent) => void;
+type DisplayModeProjectionListener = (event: DisplayModeProjectionChangedEvent) => void;
 type SessionEventListener = (event: SessionDriverEvent, state: DesktopAppState) => void | Promise<void>;
 type TranscriptMessageRow = Extract<TranscriptMessage, { kind: "message" }>;
 
@@ -304,6 +312,7 @@ export class DesktopAppStore implements AppStoreInternals {
   private readonly listeners = new Set<StateListener>();
   private readonly selectedTranscriptListeners = new Set<SelectedTranscriptListener>();
   private readonly transcriptEventListeners = new Set<TranscriptEventListener>();
+  private readonly displayModeProjectionListeners = new Set<DisplayModeProjectionListener>();
   private readonly sessionEventListeners = new Set<SessionEventListener>();
   private readonly transcriptSequenceBySession = new Map<string, number>();
   private readonly diagnostics = {
@@ -322,6 +331,17 @@ export class DesktopAppStore implements AppStoreInternals {
     statePatchChangedIpcCount: 0,
     statePatchChangedIpcBytes: 0,
     statePatchChangedLastIpcBytes: 0,
+    displayModeProjectionRequests: 0,
+    displayModeProjectionHits: 0,
+    displayModeProjectionNotModified: 0,
+    displayModeProjectionBytes: 0,
+    displayModeProjectionSidecarReads: 0,
+    displayModeProjectionSidecarWrites: 0,
+    displayModeLegacyTranscriptReads: 0,
+    displayModeProjectionEvents: 0,
+    displayModeChangedFilesRequests: 0,
+    displayModeProjectionMisses: 0,
+    displayModeLegacyProjectionBuilds: 0,
   };
   private sessionEventChain: Promise<void> = Promise.resolve();
   private readonly assistantDeltaBatcher = new AssistantDeltaBatcher(32, () => {
@@ -334,6 +354,7 @@ export class DesktopAppStore implements AppStoreInternals {
   readonly worktreeManager: GitWorktreeManager;
   private readonly uiStateFilePath: string;
   private readonly transcriptStore: JsonFileStore<PersistedTranscriptStoreValue>;
+  private readonly displayModeProjectionStore: JsonFileStore<DisplayModeThreadProjection>;
   readonly attachmentStore: JsonFileStore<ComposerAttachment[]>;
   readonly queueStore: JsonFileStore<unknown>;
   readonly sessionState = new SessionStateMap();
@@ -341,11 +362,20 @@ export class DesktopAppStore implements AppStoreInternals {
   readonly extensionCommandCompatibilityByWorkspace = new Map<string, Map<string, ExtensionCommandCompatibilityRecord>>();
   readonly pendingRuntimeCommandsBySession = new Map<string, PendingRuntimeCommandExecution>();
   private readonly reportedCompatibilityIssuesBySession = new Map<string, Set<string>>();
+  private readonly displayModeProjectionCache = new LRUCache<string, DisplayModeThreadProjection>({
+    maxSize: 24 * 1024 * 1024,
+    sizeCalculation: (projection) => projection.serializedBytes,
+  });
+  private readonly displayModeProjectionRevisionBySession = new Map<string, number>();
+  private readonly displayModeProjectionHydrations = new Map<string, Promise<DisplayModeThreadProjection>>();
+  private displayModeLegacyHydrationsInFlight = 0;
+  private readonly displayModeLegacyHydrationWaiters: Array<() => void> = [];
   private readonly initialWorkspacePaths: readonly string[];
   private readonly getWindow: () => BrowserWindow | null;
   private readonly listSubagentRunsForDisplayMode: (workspaceId: string) => Promise<readonly SubagentRunRecord[]>;
   private persistUiStateTimer: NodeJS.Timeout | undefined;
   private readonly transcriptPersistTimers = new Map<string, NodeJS.Timeout>();
+  private readonly displayModeProjectionPersistTimers = new Map<string, NodeJS.Timeout>();
   private initPromise: Promise<void> | undefined;
   private selectionEpoch = 0;
   private refreshStateDepth = 0;
@@ -371,6 +401,10 @@ export class DesktopAppStore implements AppStoreInternals {
     this.worktreeManager = new GitWorktreeManager({ catalogStorage: this.catalogStore });
     this.uiStateFilePath = join(options.userDataDir, "ui-state.json");
     this.transcriptStore = new JsonFileStore<PersistedTranscriptStoreValue>(options.userDataDir, "transcripts");
+    this.displayModeProjectionStore = new JsonFileStore<DisplayModeThreadProjection>(
+      options.userDataDir,
+      "display-mode-projections",
+    );
     this.attachmentStore = new JsonFileStore<ComposerAttachment[]>(options.userDataDir, "attachments");
     this.queueStore = new JsonFileStore<unknown>(options.userDataDir, "queued-messages");
     this.initialWorkspacePaths = options.initialWorkspacePaths;
@@ -402,49 +436,121 @@ export class DesktopAppStore implements AppStoreInternals {
     return this.buildSelectedTranscriptRecord(sessionRef);
   }
 
-  async getDisplayModeThreads(): Promise<readonly DisplayModeThreadRecord[]> {
+  async getDisplayModeThreadProjection(
+    target: WorkspaceSessionTarget,
+    knownRevision?: number,
+  ): Promise<DisplayModeProjectionResponse> {
     await this.initialize();
-    const entries = this.state.workspaces
-      .flatMap((workspaceEntry) =>
-        workspaceEntry.sessions
-          .filter((session) => !session.archivedAt)
-          .map((session) => ({ workspace: workspaceEntry, session })),
-      )
-      .sort((a, b) => {
-        // Running threads float to the top; within each group sort by most recently updated
-        const aRunning = a.session.status === "running" ? 0 : 1;
-        const bRunning = b.session.status === "running" ? 0 : 1;
-        if (aRunning !== bRunning) return aRunning - bRunning;
-        return Date.parse(b.session.updatedAt) - Date.parse(a.session.updatedAt);
-      });
+    this.diagnostics.displayModeProjectionRequests += 1;
+    const sessionRef = toSessionRef(target);
+    const session = this.sessionFromState(sessionRef);
+    if (!session || session.archivedAt) {
+      return { kind: "not-found" };
+    }
+    const key = sessionKey(sessionRef);
+    let projection = this.displayModeProjectionCache.get(key);
 
-    const subagentRunsByWorkspace = new Map<string, Promise<readonly SubagentRunRecord[]>>();
-    const getSubagentRuns = (workspaceId: string) => {
-      let promise = subagentRunsByWorkspace.get(workspaceId);
-      if (!promise) {
-        promise = this.listSubagentRunsForDisplayMode(workspaceId);
-        subagentRunsByWorkspace.set(workspaceId, promise);
+    if (!this.isCurrentDisplayModeProjection(projection, session.updatedAt)) {
+      this.diagnostics.displayModeProjectionMisses += 1;
+      this.diagnostics.displayModeProjectionSidecarReads += 1;
+      const persisted = await this.displayModeProjectionStore.read(key);
+      if (this.isCurrentDisplayModeProjection(persisted, session.updatedAt)) {
+        projection = persisted;
+        this.displayModeProjectionCache.set(key, persisted);
+        this.displayModeProjectionRevisionBySession.set(
+          key,
+          Math.max(this.displayModeProjectionRevisionBySession.get(key) ?? 0, persisted.revision),
+        );
+      } else {
+        let hydration = this.displayModeProjectionHydrations.get(key);
+        if (!hydration) {
+          hydration = this.withDisplayModeLegacyHydrationSlot(async () => {
+            const current = this.displayModeProjectionCache.get(key);
+            if (this.isCurrentDisplayModeProjection(current, session.updatedAt)) {
+              return current;
+            }
+            this.diagnostics.displayModeLegacyProjectionBuilds += 1;
+            const residentTranscript = this.sessionState.transcriptCache.get(key);
+            let transcript = residentTranscript;
+            if (!transcript) {
+              this.diagnostics.displayModeLegacyTranscriptReads += 1;
+              transcript = (await this.readPersistedTranscript(key))?.transcript ?? [];
+            }
+            const runs = await this.listSubagentRunsForDisplayMode(sessionRef.workspaceId);
+            const next = this.buildDisplayModeProjection(
+              sessionRef,
+              session.updatedAt,
+              transcript,
+              runs.filter((run) => run.target.sessionId === sessionRef.sessionId),
+            );
+            this.displayModeProjectionCache.set(key, next);
+            await this.persistDisplayModeProjection(key, next);
+            return next;
+          });
+          this.displayModeProjectionHydrations.set(key, hydration);
+          const clearHydration = () => {
+            if (this.displayModeProjectionHydrations.get(key) === hydration) {
+              this.displayModeProjectionHydrations.delete(key);
+            }
+          };
+          void hydration.then(clearHydration, clearHydration);
+        }
+        projection = await hydration;
       }
-      return promise;
-    };
+    }
 
-    return Promise.all(entries.map(async ({ workspace: workspaceEntry, session }) => {
-      const cachedTranscript = await this.displayModeTranscriptFor({
-        workspaceId: workspaceEntry.id,
-        sessionId: session.id,
-      });
-      const workspaceRuns = await getSubagentRuns(workspaceEntry.id);
-      const sessionRuns = workspaceRuns.filter((run) => run.target.sessionId === session.id);
-      return {
-        workspace: lightweightDisplayModeWorkspace(workspaceEntry),
-        session: structuredClone(session),
-        transcript: recentDisplayModeTranscript(cachedTranscript, this.state.showThinking),
-        subagentActivity: mergeDisplayModeSubagentActivity(
-          summarizeDisplayModeSubagents(cachedTranscript),
-          summarizeDisplayModeSubagentRuns(sessionRuns),
-        ),
-      };
-    }));
+    const sessionRuns = (await this.listSubagentRunsForDisplayMode(sessionRef.workspaceId))
+      .filter((run) => run.target.sessionId === sessionRef.sessionId);
+    const runActivity = summarizeDisplayModeSubagentRuns(sessionRuns);
+    const mergedActivity = mergeDisplayModeSubagentActivity(projection.subagentActivity, runActivity);
+    if (JSON.stringify(mergedActivity) !== JSON.stringify(projection.subagentActivity)) {
+      projection = this.buildDisplayModeProjection(
+        sessionRef,
+        session.updatedAt,
+        projection.excerptRows,
+        sessionRuns,
+      );
+      this.displayModeProjectionCache.set(key, projection);
+      this.scheduleDisplayModeProjectionPersistence(key);
+    }
+
+    if (knownRevision !== undefined && knownRevision === projection.revision) {
+      this.diagnostics.displayModeProjectionNotModified += 1;
+      return { kind: "not-modified", revision: projection.revision };
+    }
+    this.diagnostics.displayModeProjectionHits += 1;
+    this.diagnostics.displayModeProjectionBytes += projection.serializedBytes;
+    return { kind: "projection", projection: structuredClone(projection) };
+  }
+
+  subscribeToDisplayModeProjectionEvents(listener: DisplayModeProjectionListener): () => void {
+    this.displayModeProjectionListeners.add(listener);
+    return () => {
+      this.displayModeProjectionListeners.delete(listener);
+    };
+  }
+
+  invalidateDisplayModeProjection(target: WorkspaceSessionTarget): void {
+    const session = this.sessionFromState(target);
+    if (!session) return;
+    const key = sessionKey(target);
+    this.displayModeProjectionCache.delete(key);
+    const revision = this.nextDisplayModeProjectionRevision(key);
+    this.emitDisplayModeProjectionChanged({
+      workspaceId: target.workspaceId,
+      sessionId: target.sessionId,
+      revision,
+      sourceUpdatedAt: session.updatedAt,
+    });
+  }
+
+  invalidateDisplayModeProjectionsForWorkspace(workspaceId: string): void {
+    const workspace = this.state.workspaces.find((entry) => entry.id === workspaceId);
+    if (!workspace) return;
+    for (const session of workspace.sessions) {
+      const sessionRef = { workspaceId, sessionId: session.id };
+      this.invalidateDisplayModeProjection(sessionRef);
+    }
   }
 
   async flushPersistence(): Promise<void> {
@@ -465,6 +571,17 @@ export class DesktopAppStore implements AppStoreInternals {
       }),
     );
 
+    const pendingProjectionWrites = [...this.displayModeProjectionPersistTimers.entries()];
+    this.displayModeProjectionPersistTimers.clear();
+    await Promise.all(
+      pendingProjectionWrites.map(async ([key, timer]) => {
+        clearTimeout(timer);
+        const projection = this.displayModeProjectionCache.get(key);
+        if (!projection) return;
+        await this.persistDisplayModeProjection(key, projection);
+      }),
+    );
+
     await this.persistUiState();
   }
 
@@ -476,6 +593,182 @@ export class DesktopAppStore implements AppStoreInternals {
   async emitTestTranscriptEvent(event: TranscriptSyncEvent): Promise<void> {
     await this.initialize();
     this.emitTranscriptEvent(event);
+  }
+
+  async seedDisplayModeScaleFixtureForTest(options: {
+    readonly count?: number;
+    readonly legacyCount?: number;
+  } = {}): Promise<{
+    readonly count: number;
+    readonly sidecarCount: number;
+    readonly legacyCount: number;
+    readonly draftTarget: WorkspaceSessionTarget;
+    readonly attachmentTarget: WorkspaceSessionTarget;
+  }> {
+    await this.initialize();
+    const count = Math.max(2, options.count ?? 200);
+    const legacyCount = Math.min(count, options.legacyCount ?? 12);
+    const sidecarCount = count - legacyCount;
+    const fixtureWorkspaces = this.state.workspaces.slice(0, 3);
+    if (fixtureWorkspaces.length < 3) {
+      throw new Error("Display Mode scale fixture requires at least three workspaces.");
+    }
+    const primaryWorkspace = fixtureWorkspaces[0];
+    if (!primaryWorkspace) {
+      throw new Error("Display Mode scale fixture has no primary workspace.");
+    }
+
+    const transcripts = new Map<string, readonly TranscriptMessage[]>();
+    const sessionTargets: WorkspaceSessionTarget[] = [];
+    const sessionsByWorkspace = new Map<string, NonNullable<DesktopAppState["workspaces"][number]["sessions"]>>();
+    for (const workspace of fixtureWorkspaces) {
+      sessionsByWorkspace.set(
+        workspace.id,
+        workspace.sessions.filter((session) => !session.id.startsWith("display-mode-scale-")),
+      );
+    }
+
+    for (let index = 0; index < count; index += 1) {
+      const workspace = fixtureWorkspaces[index % fixtureWorkspaces.length]!;
+      const target = {
+        workspaceId: workspace.id,
+        sessionId: `display-mode-scale-${String(index).padStart(3, "0")}`,
+      };
+      const updatedAt = new Date(Date.UTC(2026, 6, 27, 10, 0, 0) - index * 60_000).toISOString();
+      const isLegacy = index >= sidecarCount;
+      const status = !isLegacy && index % 19 === 0
+        ? "running" as const
+        : !isLegacy && index % 23 === 0
+          ? "failed" as const
+          : "idle" as const;
+      const hasUnseenUpdate = status === "idle" && index % 7 === 0;
+      const session = {
+        id: target.sessionId,
+        title: `Scale thread ${String(index).padStart(3, "0")}`,
+        updatedAt,
+        preview: `Deterministic Display Mode preview ${index}`,
+        status,
+        ...(status === "running" ? { runningSince: updatedAt } : {}),
+        hasUnseenUpdate,
+      };
+      const workspaceSessions = sessionsByWorkspace.get(workspace.id) ?? [];
+      sessionsByWorkspace.set(workspace.id, [...workspaceSessions, session]);
+      sessionTargets.push(target);
+
+      const largePayload = index % 37 === 0 ? "oversized-result ".repeat(18_000) : `result ${index}`;
+      const transcript: TranscriptMessage[] = [
+        {
+          kind: "message",
+          id: `${target.sessionId}-user`,
+          role: "user",
+          text: `Fixture request ${index}`,
+          createdAt: updatedAt,
+        },
+        {
+          kind: "message",
+          id: `${target.sessionId}-assistant`,
+          role: "assistant",
+          text: `Fixture response ${index}`,
+          createdAt: updatedAt,
+        },
+        {
+          kind: "tool",
+          id: `${target.sessionId}-tool`,
+          callId: `${target.sessionId}-call`,
+          toolName: index % 11 === 0 ? "agent" : "fixture_tool",
+          status: status === "running" ? "running" : status === "failed" ? "error" : "success",
+          label: index % 11 === 0 ? "Completed reviewer" : `Fixture tool ${index}`,
+          createdAt: updatedAt,
+          input: { role: "reviewer", forbiddenLargeInput: largePayload },
+          output: { forbiddenLargeOutput: largePayload },
+          outputText: largePayload,
+        },
+      ];
+      transcripts.set(sessionKey(target), transcript);
+    }
+
+    this.state = {
+      ...this.state,
+      workspaces: this.state.workspaces.map((workspace) => {
+        const sessions = sessionsByWorkspace.get(workspace.id);
+        return sessions ? { ...workspace, sessions } : workspace;
+      }),
+      revision: this.state.revision + 1,
+    };
+
+    for (const [index, target] of sessionTargets.entries()) {
+      const key = sessionKey(target);
+      const transcript = transcripts.get(key) ?? [];
+      const session = this.sessionFromState(target);
+      if (!session) continue;
+      this.displayModeProjectionCache.delete(key);
+      this.displayModeProjectionRevisionBySession.delete(key);
+      this.sessionState.transcriptCache.delete(key);
+      this.sessionState.loadedTranscriptKeys.delete(key);
+      await this.writePersistedTranscript(key, transcript);
+      if (index < sidecarCount) {
+        const projection = this.buildDisplayModeProjection(target, session.updatedAt, transcript);
+        this.displayModeProjectionCache.set(key, projection);
+        await this.persistDisplayModeProjection(key, projection);
+      }
+    }
+
+    const draftTarget = sessionTargets[count - 2] ?? sessionTargets[0];
+    const attachmentTarget = sessionTargets[count - 1] ?? sessionTargets[0];
+    if (!draftTarget || !attachmentTarget) {
+      throw new Error("Display Mode scale fixture requires at least one session.");
+    }
+    this.sessionState.composerDraftsBySession.set(
+      sessionKey(draftTarget),
+      "Offscreen draft survives virtualization",
+    );
+    const fixtureAttachments: ComposerAttachment[] = [{
+      id: "display-mode-scale-attachment",
+      kind: "file",
+      name: "display-mode-scale-fixture.txt",
+      mimeType: "text/plain",
+      fsPath: join(primaryWorkspace.path, "display-mode-scale-fixture.txt"),
+      sizeBytes: 31,
+      source: "workspace-reference",
+      status: "ready",
+    }];
+    this.sessionState.composerAttachmentsBySession.set(sessionKey(attachmentTarget), fixtureAttachments);
+    await this.attachmentStore.write(sessionKey(attachmentTarget), fixtureAttachments);
+    await this.persistUiState();
+    this.emit();
+
+    return { count, sidecarCount, legacyCount, draftTarget, attachmentTarget };
+  }
+
+  async updateDisplayModeFixtureSessionForTest(
+    target: WorkspaceSessionTarget,
+    patch: { readonly status?: "idle" | "running" | "failed"; readonly preview?: string },
+  ): Promise<void> {
+    await this.initialize();
+    if (!this.sessionFromState(target)) {
+      throw new Error("Display Mode fixture session was not found.");
+    }
+    this.state = {
+      ...this.state,
+      workspaces: this.state.workspaces.map((workspace) =>
+        workspace.id !== target.workspaceId
+          ? workspace
+          : {
+              ...workspace,
+              sessions: workspace.sessions.map((session) =>
+                session.id !== target.sessionId
+                  ? session
+                  : {
+                      ...session,
+                      ...(patch.status ? { status: patch.status } : {}),
+                      ...(patch.preview !== undefined ? { preview: patch.preview } : {}),
+                    },
+              ),
+            },
+      ),
+      revision: this.state.revision + 1,
+    };
+    this.emit();
   }
 
   getDiagnostics(): {
@@ -494,8 +787,30 @@ export class DesktopAppStore implements AppStoreInternals {
     readonly statePatchChangedIpcCount: number;
     readonly statePatchChangedIpcBytes: number;
     readonly statePatchChangedLastIpcBytes: number;
+    readonly displayModeProjectionRequests: number;
+    readonly displayModeProjectionHits: number;
+    readonly displayModeProjectionNotModified: number;
+    readonly displayModeProjectionBytes: number;
+    readonly displayModeProjectionSidecarReads: number;
+    readonly displayModeProjectionSidecarWrites: number;
+    readonly displayModeLegacyTranscriptReads: number;
+    readonly displayModeProjectionEvents: number;
+    readonly displayModeChangedFilesRequests: number;
+    readonly displayModeProjectionMisses: number;
+    readonly displayModeLegacyProjectionBuilds: number;
+    readonly fullTranscriptCacheEntries: number;
+    readonly fullTranscriptCacheBytes: number;
   } {
-    return { ...this.diagnostics };
+    return {
+      ...this.diagnostics,
+      fullTranscriptCacheEntries: this.sessionState.transcriptCache.size,
+      fullTranscriptCacheBytes: [...this.sessionState.transcriptCache.values()]
+        .reduce((total, transcript) => total + approximateObjectBytes(transcript), 0),
+    };
+  }
+
+  recordDisplayModeChangedFilesRequest(): void {
+    this.diagnostics.displayModeChangedFilesRequests += 1;
   }
 
   recordIpcPublish(
@@ -734,6 +1049,48 @@ export class DesktopAppStore implements AppStoreInternals {
     },
   ): Promise<DesktopAppState> {
     return composer.submitComposerToSession(this, target, textInput, options);
+  }
+
+  async getSessionComposerState(target: WorkspaceSessionTarget): Promise<SessionComposerState> {
+    await this.initialize();
+    const sessionRef = toSessionRef(target);
+    if (!this.sessionFromState(sessionRef)) {
+      return { draft: "", attachments: [] };
+    }
+    await this.ensureComposerAttachmentsLoaded(sessionRef);
+    const key = sessionKey(sessionRef);
+    return {
+      draft: this.sessionState.composerDraftsBySession.get(key) ?? "",
+      attachments: cloneComposerAttachments(this.sessionState.composerAttachmentsBySession.get(key) ?? []),
+    };
+  }
+
+  async setSessionComposerAttachments(
+    target: WorkspaceSessionTarget,
+    attachments: readonly ComposerAttachment[],
+  ): Promise<DesktopAppState> {
+    await this.initialize();
+    const sessionRef = toSessionRef(target);
+    if (!this.sessionFromState(sessionRef)) {
+      return this.withError("Select an existing thread before updating attachments.");
+    }
+    const key = sessionKey(sessionRef);
+    const next = cloneComposerAttachments(attachments);
+    if (next.length > 0) {
+      this.sessionState.composerAttachmentsBySession.set(key, next);
+    } else {
+      this.sessionState.composerAttachmentsBySession.delete(key);
+    }
+    await this.persistComposerAttachments(key, next);
+    if (this.isSelectedSession(sessionRef)) {
+      this.state = {
+        ...this.state,
+        composerAttachments: cloneComposerAttachments(next),
+        revision: this.state.revision + 1,
+      };
+      return this.emit();
+    }
+    return this.state;
   }
 
   async editQueuedComposerMessage(messageId: string, currentDraft?: string): Promise<DesktopAppState> {
@@ -1576,25 +1933,101 @@ export class DesktopAppStore implements AppStoreInternals {
     this.sessionState.transcriptCache.set(key, transcript);
   }
 
-  private async displayModeTranscriptFor(sessionRef: SessionRef): Promise<readonly TranscriptMessage[]> {
+  private isCurrentDisplayModeProjection(
+    projection: DisplayModeThreadProjection | undefined,
+    sourceUpdatedAt: string,
+  ): projection is DisplayModeThreadProjection {
+    return Boolean(
+      projection &&
+      projection.sourceUpdatedAt === sourceUpdatedAt &&
+      projection.showThinking === this.state.showThinking,
+    );
+  }
+
+  private buildDisplayModeProjection(
+    sessionRef: SessionRef,
+    sourceUpdatedAt: string,
+    transcript: readonly TranscriptMessage[],
+    sessionRuns?: readonly SubagentRunRecord[],
+  ): DisplayModeThreadProjection {
     const key = sessionKey(sessionRef);
-    const cachedTranscript = this.sessionState.transcriptCache.get(key);
-    if (cachedTranscript && cachedTranscript.length > 0) {
-      return cachedTranscript;
-    }
-    if (this.sessionState.loadedTranscriptKeys.has(key)) {
-      return cachedTranscript ?? [];
-    }
+    const cachedActivity = this.displayModeProjectionCache.get(key)?.subagentActivity;
+    const transcriptActivity = summarizeDisplayModeSubagents(transcript);
+    const runActivity = sessionRuns
+      ? summarizeDisplayModeSubagentRuns(sessionRuns)
+      : cachedActivity;
+    return buildDisplayModeThreadProjection({
+      workspaceId: sessionRef.workspaceId,
+      sessionId: sessionRef.sessionId,
+      revision: this.nextDisplayModeProjectionRevision(key),
+      sourceUpdatedAt,
+      transcript,
+      showThinking: this.state.showThinking,
+      subagentActivity: mergeDisplayModeSubagentActivity(transcriptActivity, runActivity),
+    });
+  }
 
-    const persisted = await this.readPersistedTranscript(key);
-    if (!persisted) {
-      return cachedTranscript ?? [];
-    }
+  private refreshDisplayModeProjectionFromResidentTranscript(
+    sessionRef: SessionRef,
+    transcript: readonly TranscriptMessage[],
+  ): void {
+    const session = this.sessionFromState(sessionRef);
+    if (!session || session.archivedAt) return;
+    const key = sessionKey(sessionRef);
+    const projection = this.buildDisplayModeProjection(sessionRef, session.updatedAt, transcript);
+    this.displayModeProjectionCache.set(key, projection);
+    this.scheduleDisplayModeProjectionPersistence(key);
+    this.emitDisplayModeProjectionChanged({
+      workspaceId: sessionRef.workspaceId,
+      sessionId: sessionRef.sessionId,
+      revision: projection.revision,
+      sourceUpdatedAt: projection.sourceUpdatedAt,
+    });
+  }
 
-    const transcript = persisted.transcript;
-    this.sessionState.loadedTranscriptKeys.add(key);
-    this.sessionState.transcriptCache.set(key, transcript);
-    return transcript;
+  private nextDisplayModeProjectionRevision(key: string): number {
+    const revision = (this.displayModeProjectionRevisionBySession.get(key) ?? 0) + 1;
+    this.displayModeProjectionRevisionBySession.set(key, revision);
+    return revision;
+  }
+
+  private async withDisplayModeLegacyHydrationSlot<T>(operation: () => Promise<T>): Promise<T> {
+    if (this.displayModeLegacyHydrationsInFlight >= 2) {
+      await new Promise<void>((resolve) => {
+        this.displayModeLegacyHydrationWaiters.push(resolve);
+      });
+    }
+    this.displayModeLegacyHydrationsInFlight += 1;
+    try {
+      return await operation();
+    } finally {
+      this.displayModeLegacyHydrationsInFlight -= 1;
+      this.displayModeLegacyHydrationWaiters.shift()?.();
+    }
+  }
+
+  private scheduleDisplayModeProjectionPersistence(key: string): void {
+    const existing = this.displayModeProjectionPersistTimers.get(key);
+    if (existing) clearTimeout(existing);
+    this.displayModeProjectionPersistTimers.set(key, setTimeout(() => {
+      this.displayModeProjectionPersistTimers.delete(key);
+      const projection = this.displayModeProjectionCache.get(key);
+      if (!projection) return;
+      void this.persistDisplayModeProjection(key, projection)
+        .catch((error) => logIgnoredError("app-store.display-mode-projection-persist", error));
+    }, 250));
+  }
+
+  private async persistDisplayModeProjection(key: string, projection: DisplayModeThreadProjection): Promise<void> {
+    await this.displayModeProjectionStore.write(key, projection);
+    this.diagnostics.displayModeProjectionSidecarWrites += 1;
+  }
+
+  private emitDisplayModeProjectionChanged(event: DisplayModeProjectionChangedEvent): void {
+    this.diagnostics.displayModeProjectionEvents += 1;
+    for (const listener of this.displayModeProjectionListeners) {
+      listener(event);
+    }
   }
 
   private shouldReloadEmptyCachedTranscript(sessionRef: SessionRef): boolean {
@@ -2430,6 +2863,11 @@ export class DesktopAppStore implements AppStoreInternals {
 
   persistTranscriptCacheForSession(sessionRef: SessionRef): void {
     const key = sessionKey(sessionRef);
+    const residentTranscript = this.sessionState.transcriptCache.get(key);
+    if (!residentTranscript) {
+      return;
+    }
+    this.refreshDisplayModeProjectionFromResidentTranscript(sessionRef, residentTranscript);
     const existing = this.transcriptPersistTimers.get(key);
     if (existing) {
       clearTimeout(existing);
@@ -3135,27 +3573,6 @@ export class DesktopAppStore implements AppStoreInternals {
 }
 
 /* ── Module-private free functions ───────────────────────── */
-
-const DISPLAY_MODE_TRANSCRIPT_LIMIT = 12;
-
-function lightweightDisplayModeWorkspace(
-  workspace: DesktopAppState["workspaces"][number],
-): DesktopAppState["workspaces"][number] {
-  return {
-    ...structuredClone(workspace),
-    sessions: [],
-  };
-}
-
-function recentDisplayModeTranscript(
-  transcript: readonly TranscriptMessage[],
-  showThinking: boolean,
-): TranscriptMessage[] {
-  return transcript
-    .filter((item) => showThinking || item.kind !== "thinking")
-    .slice(-DISPLAY_MODE_TRANSCRIPT_LIMIT)
-    .map(cloneTranscriptMessage);
-}
 
 function normalizePersistedTranscript(transcript: readonly TranscriptMessage[]): TranscriptMessage[] {
   return transcript

@@ -15,6 +15,19 @@ The current app-state source of truth is `DesktopAppStore` in Electron main. Mai
 
 Selected transcript hydration is separate: main loads the selected session transcript, caches it by session key, and publishes `desktopIpc.selectedTranscriptChanged`. Renderer materializes the active transcript and timeline, while persistence stays in main.
 
+Display Mode never bulk-loads those full transcripts. Its shells, counts, filters, and ordering come from the existing
+workspace/session summaries. A render-resident detailed card requests a per-session `DisplayModeThreadProjection`
+through narrow IPC; each projection is limited to eight dashboard-safe rows and 96 KiB, persisted as a user-data
+sidecar, and updated through per-thread revision events. Missing legacy sidecars are built lazily with at most two
+concurrent transcript reads, without adding the transcript to the full-transcript cache. Both main and renderer
+projection caches are byte-bounded.
+
+Display Mode uses fixed-height row virtualization with two rows of overscan. Runtime liveness and session metadata are
+independent of viewport residency. Compact cards mount only the card shell; detailed excerpts, composers, and terminals
+exist only for visible/overscan rows or interaction-pinned cards. Focus, menus, drafts, attachments, expanded cards,
+drag operations, and open terminals pin residency. Drafts and attachments are main-owned per session and shared with
+the normal thread composer, so virtualization, filtering, navigation, and restart cannot discard unsent work.
+
 Queued composer items are also main-owned. The live runtime queue remains authoritative while a session is running; Electron main mirrors each item, including attachments and context-manifest metadata, into a per-session file under the app user-data directory. Persisted items are always treated as recovered after process restart and are never silently replayed. The renderer exposes edit, reorder, cancel, delivery-mode conversion, and explicit send-next actions; malformed or unavailable recovered content remains visible until the user repairs or cancels it.
 
 User-controlled decisions and project memory live in the Electron profile, outside the repository. Nothing is derived

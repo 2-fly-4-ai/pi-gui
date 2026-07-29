@@ -10,6 +10,11 @@ export type SessionStatus = "idle" | "running" | "failed";
 export type { SessionRole, TranscriptMessage } from "./timeline-types";
 import type { TranscriptMessage } from "./timeline-types";
 import type { DisplayModeSubagentActivity } from "./display-mode-subagent-activity";
+export type {
+  DisplayModeProjectionChangedEvent,
+  DisplayModeProjectionResponse,
+  DisplayModeThreadProjection,
+} from "./display-mode-projection";
 import type { CreateReviewSnapshotOptions } from "./review/review-types";
 
 export type AppView = "threads" | "new-thread" | "display-mode" | "skills" | "extensions" | "settings" | "review";
@@ -113,6 +118,16 @@ export interface DisplayModeThreadRecord {
   readonly session: SessionRecord;
   readonly transcript: readonly TranscriptMessage[];
   readonly subagentActivity?: DisplayModeSubagentActivity;
+}
+
+export interface SessionComposerState {
+  readonly draft: string;
+  readonly attachments: readonly ComposerAttachment[];
+}
+
+export interface ComposerSubmitResult {
+  readonly accepted: boolean;
+  readonly error?: string;
 }
 
 export interface WorktreeRecord {

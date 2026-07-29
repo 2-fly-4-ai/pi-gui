@@ -22,6 +22,7 @@ default agent loop.
 | 5 | [phase-5-product.md](phase-5-product.md) | Auto-update, crash reporting, onboarding, Windows — best built on the cleaned foundation | in progress; 5a local updater integration, 5b crash/error reporting including packaged forced-crash proof, 5c first-run onboarding, 5d platform decision, and 5e website/docs implemented |
 | — | [agents-and-subagents.md](agents-and-subagents.md) | Typed subagent lifecycle, durable runs, structured results; W1/W4 coordinate with phase 4's event protocol, W2 output cap + parser + full-output affordance and W3 persistence can start now | complete; W1–W7 and every built-in workflow verified against a real provider on Electron |
 | PX0–PX8 | [product-experience-roadmap.md](product-experience-roadmap.md) | Evidence and safety foundations must precede checkpoints, provenance, branch comparison, and advanced review UX | complete; all 367 checklist items and unit/core/live/native/packaged/accessibility/performance/visual proof green |
+| DM0–DM7 | [display-mode-performance.md](display-mode-performance.md) | Bounded projections, durable interaction state, and viewport residency are required before Display Mode can scale safely | complete; 200-session Electron proof and full core audit passed |
 
 ## Current Health Snapshot
 

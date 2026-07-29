@@ -84,7 +84,8 @@ test("settings use a bounded two-column grid that collapses cleanly", async () =
 
     const settingsView = window.locator(".settings-view");
     const wideBox = await settingsView.boundingBox();
-    expect(wideBox?.width ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(960);
+    expect(wideBox?.width ?? 0).toBeGreaterThan(960);
+    expect(wideBox?.width ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(1320);
     const firstRow = settingsView.locator(".settings-row").first();
     await expect.poll(() => firstRow.evaluate((element) => getComputedStyle(element).gridTemplateColumns.split(" ").length)).toBe(2);
 

@@ -25,7 +25,7 @@ export class SubagentRunStore {
 
   constructor(
     userDataDir: string,
-    private readonly onRunsChanged?: (workspaceId: string) => void,
+    private readonly onRunsChanged?: (workspaceId: string, sessionId?: string) => void,
   ) {
     this.runStore = new JsonFileStore<readonly SubagentRunRecord[]>(userDataDir, "subagent-runs");
   }
@@ -45,6 +45,13 @@ export class SubagentRunStore {
     }
     await this.refreshArtifactPathsForWorkspace(workspaceId);
     this.refreshLiveArtifactScan(workspaceId);
+    return this.getRuns(workspaceId)
+      .filter((run) => run.workspaceId === workspaceId)
+      .sort((left, right) => right.submittedAt.localeCompare(left.submittedAt));
+  }
+
+  async listRunsSnapshot(workspaceId: string): Promise<readonly SubagentRunRecord[]> {
+    await this.loadWorkspace(workspaceId);
     return this.getRuns(workspaceId)
       .filter((run) => run.workspaceId === workspaceId)
       .sort((left, right) => right.submittedAt.localeCompare(left.submittedAt));
@@ -84,6 +91,7 @@ export class SubagentRunStore {
     const workspaceRuns = this.getRuns(input.target.workspaceId);
     workspaceRuns.unshift(submittedRun);
     await this.persistWorkspace(input.target.workspaceId);
+    this.onRunsChanged?.(input.target.workspaceId, input.target.sessionId);
     this.refreshLiveArtifactScan(input.target.workspaceId);
     void store
       .submitComposerToSession(input.target, buildSubagentWorkflowPrompt(workflow, input.userInstruction, workflowRunId), {
@@ -140,7 +148,6 @@ export class SubagentRunStore {
       } : {}),
     }));
     this.refreshLiveArtifactScan(workspaceId);
-    this.onRunsChanged?.(workspaceId);
     return this.listRuns(workspaceId, store.getWorkspacePath(workspaceId));
   }
 
@@ -152,6 +159,7 @@ export class SubagentRunStore {
     const runs = this.getRuns(workspaceId);
     const timestamp = new Date().toISOString();
     let changed = false;
+    const changedSessionIds = new Set<string>();
 
     for (let index = 0; index < runs.length; index += 1) {
       const run = runs[index];
@@ -173,16 +181,19 @@ export class SubagentRunStore {
         } : {}),
       };
       changed = true;
+      changedSessionIds.add(run.target.sessionId);
     }
 
     if (!changed) return false;
     await this.persistWorkspace(workspaceId);
     this.refreshLiveArtifactScan(workspaceId);
-    this.onRunsChanged?.(workspaceId);
+    for (const sessionId of changedSessionIds) {
+      this.onRunsChanged?.(workspaceId, sessionId);
+    }
     return true;
   }
 
-  async applySessionEvent(event: SessionDriverEvent): Promise<string | undefined> {
+  async applySessionEvent(event: SessionDriverEvent): Promise<SubagentRunRecord["target"] | undefined> {
     if (event.type === "queuedMessageStarted") {
       return this.applyQueuedWorkflowStarted(event);
     }
@@ -212,11 +223,11 @@ export class SubagentRunStore {
     runs[index] = await attachExistingArtifactPaths(applyLifecycleEventToRun(current, event));
     await this.persistWorkspace(workspaceId);
     this.refreshLiveArtifactScan(workspaceId);
-    return workspaceId;
+    return current.target;
   }
 
-  async applyAuditEvent(event: SubagentAuditLifecycleEvent): Promise<readonly string[]> {
-    const changedWorkspaceIds: string[] = [];
+  async applyAuditEvent(event: SubagentAuditLifecycleEvent): Promise<readonly SubagentRunRecord["target"][]> {
+    const changedTargets: SubagentRunRecord["target"][] = [];
     for (const [workspaceId, runs] of this.runsByWorkspace) {
       const index = runs.findIndex((run) => matchesAuditRun(run, event));
       const current = runs[index];
@@ -243,14 +254,14 @@ export class SubagentRunStore {
       runs[index] = await attachExistingArtifactPaths(lifecycleNext);
       await this.persistWorkspace(workspaceId);
       this.refreshLiveArtifactScan(workspaceId);
-      changedWorkspaceIds.push(workspaceId);
+      changedTargets.push(current.target);
     }
-    return changedWorkspaceIds;
+    return changedTargets;
   }
 
   private async applyQueuedWorkflowStarted(
     event: Extract<SessionDriverEvent, { type: "queuedMessageStarted" }>,
-  ): Promise<string | undefined> {
+  ): Promise<SubagentRunRecord["target"] | undefined> {
     const metadata = event.message.metadata;
     if (!isSubagentWorkflowMessageMetadata(metadata) || !metadata.workflowRunId) {
       return undefined;
@@ -275,10 +286,12 @@ export class SubagentRunStore {
       updatedAt: event.timestamp,
     };
     await this.persistWorkspace(workspaceId);
-    return workspaceId;
+    return run.target;
   }
 
-  private async applyParentRunFinished(event: Extract<SessionDriverEvent, { type: "runCompleted" | "runFailed" }>): Promise<string | undefined> {
+  private async applyParentRunFinished(
+    event: Extract<SessionDriverEvent, { type: "runCompleted" | "runFailed" }>,
+  ): Promise<SubagentRunRecord["target"] | undefined> {
     const workspaceId = event.sessionRef.workspaceId;
     await this.loadWorkspace(workspaceId);
     const runs = this.getRuns(workspaceId);
@@ -302,7 +315,7 @@ export class SubagentRunStore {
     }
     await this.persistWorkspace(workspaceId);
     this.refreshLiveArtifactScan(workspaceId);
-    return workspaceId;
+    return event.sessionRef;
   }
 
   private async loadWorkspace(workspaceId: string): Promise<void> {
@@ -335,6 +348,7 @@ export class SubagentRunStore {
     }
     runs[index] = nextRun;
     await this.persistWorkspace(workspaceId);
+    this.onRunsChanged?.(workspaceId, nextRun.target.sessionId);
   }
 
   private async applyWorkspacePath(workspaceId: string, workspacePath: string): Promise<void> {
@@ -405,6 +419,7 @@ export class SubagentRunStore {
     try {
       const runs = this.getRuns(workspaceId);
       let changed = false;
+      const changedSessionIds = new Set<string>();
       for (let index = 0; index < runs.length; index += 1) {
         const run = runs[index];
         if (!run || !isActiveArtifactRun(run)) {
@@ -414,11 +429,14 @@ export class SubagentRunStore {
         if (nextRun !== run) {
           runs[index] = nextRun;
           changed = true;
+          changedSessionIds.add(run.target.sessionId);
         }
       }
       if (changed) {
         await this.persistWorkspace(workspaceId);
-        this.onRunsChanged?.(workspaceId);
+        for (const sessionId of changedSessionIds) {
+          this.onRunsChanged?.(workspaceId, sessionId);
+        }
       }
       if (!this.hasMissingActiveArtifacts(workspaceId)) {
         this.stopLiveArtifactScan(workspaceId);

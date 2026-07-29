@@ -160,6 +160,7 @@ let executionBoundaryStore: ExecutionBoundaryStore | undefined;
 let integratedTerminalShell = "";
 let stopPublishingStatePatches: (() => void) | undefined;
 let stopPublishingTranscriptEvents: (() => void) | undefined;
+let stopPublishingDisplayModeProjectionEvents: (() => void) | undefined;
 let stopTrackingWindowActivation: (() => void) | undefined;
 let stopNotifications: (() => void) | undefined;
 let stopUpdateChecker: (() => void) | undefined;
@@ -513,6 +514,7 @@ function attachStatePublisher(window: BrowserWindow): void {
   const webContentsId = window.webContents.id;
   stopPublishingStatePatches?.();
   stopPublishingTranscriptEvents?.();
+  stopPublishingDisplayModeProjectionEvents?.();
 
   const statePatchPublisher = createImmediateIpcPublisher<StatePatchEvent>(
     window,
@@ -535,6 +537,11 @@ function attachStatePublisher(window: BrowserWindow): void {
   const unsubscribeTranscriptEvents = store.subscribeToTranscriptEvents((event) => {
     transcriptEventPublisher.publish(event);
   });
+  const unsubscribeDisplayModeProjectionEvents = store.subscribeToDisplayModeProjectionEvents((event) => {
+    if (canPublishToWindow(window)) {
+      window.webContents.send(desktopIpc.displayModeProjectionChanged, event);
+    }
+  });
 
   stopPublishingStatePatches = () => {
     unsubscribeState();
@@ -542,12 +549,17 @@ function attachStatePublisher(window: BrowserWindow): void {
   stopPublishingTranscriptEvents = () => {
     unsubscribeTranscriptEvents();
   };
+  stopPublishingDisplayModeProjectionEvents = () => {
+    unsubscribeDisplayModeProjectionEvents();
+  };
 
   const stopPublishers = () => {
     stopPublishingStatePatches?.();
     stopPublishingStatePatches = undefined;
     stopPublishingTranscriptEvents?.();
     stopPublishingTranscriptEvents = undefined;
+    stopPublishingDisplayModeProjectionEvents?.();
+    stopPublishingDisplayModeProjectionEvents = undefined;
   };
 
   window.webContents.once("render-process-gone", stopPublishers);
@@ -818,20 +830,16 @@ void app.whenReady().then(async () => {
     getWindow: () => mainWindow,
     listSubagentRunsForDisplayMode: async (workspaceId) => {
       if (!subagentRunsStore) return [];
-      await subagentRunsStore.listRuns(workspaceId, store.getWorkspacePath(workspaceId));
-      await subagentAuditAdapter?.replay(async (event) => {
-        const changedWorkspaceIds = await subagentRunsStore?.applyAuditEvent(event) ?? [];
-        for (const changedWorkspaceId of changedWorkspaceIds) publishSubagentRunsChanged(changedWorkspaceId);
-      });
-      await subagentRunsStore.reconcileInterruptedRuns(
-        workspaceId,
-        (target) => store.sessionFromState(target)?.status === "running",
-      );
-      return subagentRunsStore.listRuns(workspaceId, store.getWorkspacePath(workspaceId));
+      return subagentRunsStore.listRunsSnapshot(workspaceId);
     },
     generateThreadTitleOverride: async (workspace, options) => generateThreadTitleOverride?.(workspace, options),
   });
-  const publishSubagentRunsChanged = (workspaceId: string) => {
+  const publishSubagentRunsChanged = (workspaceId: string, sessionId?: string) => {
+    if (sessionId) {
+      store.invalidateDisplayModeProjection({ workspaceId, sessionId });
+    } else {
+      store.invalidateDisplayModeProjectionsForWorkspace(workspaceId);
+    }
     if (mainWindow && canPublishToWindow(mainWindow)) {
       mainWindow.webContents.send(desktopIpc.subagentRunsChanged, workspaceId);
     }
@@ -891,9 +899,9 @@ void app.whenReady().then(async () => {
   store.subscribeToSessionEvents(async (event) => {
     await checkpointObserver?.observe(event);
     taskEvidenceObserver?.observe(event);
-    const changedWorkspaceId = await subagentRuns.applySessionEvent(event);
-    if (changedWorkspaceId) {
-      publishSubagentRunsChanged(changedWorkspaceId);
+    const changedTarget = await subagentRuns.applySessionEvent(event);
+    if (changedTarget) {
+      publishSubagentRunsChanged(changedTarget.workspaceId, changedTarget.sessionId);
     }
     if (event.type === "subagentRunUpdated") {
       await appendAgentActivity({
@@ -911,20 +919,24 @@ void app.whenReady().then(async () => {
         message: event.summary,
         transcriptPath: event.transcriptPath,
       });
-      if (changedWorkspaceId !== event.parentSession.workspaceId) {
-        publishSubagentRunsChanged(event.parentSession.workspaceId);
+      if (
+        changedTarget?.workspaceId !== event.parentSession.workspaceId ||
+        changedTarget?.sessionId !== event.parentSession.sessionId
+      ) {
+        publishSubagentRunsChanged(event.parentSession.workspaceId, event.parentSession.sessionId);
       }
     }
   });
   subagentAuditAdapter = new SubagentAuditAdapter({
     onEvent: async (event) => {
-      const changedWorkspaceIds = await subagentRuns.applyAuditEvent(event);
-      for (const workspaceId of changedWorkspaceIds) {
+      const changedTargets = await subagentRuns.applyAuditEvent(event);
+      for (const target of changedTargets) {
         await appendAgentActivity({
           event: `subagent_audit_${event.status}`,
           category: "subagent",
           title: `${event.role ?? "Subagent"} ${event.status}`,
-          workspaceId,
+          workspaceId: target.workspaceId,
+          sessionId: target.sessionId,
           runId: event.workflowRunId ?? event.agentId ?? event.parentToolCallId,
           subagentId: event.agentId,
           parentToolCallId: event.parentToolCallId,
@@ -933,7 +945,7 @@ void app.whenReady().then(async () => {
           elapsedMs: event.elapsedMs,
           message: event.summary,
         });
-        publishSubagentRunsChanged(workspaceId);
+        publishSubagentRunsChanged(target.workspaceId, target.sessionId);
       }
     },
   });
@@ -965,6 +977,12 @@ void app.whenReady().then(async () => {
         flushPersistence: () => store.flushPersistence(),
         activateWindow: () => store.handleWindowActivation(),
         getDiagnostics: () => store.getDiagnostics(),
+        seedDisplayModeScaleFixture: (options?: { readonly count?: number; readonly legacyCount?: number }) =>
+          store.seedDisplayModeScaleFixtureForTest(options),
+        updateDisplayModeFixtureSession: (
+          target: WorkspaceSessionTarget,
+          patch: { readonly status?: "idle" | "running" | "failed"; readonly preview?: string },
+        ) => store.updateDisplayModeFixtureSessionForTest(target, patch),
         setUpdateStatus: (status: DesktopUpdateStatus) => setUpdateStatusForTest(status),
         failNextRuntimeRefresh: (message = "Runtime discovery failed for test.") => {
           nextRuntimeRefreshError = message;
@@ -1028,7 +1046,11 @@ void app.whenReady().then(async () => {
   handleMainFrameIpc(desktopIpc.transcriptResetRequest, (_event, input: TranscriptResetRequest) =>
     store.resetSelectedTranscriptForRequest(input),
   );
-  handleMainFrameIpc(desktopIpc.displayModeThreadsRequest, () => store.getDisplayModeThreads());
+  handleMainFrameIpc(
+    desktopIpc.displayModeProjectionRequest,
+    (_event, target: WorkspaceSessionTarget, knownRevision?: number) =>
+      store.getDisplayModeThreadProjection(target, knownRevision),
+  );
   handleMainFrameIpc(desktopIpc.listObservabilityEvents, async (_event, input?: ObservabilityQuery) => {
     const state = await store.getState();
     return listObservabilityEvents(input, {
@@ -1680,10 +1702,23 @@ void app.whenReady().then(async () => {
       },
     ) => {
       const attachments = options?.attachments?.flatMap(validateComposerAttachmentPayload) ?? [];
-      await store.submitComposerToSession(target, text, {
+      const state = await store.submitComposerToSession(target, text, {
         ...options,
         attachments,
       });
+      return state.lastError
+        ? { accepted: false, error: state.lastError }
+        : { accepted: true };
+    },
+  );
+  handleMainFrameIpc(desktopIpc.getSessionComposerState, (_event, target: WorkspaceSessionTarget) =>
+    store.getSessionComposerState(target),
+  );
+  handleMainFrameIpc(
+    desktopIpc.setSessionComposerAttachments,
+    async (_event, target: WorkspaceSessionTarget, attachments: readonly ComposerAttachment[]) => {
+      const validated = attachments.flatMap(validateComposerAttachmentPayload);
+      await store.setSessionComposerAttachments(target, validated);
     },
   );
   handleMainFrameIpc(desktopIpc.getSessionTree, (_event, target: WorkspaceSessionTarget) =>
@@ -1752,6 +1787,7 @@ void app.whenReady().then(async () => {
     return relativePath;
   });
   handleMainFrameIpc(desktopIpc.getChangedFiles, async (_event, workspaceId: string) => {
+    store.recordDisplayModeChangedFilesRequest();
     const workspacePath = store.getWorkspacePath(workspaceId);
     if (!workspacePath) {
       return [];
@@ -1800,8 +1836,10 @@ void app.whenReady().then(async () => {
   handleMainFrameIpc(desktopIpc.listSubagentRuns, async (_event, workspaceId: string) => {
     await subagentRuns.listRuns(workspaceId, store.getWorkspacePath(workspaceId));
     await subagentAuditAdapter?.replay(async (event) => {
-      const changedWorkspaceIds = await subagentRuns.applyAuditEvent(event);
-      for (const changedWorkspaceId of changedWorkspaceIds) publishSubagentRunsChanged(changedWorkspaceId);
+      const changedTargets = await subagentRuns.applyAuditEvent(event);
+      for (const target of changedTargets) {
+        publishSubagentRunsChanged(target.workspaceId, target.sessionId);
+      }
     });
     await subagentRuns.reconcileInterruptedRuns(
       workspaceId,

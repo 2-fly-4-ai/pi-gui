@@ -1,4 +1,5 @@
 import {
+  memo,
   useCallback,
   useEffect,
   useRef,
@@ -7,6 +8,8 @@ import {
   type Dispatch,
   type DragEvent,
   type KeyboardEvent,
+  type ReactNode,
+  type RefObject,
   type SetStateAction,
 } from "react";
 import type { RuntimeCommandRecord, RuntimeSnapshot } from "@pi-gui/session-driver/runtime-types";
@@ -43,13 +46,11 @@ import {
 import type { PiDesktopApi } from "../../ipc";
 import { ModelSelector } from "../../model-selector";
 import { ReasoningSelector } from "../../reasoning-selector";
-import { logIgnoredError } from "../../renderer-diagnostics";
 import type { SettingsSection } from "../../settings-view";
 import { SkillProfileSelector } from "../../skill-profile-selector";
 import { formatExactLocalTime, formatRelativeTime } from "../../string-utils";
 import { ThinkingTraceToggle } from "../../thinking-trace-toggle";
 import { ToolAccessSelector } from "../../tool-access-selector";
-import type { ChangedFile } from "./display-mode-types";
 import { statusLabel, statusTone, summarizeDisplayModeSubagents } from "./display-mode-utils";
 
 export interface DisplayModeTileProps {
@@ -71,38 +72,367 @@ export interface DisplayModeTileProps {
   readonly fastModeAvailable: boolean;
   readonly showThinking: boolean;
   readonly codexUsageStatus?: string;
-  readonly onFilesUpdate: ((files: readonly ChangedFile[]) => void) | undefined;
   readonly onOpenThread: () => void;
   readonly onOpenVSCode: () => void;
   readonly onPinPreview: () => void;
   readonly onToggleTerminal: () => void;
   readonly onToggleExpand: () => void;
+  readonly onRequestProjection: (workspaceId: string, sessionId: string) => void;
+  readonly onInteractionResidencyChange: (key: string, active: boolean) => void;
 }
 
-export function DisplayModeTile({
-  api, id, record, terminalOpen, renderTerminalInline, isPinned, isExpanded, compact,
-  fastMode, fastModeAvailable, showThinking, codexUsageStatus,
-  runtime, sessionCommands, commandCompatibility, setSnapshot, openSettings, openSkillProfiles,
-  onFilesUpdate, onOpenThread, onOpenVSCode, onPinPreview, onToggleTerminal, onToggleExpand,
+function displayModeTilePropsEqual(previous: DisplayModeTileProps, next: DisplayModeTileProps): boolean {
+  return previous.api === next.api &&
+    previous.id === next.id &&
+    previous.record.session === next.record.session &&
+    previous.record.transcript === next.record.transcript &&
+    previous.record.subagentActivity === next.record.subagentActivity &&
+    previous.record.workspace.id === next.record.workspace.id &&
+    previous.record.workspace.name === next.record.workspace.name &&
+    previous.record.workspace.path === next.record.workspace.path &&
+    previous.record.workspace.rootWorkspaceId === next.record.workspace.rootWorkspaceId &&
+    previous.terminalOpen === next.terminalOpen &&
+    previous.renderTerminalInline === next.renderTerminalInline &&
+    previous.runtime === next.runtime &&
+    previous.sessionCommands === next.sessionCommands &&
+    previous.commandCompatibility === next.commandCompatibility &&
+    previous.isPinned === next.isPinned &&
+    previous.isExpanded === next.isExpanded &&
+    previous.compact === next.compact &&
+    previous.fastMode === next.fastMode &&
+    previous.fastModeAvailable === next.fastModeAvailable &&
+    previous.showThinking === next.showThinking &&
+    previous.codexUsageStatus === next.codexUsageStatus &&
+    previous.setSnapshot === next.setSnapshot &&
+    previous.openSettings === next.openSettings &&
+    previous.openSkillProfiles === next.openSkillProfiles &&
+    previous.onRequestProjection === next.onRequestProjection &&
+    previous.onInteractionResidencyChange === next.onInteractionResidencyChange;
+}
+
+function DisplayModeTileComponent(props: DisplayModeTileProps) {
+  return props.compact
+    ? <DisplayModeCardShell {...props} />
+    : <DisplayModeDetailedCard {...props} />;
+}
+
+export const DisplayModeTile = memo(DisplayModeTileComponent, displayModeTilePropsEqual);
+
+function DisplayModeCardExcerpt({
+  recentMessages,
+  fallbackPreview,
+  transcriptRef,
+  expandedToolCallIds,
+  onToggleToolCall,
+}: {
+  readonly recentMessages: DisplayModeThreadRecord["transcript"];
+  readonly fallbackPreview: string;
+  readonly transcriptRef: RefObject<HTMLDivElement | null>;
+  readonly expandedToolCallIds: ReadonlySet<string>;
+  readonly onToggleToolCall: (callId: string) => void;
+}) {
+  if (recentMessages.length > 0) {
+    return (
+      <div className="display-mode-tile__transcript" ref={transcriptRef}>
+        {recentMessages.map((item) => (
+          <TimelineItem
+            item={item}
+            key={item.id}
+            expandedToolCallIds={expandedToolCallIds}
+            onToggleToolCall={onToggleToolCall}
+          />
+        ))}
+      </div>
+    );
+  }
+  if (fallbackPreview) {
+    return (
+      <div className="display-mode-tile__transcript display-mode-tile__transcript--preview" ref={transcriptRef}>
+        <div className="display-mode-tile__preview-text">{fallbackPreview}</div>
+      </div>
+    );
+  }
+  return <div className="display-mode-tile__empty-state">Transcript not loaded yet</div>;
+}
+
+function DisplayModeCardTerminal({
+  wrapperRef,
+  workspace,
+  sessionId,
+  height,
+  onHide,
+}: {
+  readonly wrapperRef: RefObject<HTMLDivElement | null>;
+  readonly workspace: DisplayModeThreadRecord["workspace"];
+  readonly sessionId: string;
+  readonly height: number;
+  readonly onHide: () => void;
+}) {
+  return (
+    <div className="display-mode-tile__terminal" ref={wrapperRef}>
+      <TerminalPanel
+        workspace={workspace}
+        sessionId={sessionId}
+        height={height}
+        isTakeover={false}
+        onHeightChange={() => undefined}
+        onToggleTakeover={() => undefined}
+        onHide={onHide}
+      />
+    </div>
+  );
+}
+
+function DisplayModeCardComposer({ children }: { readonly children: ReactNode }) {
+  return (
+    <div className="composer display-mode-tile__reply">
+      <div className="conversation conversation--composer">{children}</div>
+    </div>
+  );
+}
+
+function DisplayModeCardShell({
+  api,
+  id,
+  record,
+  terminalOpen,
+  isPinned,
+  isExpanded,
+  onOpenThread,
+  onOpenVSCode,
+  onPinPreview,
+  onToggleTerminal,
+  onToggleExpand,
+  onInteractionResidencyChange,
 }: DisplayModeTileProps) {
   const [renaming, setRenaming] = useState(false);
   const [renameDraft, setRenameDraft] = useState("");
   const [actionsMenuOpen, setActionsMenuOpen] = useState(false);
   const renameInputRef = useRef<HTMLInputElement | null>(null);
   const actionsMenuRef = useRef<HTMLDivElement | null>(null);
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id, disabled: isExpanded });
+  const { attributes, listeners, setActivatorNodeRef, setNodeRef, transform, transition, isDragging } = useSortable({
+    id,
+    disabled: isExpanded,
+  });
+  const tone = statusTone(record.session);
+
+  useEffect(() => {
+    if (renaming) renameInputRef.current?.select();
+  }, [renaming]);
+
+  useEffect(() => {
+    if (!actionsMenuOpen) return;
+    const closeOnPointerDown = (event: PointerEvent) => {
+      if (!actionsMenuRef.current?.contains(event.target as Node)) setActionsMenuOpen(false);
+    };
+    const closeOnEscape = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") setActionsMenuOpen(false);
+    };
+    window.addEventListener("pointerdown", closeOnPointerDown);
+    window.addEventListener("keydown", closeOnEscape);
+    return () => {
+      window.removeEventListener("pointerdown", closeOnPointerDown);
+      window.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [actionsMenuOpen]);
+
+  useEffect(() => {
+    onInteractionResidencyChange(id, renaming || actionsMenuOpen || terminalOpen);
+    return () => onInteractionResidencyChange(id, false);
+  }, [actionsMenuOpen, id, onInteractionResidencyChange, renaming, terminalOpen]);
+
+  const submitRename = () => {
+    const title = renameDraft.trim();
+    if (title && title !== record.session.title) {
+      void api.renameSession({ workspaceId: record.workspace.id, sessionId: record.session.id }, title);
+    }
+    setRenaming(false);
+  };
+  const runAction = (action: () => void) => {
+    setActionsMenuOpen(false);
+    action();
+  };
+
+  return (
+    <article
+      ref={setNodeRef}
+      className={`display-mode-tile display-mode-tile--${tone}${isPinned ? " display-mode-tile--pinned" : ""}${isDragging ? " display-mode-tile--dragging" : ""} display-mode-tile--compact`}
+      style={{ transform: CSS.Transform.toString(transform), transition }}
+      data-testid="display-mode-thread-tile"
+      data-thread-key={id}
+    >
+      <div className="display-mode-tile__accent" aria-hidden="true" />
+      <header className="display-mode-tile__head">
+        <div className="display-mode-tile__head-top">
+          <div
+            ref={setActivatorNodeRef}
+            className="display-mode-tile__drag"
+            {...listeners}
+            {...attributes}
+            aria-label="Drag to reorder"
+            title="Drag to reorder"
+          >⠿</div>
+          <button
+            className="display-mode-tile__expand-btn"
+            type="button"
+            aria-label="Expand tile to half width"
+            title="Expand to half"
+            onClick={(event) => {
+              event.stopPropagation();
+              onToggleExpand();
+            }}
+          >
+            <MaximizeIcon />
+          </button>
+          <span className="display-mode-tile__workspace">{record.workspace.name}</span>
+          <span className={`display-mode-tile__status-pill display-mode-tile__status-pill--${tone}`}>
+            <span className="display-mode-tile__status-dot" aria-hidden="true" />
+            {statusLabel(record.session)}
+          </span>
+          <time
+            aria-label={`Updated ${formatExactLocalTime(record.session.updatedAt)}`}
+            className="display-mode-tile__time"
+            dateTime={record.session.updatedAt}
+            tabIndex={0}
+            title={formatExactLocalTime(record.session.updatedAt)}
+          >
+            {formatRelativeTime(record.session.updatedAt)}
+          </time>
+          <div className="display-mode-tile__action-menu" ref={actionsMenuRef}>
+            <button
+              aria-expanded={actionsMenuOpen}
+              aria-haspopup="menu"
+              aria-label="Thread actions"
+              className={`display-mode-tile__action-menu-trigger${actionsMenuOpen ? " display-mode-tile__action-menu-trigger--open" : ""}`}
+              data-testid="display-mode-thread-actions"
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                setActionsMenuOpen((open) => !open);
+              }}
+            >
+              <EllipsisIcon />
+            </button>
+            {actionsMenuOpen ? (
+              <div aria-label="Thread actions" className="display-mode-tile__action-menu-popover" role="menu">
+                <button role="menuitem" type="button" onClick={() => runAction(onOpenThread)}>
+                  <ChevronRightIcon />
+                  <span>Open thread</span>
+                </button>
+                {record.session.status === "running" ? (
+                  <button
+                    className="display-mode-tile__action-menu-danger"
+                    role="menuitem"
+                    type="button"
+                    onClick={() => runAction(() => {
+                      void api.cancelSessionRun({
+                        workspaceId: record.workspace.id,
+                        sessionId: record.session.id,
+                      });
+                    })}
+                  >
+                    <StopSquareIcon />
+                    <span>Stop</span>
+                  </button>
+                ) : null}
+                <div className="display-mode-tile__action-menu-separator" role="separator" />
+                <button aria-pressed={terminalOpen} role="menuitem" type="button" onClick={() => runAction(onToggleTerminal)}>
+                  <TerminalIcon />
+                  <span>Terminal</span>
+                </button>
+                <button role="menuitem" type="button" onClick={() => runAction(onOpenVSCode)}>
+                  <VSCodeIcon />
+                  <span>VS Code</span>
+                </button>
+                <button aria-pressed={isPinned} role="menuitem" type="button" onClick={() => runAction(onPinPreview)}>
+                  <MaximizeIcon />
+                  <span>Pin preview</span>
+                </button>
+              </div>
+            ) : null}
+          </div>
+        </div>
+        <div className="display-mode-tile__head-title">
+          {renaming ? (
+            <input
+              ref={renameInputRef}
+              className="display-mode-tile__rename-input"
+              value={renameDraft}
+              onChange={(event) => setRenameDraft(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  submitRename();
+                }
+                if (event.key === "Escape") {
+                  event.preventDefault();
+                  setRenaming(false);
+                }
+              }}
+              onBlur={submitRename}
+            />
+          ) : (
+            <button
+              className="display-mode-tile__title display-mode-tile__title--editable"
+              type="button"
+              title="Click to rename"
+              onClick={() => {
+                setRenameDraft(record.session.title);
+                setRenaming(true);
+              }}
+            >
+              {record.session.title}
+            </button>
+          )}
+        </div>
+      </header>
+    </article>
+  );
+}
+
+function DisplayModeDetailedCard({
+  api, id, record, terminalOpen, renderTerminalInline, isPinned, isExpanded, compact,
+  fastMode, fastModeAvailable, showThinking, codexUsageStatus,
+  runtime, sessionCommands, commandCompatibility, setSnapshot, openSettings, openSkillProfiles,
+  onOpenThread, onOpenVSCode, onPinPreview, onToggleTerminal, onToggleExpand, onRequestProjection,
+  onInteractionResidencyChange,
+}: DisplayModeTileProps) {
+  const [renaming, setRenaming] = useState(false);
+  const [renameDraft, setRenameDraft] = useState("");
+  const [actionsMenuOpen, setActionsMenuOpen] = useState(false);
+  const renameInputRef = useRef<HTMLInputElement | null>(null);
+  const actionsMenuRef = useRef<HTMLDivElement | null>(null);
+  const { attributes, listeners, setActivatorNodeRef, setNodeRef, transform, transition, isDragging } = useSortable({
+    id,
+    disabled: isExpanded,
+  });
   const [draft, setDraft] = useState("");
   const [attachments, setAttachments] = useState<readonly ComposerAttachment[]>([]);
   const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | undefined>();
+  const [composerHydrated, setComposerHydrated] = useState(false);
+  const composerTouchedRef = useRef(false);
+  const draftTouchedRef = useRef(false);
+  const attachmentsTouchedRef = useRef(false);
+  const latestDraftRef = useRef(draft);
+  const latestAttachmentsRef = useRef(attachments);
+  latestDraftRef.current = draft;
+  latestAttachmentsRef.current = attachments;
+  const setComposerDraft: Dispatch<SetStateAction<string>> = useCallback((value) => {
+    composerTouchedRef.current = true;
+    draftTouchedRef.current = true;
+    setDraft(value);
+  }, []);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const transcriptRef = useRef<HTMLDivElement | null>(null);
+  const articleRef = useRef<HTMLElement | null>(null);
+  const projectionRequestedRef = useRef(false);
   const terminalWrapperRef = useRef<HTMLDivElement | null>(null);
   const [terminalHeight, setTerminalHeight] = useState(200);
   const [expandedToolCallIds, setExpandedToolCallIds] = useState<Set<string>>(() => new Set());
   const tone = statusTone(record.session);
   const recentMessages = record.transcript.slice(-8);
-  const hasRecentMessages = recentMessages.length > 0;
   const sessionPreview = record.session.preview.trim();
   const transcriptFallbackPreview = sessionPreview && sessionPreview !== record.session.title.trim() ? sessionPreview : "";
   const subagentActivity = record.subagentActivity ?? summarizeDisplayModeSubagents(record.transcript);
@@ -113,8 +443,7 @@ export function DisplayModeTile({
     const text = textInput.trim();
     if ((!text && attachments.length === 0) || submitting) return;
     setSubmitting(true);
-    setDraft("");
-    setAttachments([]);
+    setSubmitError(undefined);
     void api.submitComposerToSession(
       { workspaceId: record.workspace.id, sessionId: record.session.id },
       text,
@@ -122,12 +451,72 @@ export function DisplayModeTile({
         attachments,
         ...(record.session.status === "running" ? { deliverAs: "steer" as const } : {}),
       },
-    ).finally(() => setSubmitting(false));
+    ).then((result) => {
+      if (!result.accepted) {
+        setSubmitError(result.error ?? "The message could not be sent.");
+        return;
+      }
+      setDraft("");
+      setAttachments([]);
+    }).catch((error: unknown) => {
+      setSubmitError(error instanceof Error ? error.message : String(error));
+    }).finally(() => setSubmitting(false));
   }, [api, attachments, record.session.id, record.session.status, record.workspace.id, submitting]);
+
+  useEffect(() => {
+    let active = true;
+    setComposerHydrated(false);
+    void api.getSessionComposerState({
+      workspaceId: record.workspace.id,
+      sessionId: record.session.id,
+    }).then((state) => {
+      if (!active) return;
+      if (!composerTouchedRef.current) {
+        setDraft(state.draft);
+        setAttachments(state.attachments);
+      }
+      setComposerHydrated(true);
+    });
+    return () => {
+      active = false;
+    };
+  }, [api, record.session.id, record.workspace.id]);
+
+  useEffect(() => {
+    if (!composerHydrated || !draftTouchedRef.current) return;
+    const timer = window.setTimeout(() => {
+      void api.updateComposerDraft(
+        { workspaceId: record.workspace.id, sessionId: record.session.id },
+        draft,
+      );
+    }, 150);
+    return () => window.clearTimeout(timer);
+  }, [api, composerHydrated, draft, record.session.id, record.workspace.id]);
+
+  useEffect(() => {
+    if (!composerHydrated || !attachmentsTouchedRef.current) return;
+    void api.setSessionComposerAttachments(
+      { workspaceId: record.workspace.id, sessionId: record.session.id },
+      attachments,
+    );
+  }, [api, attachments, composerHydrated, record.session.id, record.workspace.id]);
+
+  useEffect(() => {
+    if (!composerHydrated) return;
+    const target = { workspaceId: record.workspace.id, sessionId: record.session.id };
+    return () => {
+      if (draftTouchedRef.current) {
+        void api.updateComposerDraft(target, latestDraftRef.current);
+      }
+      if (attachmentsTouchedRef.current) {
+        void api.setSessionComposerAttachments(target, latestAttachmentsRef.current);
+      }
+    };
+  }, [api, composerHydrated, record.session.id, record.workspace.id]);
 
   const slashMenu = useSlashMenu({
     composerDraft: draft,
-    setComposerDraft: setDraft,
+    setComposerDraft,
     selectedRuntime: runtime,
     selectedModelRuntime: runtime,
     sessionCommands,
@@ -226,16 +615,6 @@ export function DisplayModeTile({
     setRenaming(false);
   };
 
-  useEffect(() => {
-    let active = true;
-    void api.getChangedFiles(record.workspace.id).then((files) => {
-      if (!active) return;
-      const sliced = files.slice(0, 8);
-      onFilesUpdate?.(sliced);
-    }).catch((error) => logIgnoredError("display-mode.changed-files", error));
-    return () => { active = false; };
-  }, [api, record.workspace.id, record.session.updatedAt, onFilesUpdate]);
-
   // Auto-resize textarea
   useEffect(() => {
     const textarea = textareaRef.current;
@@ -250,6 +629,8 @@ export function DisplayModeTile({
 
   const addAttachments = useCallback((files: readonly File[]) => {
     if (files.length === 0) return;
+    composerTouchedRef.current = true;
+    attachmentsTouchedRef.current = true;
     void readComposerAttachmentsFromFiles(files).then((nextAttachments) => {
       if (nextAttachments.length > 0) {
         setAttachments((current) => [...current, ...nextAttachments]);
@@ -323,25 +704,72 @@ export function DisplayModeTile({
   const modelId = record.session.config?.modelId ?? runtime?.settings.defaultModelId;
   const thinkingLevel = record.session.config?.thinkingLevel ?? runtime?.settings.defaultThinkingLevel;
 
+  const setArticleNode = useCallback((node: HTMLElement | null) => {
+    articleRef.current = node;
+    setNodeRef(node);
+  }, [setNodeRef]);
+
+  useEffect(() => {
+    projectionRequestedRef.current = false;
+    if (compact) return;
+    const node = articleRef.current;
+    if (!node) return;
+    if (isExpanded) {
+      projectionRequestedRef.current = true;
+      onRequestProjection(record.workspace.id, record.session.id);
+      return;
+    }
+    const observer = new IntersectionObserver((entries) => {
+      if (!entries.some((entry) => entry.isIntersecting) || projectionRequestedRef.current) return;
+      projectionRequestedRef.current = true;
+      onRequestProjection(record.workspace.id, record.session.id);
+    }, { rootMargin: "1000px 0px" });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [compact, id, isExpanded, onRequestProjection, record.session.id, record.workspace.id]);
+
+  useEffect(() => {
+    const resident =
+      terminalOpen ||
+      isExpanded ||
+      renaming ||
+      actionsMenuOpen ||
+      (composerHydrated && (draft.trim().length > 0 || attachments.length > 0));
+    onInteractionResidencyChange(id, resident);
+    return () => onInteractionResidencyChange(id, false);
+  }, [
+    actionsMenuOpen,
+    attachments.length,
+    composerHydrated,
+    draft,
+    id,
+    isExpanded,
+    onInteractionResidencyChange,
+    renaming,
+    terminalOpen,
+  ]);
+
   return (
     <article
-      ref={setNodeRef}
+      ref={setArticleNode}
       className={`display-mode-tile display-mode-tile--${tone}${isPinned ? " display-mode-tile--pinned" : ""}${isDragging ? " display-mode-tile--dragging" : ""}${isExpanded ? " display-mode-tile--expanded" : ""}${compact ? " display-mode-tile--compact" : ""}${terminalOpen ? " display-mode-tile--terminal-open" : ""}`}
       style={{
         transform: CSS.Transform.toString(transform),
         transition,
       }}
       data-testid="display-mode-thread-tile"
+      data-thread-key={id}
       onKeyDown={handleTileKeyDown}
-      {...attributes}
     >
       <div className="display-mode-tile__accent" aria-hidden="true" />
       {/* Header */}
       <header className="display-mode-tile__head">
         <div className="display-mode-tile__head-top">
           <div
+            ref={setActivatorNodeRef}
             className="display-mode-tile__drag"
             {...(isExpanded ? {} : listeners)}
+            {...attributes}
             aria-label="Drag to reorder"
             title="Drag to reorder"
             style={isExpanded ? { opacity: 0.3, pointerEvents: "none" } : undefined}
@@ -463,42 +891,26 @@ export function DisplayModeTile({
         </div>
       </header>
 
-      {/* Transcript */}
-      {!compact && hasRecentMessages ? (
-        <div className="display-mode-tile__transcript" ref={transcriptRef}>
-          {recentMessages.map((item) => (
-            <TimelineItem
-              item={item}
-              key={item.id}
-              expandedToolCallIds={expandedToolCallIds}
-              onToggleToolCall={toggleToolCall}
-            />
-          ))}
-        </div>
-      ) : !compact && transcriptFallbackPreview ? (
-        <div className="display-mode-tile__transcript display-mode-tile__transcript--preview" ref={transcriptRef}>
-          <div className="display-mode-tile__preview-text">{transcriptFallbackPreview}</div>
-        </div>
-      ) : !compact ? (
-        <div className="display-mode-tile__empty-state">Transcript not loaded yet</div>
-      ) : null}
+      <DisplayModeCardExcerpt
+        recentMessages={recentMessages}
+        fallbackPreview={transcriptFallbackPreview}
+        transcriptRef={transcriptRef}
+        expandedToolCallIds={expandedToolCallIds}
+        onToggleToolCall={toggleToolCall}
+      />
 
       {/* Terminal (when open) */}
-      {!compact && terminalOpen && renderTerminalInline && (
-        <div className="display-mode-tile__terminal" ref={terminalWrapperRef}>
-          <TerminalPanel
-            workspace={record.workspace}
-            sessionId={record.session.id}
-            height={terminalHeight}
-            isTakeover={false}
-            onHeightChange={() => undefined}
-            onToggleTakeover={() => undefined}
-            onHide={onToggleTerminal}
-          />
-        </div>
-      )}
+      {terminalOpen && renderTerminalInline ? (
+        <DisplayModeCardTerminal
+          wrapperRef={terminalWrapperRef}
+          workspace={record.workspace}
+          sessionId={record.session.id}
+          height={terminalHeight}
+          onHide={onToggleTerminal}
+        />
+      ) : null}
 
-      {subagentActivity && !compact ? (
+      {subagentActivity ? (
         <div
           aria-live="polite"
           className={`display-mode-tile__activity-rail display-mode-tile__activity-rail--${subagentActivity.status}`}
@@ -511,8 +923,7 @@ export function DisplayModeTile({
       ) : null}
 
       {/* Reply — reuse the same composer surface/input structure as the thread view. */}
-      {!compact && <div className="composer display-mode-tile__reply">
-        <div className="conversation conversation--composer">
+      <DisplayModeCardComposer>
           <input
             ref={fileInputRef}
             className="sr-only"
@@ -531,7 +942,7 @@ export function DisplayModeTile({
             queuedMessages={[]}
             composerDraft={draft}
             composerRef={textareaRef}
-            lastError={undefined}
+            lastError={submitError}
             onCancelQueuedEdit={() => undefined}
             onClearSlashCommand={slashMenu.resetSlashUi}
             onComposerDrop={handleComposerDrop}
@@ -539,6 +950,8 @@ export function DisplayModeTile({
             onComposerPaste={handleComposerPaste}
             onEditQueuedMessage={() => undefined}
             onRemoveAttachment={(attachmentId) => {
+              composerTouchedRef.current = true;
+              attachmentsTouchedRef.current = true;
               setAttachments((current) => current.filter((attachment) => attachment.id !== attachmentId));
             }}
             onRemoveQueuedMessage={() => undefined}
@@ -552,7 +965,7 @@ export function DisplayModeTile({
             selectedMentionIndex={0}
             selectedSlashCommand={slashMenu.activeSlashOptionCommand ?? slashMenu.selectedSlashCommand}
             selectedSlashOption={slashMenu.selectedSlashOption}
-            setComposerDraft={setDraft}
+            setComposerDraft={setComposerDraft}
             showMentionMenu={false}
             mentionOptions={[]}
             showSlashMenu={slashMenu.showSlashMenu}
@@ -631,8 +1044,7 @@ export function DisplayModeTile({
               </div>
             )}
           />
-        </div>
-      </div>}
+      </DisplayModeCardComposer>
     </article>
   );
 }

@@ -15,6 +15,27 @@ afterEach(async () => {
 });
 
 describe("SubagentRunStore queued workflow correlation", () => {
+  it("publishes a targeted session change instead of invalidating an entire workspace", async () => {
+    const userDataDir = await mkdtemp(join(tmpdir(), "pi-gui-subagent-runs-"));
+    temporaryDirs.push(userDataDir);
+    const changes: Array<{ workspaceId: string; sessionId?: string }> = [];
+    const runStore = new SubagentRunStore(userDataDir, (workspaceId, sessionId) => {
+      changes.push({ workspaceId, sessionId });
+    });
+    const target = { workspaceId: "workspace-1", sessionId: "session-target" };
+    const workflow = BUILTIN_SUBAGENT_WORKFLOWS[0];
+    if (!workflow) throw new Error("Expected a built-in workflow fixture.");
+    const store = {
+      sessionFromState: () => ({ status: "idle" }),
+      getWorkspacePath: () => "/tmp/workspace-1",
+      submitComposerToSession: async () => ({ lastError: undefined }),
+    } as unknown as DesktopAppStore;
+
+    await runStore.runWorkflow(store, { workflowId: workflow.id, target }, workflow);
+    expect(changes).toEqual([target]);
+    runStore.dispose();
+  });
+
   it("reports a queued workflow that finishes without invoking Agent", async () => {
     const userDataDir = await mkdtemp(join(tmpdir(), "pi-gui-subagent-runs-"));
     temporaryDirs.push(userDataDir);

@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type Dispatch, type SetStateAction } from "react";
 import type { RuntimeCommandRecord, RuntimeSnapshot } from "@pi-gui/session-driver/runtime-types";
+import { LRUCache } from "lru-cache";
 import {
   DndContext,
   DragOverlay,
   closestCenter,
   KeyboardSensor,
   PointerSensor,
+  useDroppable,
   useSensor,
   useSensors,
   type DragEndEvent,
@@ -17,13 +19,17 @@ import {
   SortableContext,
   sortableKeyboardCoordinates,
 } from "@dnd-kit/sortable";
-import type { DesktopAppState, DisplayModeThreadRecord, ExtensionCommandCompatibilityRecord } from "./desktop-state";
+import type {
+  DesktopAppState,
+  DisplayModeThreadProjection,
+  DisplayModeThreadRecord,
+  ExtensionCommandCompatibilityRecord,
+} from "./desktop-state";
 import { DisplayModeTile } from "./features/display-mode/display-mode-tile";
 import type { ChangedFile, ColumnMode, DisplayModeFilter, DrawerTab } from "./features/display-mode/display-mode-types";
 import {
   fileBadge,
   filterLabel,
-  gridTemplateColumnsForMode,
   isHttpUrl,
   lsGetBool,
   lsGetColumnMode,
@@ -38,7 +44,6 @@ import type { SettingsSection } from "./settings-view";
 import type { FastModeSelection } from "./fast-mode-selector";
 import { codexUsageStatusFrom } from "./codex-usage-status";
 import { formatExactLocalTime, formatRelativeTime } from "./string-utils";
-import { LoadingState } from "./loading-state";
 import {
   clampVsCodeSidePanelWidth,
   getMaxVsCodeSidePanelWidth,
@@ -58,6 +63,7 @@ export interface DisplayModeViewProps {
   readonly initialPinnedThreadKey: string;
   readonly vscodeSlotRef: (node: HTMLElement | null) => void;
   readonly runtimeByWorkspace: Readonly<Record<string, RuntimeSnapshot>>;
+  readonly workspaces: DesktopAppState["workspaces"];
   readonly sessionCommandsBySession: Readonly<Record<string, readonly RuntimeCommandRecord[]>>;
   readonly commandCompatibilityByWorkspace: Readonly<Record<string, readonly ExtensionCommandCompatibilityRecord[]>>;
   readonly sessionExtensionUiBySession: DesktopAppState["sessionExtensionUiBySession"];
@@ -70,16 +76,20 @@ export interface DisplayModeViewProps {
   readonly onOpenThread: (target: { readonly workspaceId: string; readonly sessionId: string }) => void;
 }
 
+const DISPLAY_MODE_RENDERER_PROJECTION_CACHE_BYTES = 12 * 1024 * 1024;
+
 export function DisplayModeView({
   api, drawerOpen, onToggleDrawer,
   vsCodeOpen, vsCodeWorkspaceId, vsCodeWidth, onVsCodeWidthChange, onOpenVsCodeForWorkspace,
   initialPinnedThreadKey, vscodeSlotRef,
   runtimeByWorkspace, sessionCommandsBySession, commandCompatibilityByWorkspace, sessionExtensionUiBySession,
+  workspaces,
   fastMode, fastModeAvailable, showThinking,
   setSnapshot, openSettings, openSkillProfiles, onOpenThread,
 }: DisplayModeViewProps) {
-  const [threads, setThreads] = useState<readonly DisplayModeThreadRecord[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [projectionsByThread, setProjectionsByThread] = useState<
+    Readonly<Record<string, DisplayModeThreadProjection>>
+  >({});
   const [filter, setFilter] = useState<DisplayModeFilter>("all");
   const [workspaceFilter, setWorkspaceFilter] = useState<string>("");
   const [colCount, setColCount] = useState<ColumnMode>(() => lsGetColumnMode("dm:colCount", 3));
@@ -95,12 +105,31 @@ export function DisplayModeView({
   const [draggingId, setDraggingId] = useState<string | null>(null);
 
   const [drawerWidth, setDrawerWidth] = useState<number>(() => lsGetNum("dm:drawerWidth", 320));
-  const lastFetchAt = useRef<number>(0);
-  const pendingRefresh = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const projectionsByThreadRef = useRef(projectionsByThread);
+  const projectionCacheRef = useRef(new LRUCache<string, DisplayModeThreadProjection>({
+    maxSize: DISPLAY_MODE_RENDERER_PROJECTION_CACHE_BYTES,
+    sizeCalculation: (projection) => Math.max(1, projection.serializedBytes),
+  }));
+  const projectionRequestsRef = useRef(new Map<string, Promise<void>>());
+  const changedFilesRequestsRef = useRef(new Map<string, Promise<readonly ChangedFile[]>>());
   const sectionRef = useRef<HTMLElement | null>(null);
   const drawerWidthRef = useRef(drawerWidth);
   const vsCodeWidthRef = useRef(vsCodeWidth);
   const appliedInitialPinnedThreadKeyRef = useRef("");
+  const mainScrollRef = useRef<HTMLDivElement | null>(null);
+  const virtualGridRef = useRef<HTMLDivElement | null>(null);
+  const [resolvedColumnCount, setResolvedColumnCount] = useState(3);
+  const resolvedColumnCountRef = useRef(3);
+  const resolvedColumnsInitializedRef = useRef(false);
+  const [virtualViewport, setVirtualViewport] = useState({ scrollTop: 0, height: 0 });
+  const [interactionPinnedKeys, setInteractionPinnedKeys] = useState<ReadonlySet<string>>(() => new Set());
+  const [focusedThreadKey, setFocusedThreadKey] = useState<string | null>(null);
+  const splitRestRef = useRef<HTMLDivElement | null>(null);
+  const [splitViewport, setSplitViewport] = useState({ scrollTop: 0, height: 0 });
+  const [splitColumnCount, setSplitColumnCount] = useState(2);
+  const projectionGenerationRef = useRef(0);
+  const showThinkingRef = useRef(showThinking);
+  const [staleProjectionResponseCount, setStaleProjectionResponseCount] = useState(0);
 
   // Persist preferences
   useEffect(() => { lsSet("dm:colCount", colCount); }, [colCount]);
@@ -123,6 +152,81 @@ export function DisplayModeView({
       onVsCodeWidthChange(maxWidth);
     }
   }, [onVsCodeWidthChange, vsCodeOpen, vsCodeWidth]);
+
+  useEffect(() => {
+    const element = mainScrollRef.current;
+    if (!element) return;
+    let frame = 0;
+    const update = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        setVirtualViewport({ scrollTop: element.scrollTop, height: element.clientHeight });
+        const contentWidth = Math.max(0, element.clientWidth - 40);
+        const responsiveMaximum = contentWidth <= 760 ? 1 : contentWidth <= 1180 ? 2 : 8;
+        const requested = colCount === "auto"
+          ? Math.max(1, Math.min(8, Math.floor((contentWidth + 14) / 354)))
+          : colCount;
+        const next = Math.min(responsiveMaximum, requested);
+        const previous = resolvedColumnCountRef.current;
+        if (next !== previous) {
+          if (!resolvedColumnsInitializedRef.current) {
+            resolvedColumnsInitializedRef.current = true;
+            resolvedColumnCountRef.current = next;
+            setResolvedColumnCount(next);
+            return;
+          }
+          const rowHeight = compact ? 92 : 514;
+          const gridOffset = virtualGridRef.current?.offsetTop ?? 0;
+          const relativeTop = Math.max(0, element.scrollTop - gridOffset);
+          const anchorIndex = Math.floor(relativeTop / rowHeight) * previous;
+          const rowOffset = relativeTop % rowHeight;
+          resolvedColumnCountRef.current = next;
+          setResolvedColumnCount(next);
+          requestAnimationFrame(() => {
+            const nextGridOffset = virtualGridRef.current?.offsetTop ?? gridOffset;
+            element.scrollTop = nextGridOffset + Math.floor(anchorIndex / next) * rowHeight + rowOffset;
+          });
+        } else {
+          resolvedColumnsInitializedRef.current = true;
+        }
+      });
+    };
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(element);
+    element.addEventListener("scroll", update, { passive: true });
+    return () => {
+      cancelAnimationFrame(frame);
+      observer.disconnect();
+      element.removeEventListener("scroll", update);
+    };
+  }, [colCount, compact]);
+
+  useEffect(() => {
+    const element = splitRestRef.current;
+    if (!element || !expandedId) return;
+    let frame = 0;
+    const update = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        setSplitViewport({ scrollTop: element.scrollTop, height: element.clientHeight });
+        const contentWidth = Math.max(0, element.clientWidth - 24);
+        const requested = colCount === "auto"
+          ? Math.max(1, Math.min(4, Math.floor((contentWidth + 10) / 350)))
+          : colCount;
+        setSplitColumnCount(Math.max(1, Math.min(requested, Math.floor((contentWidth + 10) / 280) || 1)));
+      });
+    };
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(element);
+    element.addEventListener("scroll", update, { passive: true });
+    return () => {
+      cancelAnimationFrame(frame);
+      observer.disconnect();
+      element.removeEventListener("scroll", update);
+    };
+  }, [colCount, expandedId]);
   const startDrawerResize = (e: React.PointerEvent<HTMLDivElement>) => {
     e.preventDefault();
     e.currentTarget.setPointerCapture(e.pointerId);
@@ -178,10 +282,39 @@ export function DisplayModeView({
     window.addEventListener("pointerup", onUp);
   };
 
-  const applyRecords = useCallback((records: readonly DisplayModeThreadRecord[]) => {
-    setThreads(records);
-    setPinnedThreadKey((c) => c || initialPinnedThreadKey || (records[0] ? threadKey(records[0].workspace.id, records[0].session.id) : ""));
-  }, [initialPinnedThreadKey]);
+  useEffect(() => {
+    projectionsByThreadRef.current = projectionsByThread;
+  }, [projectionsByThread]);
+
+  const threads = useMemo<readonly DisplayModeThreadRecord[]>(() =>
+    workspaces.flatMap((workspace) => {
+      const lightweightWorkspace = { ...workspace, sessions: [] };
+      return workspace.sessions
+        .filter((session) => !session.archivedAt)
+        .map((session) => {
+          const key = threadKey(workspace.id, session.id);
+          const projection = projectionsByThread[key];
+          return {
+            workspace: lightweightWorkspace,
+            session,
+            transcript: projection?.excerptRows ?? [],
+            ...(projection?.subagentActivity ? { subagentActivity: projection.subagentActivity } : {}),
+          };
+        });
+    }).sort((left, right) => {
+      const leftRunning = left.session.status === "running" ? 0 : 1;
+      const rightRunning = right.session.status === "running" ? 0 : 1;
+      if (leftRunning !== rightRunning) return leftRunning - rightRunning;
+      return Date.parse(right.session.updatedAt) - Date.parse(left.session.updatedAt);
+    }), [projectionsByThread, workspaces]);
+
+  useEffect(() => {
+    setPinnedThreadKey((current) =>
+      current ||
+      initialPinnedThreadKey ||
+      (threads[0] ? threadKey(threads[0].workspace.id, threads[0].session.id) : ""),
+    );
+  }, [initialPinnedThreadKey, threads]);
 
   useEffect(() => {
     if (!initialPinnedThreadKey || appliedInitialPinnedThreadKeyRef.current === initialPinnedThreadKey) {
@@ -196,32 +329,52 @@ export function DisplayModeView({
     setPinnedThreadFiles([]);
   }, [initialPinnedThreadKey, threads]);
 
+  const requestProjection = useCallback((workspaceId: string, sessionId: string) => {
+    const key = threadKey(workspaceId, sessionId);
+    const existingRequest = projectionRequestsRef.current.get(key);
+    if (existingRequest) return existingRequest;
+    const requestGeneration = projectionGenerationRef.current;
+    const knownRevision = projectionsByThreadRef.current[key]?.revision;
+    const request = api.getDisplayModeThreadProjection(
+      { workspaceId, sessionId },
+      knownRevision,
+    ).then((response) => {
+      if (response.kind !== "projection") return;
+      if (
+        requestGeneration !== projectionGenerationRef.current ||
+        response.projection.showThinking !== showThinkingRef.current
+      ) {
+        setStaleProjectionResponseCount((count) => count + 1);
+        return;
+      }
+      setProjectionsByThread((current) => {
+        const existing = current[key];
+        if (existing && existing.revision > response.projection.revision) return current;
+        projectionCacheRef.current.set(key, response.projection);
+        return Object.fromEntries(projectionCacheRef.current.entries());
+      });
+    }).finally(() => {
+      if (projectionRequestsRef.current.get(key) === request) {
+        projectionRequestsRef.current.delete(key);
+      }
+    });
+    projectionRequestsRef.current.set(key, request);
+    return request;
+  }, [api]);
+
+  useEffect(() => api.onDisplayModeProjectionChanged((event) => {
+    const key = threadKey(event.workspaceId, event.sessionId);
+    if (!projectionsByThreadRef.current[key]) return;
+    void requestProjection(event.workspaceId, event.sessionId);
+  }), [api, requestProjection]);
+
   useEffect(() => {
-    let active = true;
-
-    const doFetch = () => {
-      lastFetchAt.current = Date.now();
-      void api.getDisplayModeThreads().then((r) => { if (active) applyRecords(r); });
-    };
-
-    const scheduleRefresh = () => {
-      if (!active) return;
-      clearTimeout(pendingRefresh.current);
-      const delay = Math.max(0, 1000 - (Date.now() - lastFetchAt.current));
-      pendingRefresh.current = setTimeout(() => { if (active) doFetch(); }, delay);
-    };
-
-    setLoading(true);
-    void api.getDisplayModeThreads().then((r) => {
-      if (!active) return;
-      lastFetchAt.current = Date.now();
-      applyRecords(r);
-      setLoading(false);
-    }).catch(() => { if (active) setLoading(false); });
-
-    const unsub = api.onStatePatchChanged(scheduleRefresh);
-    return () => { active = false; clearTimeout(pendingRefresh.current); unsub(); };
-  }, [api, applyRecords]);
+    showThinkingRef.current = showThinking;
+    projectionGenerationRef.current += 1;
+    projectionRequestsRef.current.clear();
+    projectionCacheRef.current.clear();
+    setProjectionsByThread({});
+  }, [showThinking]);
 
   const uniqueWorkspaces = useMemo(() => {
     const seen = new Map<string, string>();
@@ -237,18 +390,18 @@ export function DisplayModeView({
     [filter, workspaceFilter, threads],
   );
 
-  const visibleKeysStr = useMemo(
-    () => visibleThreads.map((r) => threadKey(r.workspace.id, r.session.id)).join(","),
-    [visibleThreads],
+  const allKeysStr = useMemo(
+    () => threads.map((r) => threadKey(r.workspace.id, r.session.id)).join(","),
+    [threads],
   );
 
   useEffect(() => {
-    const keys = visibleKeysStr ? visibleKeysStr.split(",") : [];
+    const keys = allKeysStr ? allKeysStr.split(",") : [];
     setTileOrder((c) => {
       const s = new Set(keys);
       return [...c.filter((k) => s.has(k)), ...keys.filter((k) => !c.includes(k))];
     });
-  }, [visibleKeysStr]);
+  }, [allKeysStr]);
 
   const orderedThreads = useMemo(() => {
     if (tileOrder.length === 0) return visibleThreads;
@@ -260,9 +413,87 @@ export function DisplayModeView({
     });
   }, [visibleThreads, tileOrder]);
 
+  const virtualRowHeight = compact ? 92 : 514;
+  const virtualRows = useMemo(() => {
+    const rows: DisplayModeThreadRecord[][] = [];
+    for (let index = 0; index < orderedThreads.length; index += resolvedColumnCount) {
+      rows.push(orderedThreads.slice(index, index + resolvedColumnCount));
+    }
+    return rows;
+  }, [orderedThreads, resolvedColumnCount]);
+  const virtualGridOffset = virtualGridRef.current?.offsetTop ?? 0;
+  const relativeScrollTop = Math.max(0, virtualViewport.scrollTop - virtualGridOffset);
+  const firstVisibleVirtualRow = Math.max(0, Math.floor(relativeScrollTop / virtualRowHeight) - 2);
+  const lastVisibleVirtualRow = Math.min(
+    virtualRows.length - 1,
+    Math.ceil((relativeScrollTop + virtualViewport.height) / virtualRowHeight) + 2,
+  );
+  const virtualResidentRows = useMemo(() => {
+    const indexes = new Set<number>();
+    for (let index = firstVisibleVirtualRow; index <= lastVisibleVirtualRow; index += 1) {
+      if (index >= 0) indexes.add(index);
+    }
+    const pinnedKeys = new Set([
+      ...interactionPinnedKeys,
+      ...localTerminalKeys,
+      ...(focusedThreadKey ? [focusedThreadKey] : []),
+      ...(draggingId ? [draggingId] : []),
+    ]);
+    for (const key of pinnedKeys) {
+      const recordIndex = orderedThreads.findIndex((record) =>
+        threadKey(record.workspace.id, record.session.id) === key,
+      );
+      if (recordIndex >= 0) indexes.add(Math.floor(recordIndex / resolvedColumnCount));
+    }
+    return [...indexes].sort((left, right) => left - right);
+  }, [
+    draggingId,
+    firstVisibleVirtualRow,
+    focusedThreadKey,
+    interactionPinnedKeys,
+    lastVisibleVirtualRow,
+    localTerminalKeys,
+    orderedThreads,
+    resolvedColumnCount,
+  ]);
+  const virtualResidentKeys = useMemo(() => new Set(
+    virtualResidentRows.flatMap((rowIndex) =>
+      (virtualRows[rowIndex] ?? []).map((record) => threadKey(record.workspace.id, record.session.id)),
+    ),
+  ), [virtualResidentRows, virtualRows]);
+
+  const setInteractionResidency = useCallback((key: string, active: boolean) => {
+    setInteractionPinnedKeys((current) => {
+      if (current.has(key) === active) return current;
+      const next = new Set(current);
+      if (active) next.add(key);
+      else next.delete(key);
+      return next;
+    });
+  }, []);
+
   const runningCount = threads.filter((r) => r.session.status === "running").length;
   const errorCount = threads.filter((r) => r.session.status === "failed").length;
   const pinnedThread = threads.find((r) => threadKey(r.workspace.id, r.session.id) === pinnedThreadKey);
+  const pinnedWorkspaceId = pinnedThread?.workspace.id;
+  useEffect(() => {
+    if (!drawerOpen || drawerTab !== "files" || !pinnedWorkspaceId) return;
+    let active = true;
+    const workspaceId = pinnedWorkspaceId;
+    let request = changedFilesRequestsRef.current.get(workspaceId);
+    if (!request) {
+      request = api.getChangedFiles(workspaceId).finally(() => {
+        changedFilesRequestsRef.current.delete(workspaceId);
+      });
+      changedFilesRequestsRef.current.set(workspaceId, request);
+    }
+    void request.then((files) => {
+      if (active) setPinnedThreadFiles(files.slice(0, 8));
+    });
+    return () => {
+      active = false;
+    };
+  }, [api, drawerOpen, drawerTab, pinnedWorkspaceId]);
   const pinThread = useCallback((record: DisplayModeThreadRecord, key: string) => {
     setPinnedThreadKey(key);
     setPinnedThreadFiles([]);
@@ -281,14 +512,60 @@ export function DisplayModeView({
   const restRecords = focusRecord
     ? orderedThreads.filter((r) => threadKey(r.workspace.id, r.session.id) !== expandedId)
     : orderedThreads;
+  const splitRowHeight = compact ? 88 : 510;
+  const splitRows = useMemo(() => {
+    const rows: DisplayModeThreadRecord[][] = [];
+    for (let index = 0; index < restRecords.length; index += splitColumnCount) {
+      rows.push(restRecords.slice(index, index + splitColumnCount));
+    }
+    return rows;
+  }, [restRecords, splitColumnCount]);
+  const splitFirstRow = Math.max(0, Math.floor(splitViewport.scrollTop / splitRowHeight) - 2);
+  const splitLastRow = Math.min(
+    splitRows.length - 1,
+    Math.ceil((splitViewport.scrollTop + splitViewport.height) / splitRowHeight) + 2,
+  );
+  const splitResidentRows = useMemo(() => {
+    const indexes = new Set<number>();
+    for (let index = splitFirstRow; index <= splitLastRow; index += 1) {
+      if (index >= 0) indexes.add(index);
+    }
+    const pinnedKeys = new Set([
+      ...interactionPinnedKeys,
+      ...localTerminalKeys,
+      ...(focusedThreadKey ? [focusedThreadKey] : []),
+      ...(draggingId ? [draggingId] : []),
+    ]);
+    for (const key of pinnedKeys) {
+      const recordIndex = restRecords.findIndex((record) =>
+        threadKey(record.workspace.id, record.session.id) === key,
+      );
+      if (recordIndex >= 0) indexes.add(Math.floor(recordIndex / splitColumnCount));
+    }
+    return [...indexes].sort((left, right) => left - right);
+  }, [
+    draggingId,
+    focusedThreadKey,
+    interactionPinnedKeys,
+    localTerminalKeys,
+    restRecords,
+    splitColumnCount,
+    splitFirstRow,
+    splitLastRow,
+  ]);
+  const splitResidentKeys = useMemo(() => new Set(
+    splitResidentRows.flatMap((rowIndex) =>
+      (splitRows[rowIndex] ?? []).map((record) => threadKey(record.workspace.id, record.session.id)),
+    ),
+  ), [splitResidentRows, splitRows]);
 
   // Auto-select the pinned thread's workspace when VS Code opens without one already chosen.
   useEffect(() => {
-    if (vsCodeOpen && !vsCodeWorkspaceId && !loading && orderedThreads.length > 0) {
+    if (vsCodeOpen && !vsCodeWorkspaceId && orderedThreads.length > 0) {
       const target = pinnedThread ?? orderedThreads[0];
       if (target) onOpenVsCodeForWorkspace(target.workspace.id, target.workspace.path);
     }
-  }, [vsCodeOpen, vsCodeWorkspaceId, loading, orderedThreads, pinnedThread, onOpenVsCodeForWorkspace]);
+  }, [vsCodeOpen, vsCodeWorkspaceId, orderedThreads, pinnedThread, onOpenVsCodeForWorkspace]);
 
   // Collapse when expanded thread is filtered out
   useEffect(() => {
@@ -298,8 +575,8 @@ export function DisplayModeView({
   const detectedUrls = useMemo(() => {
     const appOrigin = typeof window === "undefined" ? "" : window.location.origin;
     const seen = new Set<string>();
-    for (const r of threads) {
-      for (const msg of r.transcript) {
+    if (pinnedThread) {
+      for (const msg of pinnedThread.transcript) {
         if (msg.kind !== "message") continue;
         const matches = (msg as { text: string }).text.match(/https?:\/\/localhost:\d+/g);
         if (matches) {
@@ -312,7 +589,7 @@ export function DisplayModeView({
       }
     }
     return [...seen];
-  }, [threads]);
+  }, [pinnedThread]);
 
   useEffect(() => {
     const appOrigin = typeof window === "undefined" ? "" : window.location.origin;
@@ -368,8 +645,25 @@ export function DisplayModeView({
         drawerOpen ? "5px var(--display-mode-drawer-width)" : "0 0",
       ].join(" "), "--display-mode-drawer-width": `${drawerWidth}px`, "--display-mode-vscode-width": `${vsCodeWidth}px` } as CSSProperties}
       data-testid="display-mode-surface"
+      data-projection-cache-bytes={[...projectionCacheRef.current.values()]
+        .reduce((total, projection) => total + projection.serializedBytes, 0)}
+      data-projection-cache-count={projectionCacheRef.current.size}
+      data-stale-projection-responses={staleProjectionResponseCount}
     >
-      <div className={`display-mode__main${expandedId ? " display-mode__main--split" : ""}`}>
+      <div
+        ref={mainScrollRef}
+        className={`display-mode__main${expandedId ? " display-mode__main--split" : ""}`}
+        onFocusCapture={(event) => {
+          const tile = (event.target as HTMLElement).closest<HTMLElement>("[data-thread-key]");
+          if (tile?.dataset.threadKey) setFocusedThreadKey(tile.dataset.threadKey);
+        }}
+        onBlurCapture={() => {
+          window.requestAnimationFrame(() => {
+            const activeTile = document.activeElement?.closest?.("[data-thread-key]") as HTMLElement | null;
+            setFocusedThreadKey(activeTile?.dataset.threadKey ?? null);
+          });
+        }}
+      >
         <header className="display-mode__header">
           <div>
             <div className="display-mode__eyebrow">Display Mode</div>
@@ -446,14 +740,7 @@ export function DisplayModeView({
           </div>
         </header>
 
-        {loading ? (
-          <LoadingState
-            className="display-mode__loading"
-            label="Loading threads"
-            detail="Syncing sessions, activity, and runtime state…"
-            testId="display-mode-loading"
-          />
-        ) : orderedThreads.length === 0 ? (
+        {orderedThreads.length === 0 ? (
           <div className="display-mode__empty">No threads match this filter.</div>
         ) : expandedId && focusRecord && focusKey ? (
           /* ── Split-panel mode ── */
@@ -479,49 +766,94 @@ export function DisplayModeView({
                 fastModeAvailable={fastModeAvailable}
                 showThinking={showThinking}
                 codexUsageStatus={codexUsageStatusFrom(sessionExtensionUiBySession[focusKey])}
-                onFilesUpdate={focusKey === pinnedThreadKey ? setPinnedThreadFiles : undefined}
                 onOpenThread={() => onOpenThread({ workspaceId: focusRecord.workspace.id, sessionId: focusRecord.session.id })}
                 onOpenVSCode={() => onOpenVsCodeForWorkspace(focusRecord.workspace.id, focusRecord.workspace.path)}
                 onPinPreview={() => pinThread(focusRecord, focusKey)}
                 onToggleTerminal={() => toggleTerminal(focusKey)}
                 onToggleExpand={() => setExpandedId(null)}
+                onRequestProjection={requestProjection}
+                onInteractionResidencyChange={setInteractionResidency}
               />
             </div>
             <DndContext sensors={sensors} collisionDetection={closestCenter} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
-              <SortableContext items={tileOrder.filter((k) => k !== expandedId)} strategy={rectSortingStrategy}>
-                <div className="display-mode__split-rest" style={{ gridTemplateColumns: gridTemplateColumnsForMode(colCount) }}>
-                  {restRecords.map((record) => {
-                    const key = threadKey(record.workspace.id, record.session.id);
-                    return (
-                      <DisplayModeTile
-                        api={api}
-                        id={key}
-                        key={key}
-                        record={record}
-                        terminalOpen={localTerminalKeys.has(key)}
-                        renderTerminalInline={true}
-                        runtime={runtimeByWorkspace[record.workspace.id]}
-                        sessionCommands={sessionCommandsBySession[key] ?? []}
-                        commandCompatibility={commandCompatibilityByWorkspace[record.workspace.id] ?? []}
-                        setSnapshot={setSnapshot}
-                        openSettings={openSettings}
-                        openSkillProfiles={openSkillProfiles}
-                        isPinned={key === pinnedThreadKey}
-                        isExpanded={false}
-                        compact={compact}
-                        fastMode={fastMode}
-                        fastModeAvailable={fastModeAvailable}
-                        showThinking={showThinking}
-                        codexUsageStatus={codexUsageStatusFrom(sessionExtensionUiBySession[key])}
-                        onFilesUpdate={key === pinnedThreadKey ? setPinnedThreadFiles : undefined}
-                        onOpenThread={() => onOpenThread({ workspaceId: record.workspace.id, sessionId: record.session.id })}
-                        onOpenVSCode={() => onOpenVsCodeForWorkspace(record.workspace.id, record.workspace.path)}
-                        onPinPreview={() => pinThread(record, key)}
-                        onToggleTerminal={() => toggleTerminal(key)}
-                        onToggleExpand={() => setExpandedId(key)}
-                      />
-                    );
-                  })}
+              <SortableContext
+                items={restRecords.map((record) => threadKey(record.workspace.id, record.session.id))}
+                strategy={rectSortingStrategy}
+              >
+                <div
+                  ref={splitRestRef}
+                  className="display-mode__split-rest display-mode__split-rest--virtual"
+                  data-resident-row-count={splitResidentRows.length}
+                >
+                  <div
+                    className="display-mode__split-virtual-canvas"
+                    style={{ height: `${Math.max(0, splitRows.length * splitRowHeight - 10)}px` }}
+                  >
+                    {draggingId ? (
+                      <div
+                        className="display-mode__virtual-drop-layer"
+                        style={{
+                          gridTemplateColumns: `repeat(${splitColumnCount}, minmax(0, 1fr))`,
+                          gridAutoRows: `${splitRowHeight - 10}px`,
+                          gap: "10px",
+                        }}
+                        aria-hidden="true"
+                      >
+                        {restRecords.map((record) => {
+                          const key = threadKey(record.workspace.id, record.session.id);
+                          return splitResidentKeys.has(key)
+                            ? <div key={key} />
+                            : <VirtualDropTarget id={key} key={key} />;
+                        })}
+                      </div>
+                    ) : null}
+                    {splitResidentRows.map((rowIndex) => (
+                      <div
+                        className="display-mode__virtual-row"
+                        key={rowIndex}
+                        style={{
+                          gridTemplateColumns: `repeat(${splitColumnCount}, minmax(0, 1fr))`,
+                          gap: "10px",
+                          height: `${splitRowHeight - 10}px`,
+                          transform: `translateY(${rowIndex * splitRowHeight}px)`,
+                        }}
+                      >
+                        {(splitRows[rowIndex] ?? []).map((record) => {
+                          const key = threadKey(record.workspace.id, record.session.id);
+                          return (
+                            <DisplayModeTile
+                              api={api}
+                              id={key}
+                              key={key}
+                              record={record}
+                              terminalOpen={localTerminalKeys.has(key)}
+                              renderTerminalInline={true}
+                              runtime={runtimeByWorkspace[record.workspace.id]}
+                              sessionCommands={sessionCommandsBySession[key] ?? []}
+                              commandCompatibility={commandCompatibilityByWorkspace[record.workspace.id] ?? []}
+                              setSnapshot={setSnapshot}
+                              openSettings={openSettings}
+                              openSkillProfiles={openSkillProfiles}
+                              isPinned={key === pinnedThreadKey}
+                              isExpanded={false}
+                              compact={compact}
+                              fastMode={fastMode}
+                              fastModeAvailable={fastModeAvailable}
+                              showThinking={showThinking}
+                              codexUsageStatus={codexUsageStatusFrom(sessionExtensionUiBySession[key])}
+                              onOpenThread={() => onOpenThread({ workspaceId: record.workspace.id, sessionId: record.session.id })}
+                              onOpenVSCode={() => onOpenVsCodeForWorkspace(record.workspace.id, record.workspace.path)}
+                              onPinPreview={() => pinThread(record, key)}
+                              onToggleTerminal={() => toggleTerminal(key)}
+                              onToggleExpand={() => setExpandedId(key)}
+                              onRequestProjection={requestProjection}
+                              onInteractionResidencyChange={setInteractionResidency}
+                            />
+                          );
+                        })}
+                      </div>
+                    ))}
+                  </div>
                 </div>
               </SortableContext>
               <DragOverlay>
@@ -532,40 +864,84 @@ export function DisplayModeView({
         ) : (
           /* ── Normal DnD grid mode ── */
           <DndContext sensors={sensors} collisionDetection={closestCenter} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
-            <SortableContext items={[...tileOrder]} strategy={rectSortingStrategy}>
-              <div className="display-mode__grid" style={{ gridTemplateColumns: gridTemplateColumnsForMode(colCount) }}>
-                {orderedThreads.map((record) => {
-                  const key = threadKey(record.workspace.id, record.session.id);
-                  return (
-                    <DisplayModeTile
-                      api={api}
-                      id={key}
-                      key={key}
-                      record={record}
-                      terminalOpen={localTerminalKeys.has(key)}
-                      renderTerminalInline={true}
-                      runtime={runtimeByWorkspace[record.workspace.id]}
-                      sessionCommands={sessionCommandsBySession[key] ?? []}
-                      commandCompatibility={commandCompatibilityByWorkspace[record.workspace.id] ?? []}
-                      setSnapshot={setSnapshot}
-                      openSettings={openSettings}
-                      openSkillProfiles={openSkillProfiles}
-                      isPinned={key === pinnedThreadKey}
-                      isExpanded={false}
-                      compact={compact}
-                      fastMode={fastMode}
-                      fastModeAvailable={fastModeAvailable}
-                      showThinking={showThinking}
-                      codexUsageStatus={codexUsageStatusFrom(sessionExtensionUiBySession[key])}
-                      onFilesUpdate={key === pinnedThreadKey ? setPinnedThreadFiles : undefined}
-                      onOpenThread={() => onOpenThread({ workspaceId: record.workspace.id, sessionId: record.session.id })}
-                      onOpenVSCode={() => onOpenVsCodeForWorkspace(record.workspace.id, record.workspace.path)}
-                      onPinPreview={() => pinThread(record, key)}
-                      onToggleTerminal={() => toggleTerminal(key)}
-                      onToggleExpand={() => setExpandedId((c) => c === key ? null : key)}
-                    />
-                  );
-                })}
+            <SortableContext
+              items={orderedThreads.map((record) => threadKey(record.workspace.id, record.session.id))}
+              strategy={rectSortingStrategy}
+            >
+              <div
+                ref={virtualGridRef}
+                className="display-mode__grid display-mode__grid--virtual"
+                style={{
+                  gridTemplateColumns: `repeat(${resolvedColumnCount}, minmax(0, 1fr))`,
+                  height: `${Math.max(0, virtualRows.length * virtualRowHeight - 14)}px`,
+                }}
+                data-testid="display-mode-virtual-grid"
+                data-resident-row-count={virtualResidentRows.length}
+                data-total-row-count={virtualRows.length}
+                data-column-count={resolvedColumnCount}
+              >
+                {draggingId ? (
+                  <div
+                    className="display-mode__virtual-drop-layer"
+                    style={{
+                      gridTemplateColumns: `repeat(${resolvedColumnCount}, minmax(0, 1fr))`,
+                      gridAutoRows: `${virtualRowHeight - 14}px`,
+                    }}
+                    aria-hidden="true"
+                  >
+                    {orderedThreads.map((record) => {
+                      const key = threadKey(record.workspace.id, record.session.id);
+                      return virtualResidentKeys.has(key)
+                        ? <div key={key} />
+                        : <VirtualDropTarget id={key} key={key} />;
+                    })}
+                  </div>
+                ) : null}
+                {virtualResidentRows.map((rowIndex) => (
+                  <div
+                    className="display-mode__virtual-row"
+                    key={rowIndex}
+                    style={{
+                      gridTemplateColumns: `repeat(${resolvedColumnCount}, minmax(0, 1fr))`,
+                      height: `${virtualRowHeight - 14}px`,
+                      transform: `translateY(${rowIndex * virtualRowHeight}px)`,
+                    }}
+                  >
+                    {(virtualRows[rowIndex] ?? []).map((record) => {
+                      const key = threadKey(record.workspace.id, record.session.id);
+                      return (
+                        <DisplayModeTile
+                          api={api}
+                          id={key}
+                          key={key}
+                          record={record}
+                          terminalOpen={localTerminalKeys.has(key)}
+                          renderTerminalInline={true}
+                          runtime={runtimeByWorkspace[record.workspace.id]}
+                          sessionCommands={sessionCommandsBySession[key] ?? []}
+                          commandCompatibility={commandCompatibilityByWorkspace[record.workspace.id] ?? []}
+                          setSnapshot={setSnapshot}
+                          openSettings={openSettings}
+                          openSkillProfiles={openSkillProfiles}
+                          isPinned={key === pinnedThreadKey}
+                          isExpanded={false}
+                          compact={compact}
+                          fastMode={fastMode}
+                          fastModeAvailable={fastModeAvailable}
+                          showThinking={showThinking}
+                          codexUsageStatus={codexUsageStatusFrom(sessionExtensionUiBySession[key])}
+                          onOpenThread={() => onOpenThread({ workspaceId: record.workspace.id, sessionId: record.session.id })}
+                          onOpenVSCode={() => onOpenVsCodeForWorkspace(record.workspace.id, record.workspace.path)}
+                          onPinPreview={() => pinThread(record, key)}
+                          onToggleTerminal={() => toggleTerminal(key)}
+                          onToggleExpand={() => setExpandedId((current) => current === key ? null : key)}
+                          onRequestProjection={requestProjection}
+                          onInteractionResidencyChange={setInteractionResidency}
+                        />
+                      );
+                    })}
+                  </div>
+                ))}
               </div>
             </SortableContext>
             <DragOverlay>
@@ -718,4 +1094,9 @@ export function DisplayModeView({
       />
     </section>
   );
+}
+
+function VirtualDropTarget({ id }: { readonly id: string }) {
+  const { setNodeRef } = useDroppable({ id });
+  return <div ref={setNodeRef} className="display-mode__virtual-drop-target" />;
 }

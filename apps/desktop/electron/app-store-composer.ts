@@ -44,7 +44,7 @@ export async function updateComposerDraft(
 
   const selectedSessionRef = store.selectedSessionRef();
   if (!selectedSessionRef || sessionKey(selectedSessionRef) !== key) {
-    return store.emit();
+    return store.state;
   }
   store.state = {
     ...store.state,
@@ -640,6 +640,9 @@ export async function submitComposerToSession(
       ];
       const nextSessionQueuedMessages = toSessionQueuedMessages(nextQueuedMessages);
       await store.driver.replaceQueuedMessages(sessionRef, nextSessionQueuedMessages);
+      store.sessionState.composerDraftsBySession.delete(key);
+      store.sessionState.composerAttachmentsBySession.delete(key);
+      await store.persistComposerAttachments(key, []);
       return store.refreshState({
         clearLastError: true,
         markSelectedSessionViewed: false,
@@ -704,6 +707,10 @@ export async function sendMessageToSession(
 ): Promise<void> {
   const key = sessionKey(sessionRef);
   const rollbackOptimisticMessageOnError = options.rollbackOptimisticMessageOnError ?? true;
+  const previousDraft = store.sessionState.composerDraftsBySession.get(key) ?? text;
+  const previousAttachments = cloneComposerAttachments(
+    store.sessionState.composerAttachmentsBySession.get(key) ?? attachments,
+  );
   if (!store.sessionState.loadedTranscriptKeys.has(key)) {
     await store.ensureSessionReady(sessionRef);
   }
@@ -724,16 +731,23 @@ export async function sendMessageToSession(
   store.emit();
   clearActiveAssistantMessage(store.sessionState.activeAssistantMessageBySession, sessionRef);
   store.sessionState.sessionErrorsBySession.delete(key);
-  store.sessionState.composerDraftsBySession.delete(key);
-  store.sessionState.composerAttachmentsBySession.delete(key);
-  await store.persistComposerAttachments(key, []);
   try {
     await store.driver.sendUserMessage(sessionRef, {
       text: toProviderMessageText(text, options.messageMetadata),
       attachments: toSessionAttachments(attachments),
       ...(options.messageMetadata !== undefined ? { metadata: options.messageMetadata } : {}),
     });
+    store.sessionState.composerDraftsBySession.delete(key);
+    store.sessionState.composerAttachmentsBySession.delete(key);
+    await store.persistComposerAttachments(key, []);
   } catch (error) {
+    if (previousDraft) {
+      store.sessionState.composerDraftsBySession.set(key, previousDraft);
+    }
+    if (previousAttachments.length > 0) {
+      store.sessionState.composerAttachmentsBySession.set(key, previousAttachments);
+    }
+    await store.persistComposerAttachments(key, previousAttachments);
     if (rollbackOptimisticMessageOnError) {
       const transcript = store.sessionState.transcriptCache.get(key) ?? [];
       store.sessionState.transcriptCache.set(key, transcript.slice(0, -1));

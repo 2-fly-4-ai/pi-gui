@@ -81,6 +81,8 @@ test("attention markers navigate structured evidence and survive compaction and 
     await nav.getByRole("button", { name: "Next attention marker" }).click();
     await expect(nav).toContainText("Milestone");
     await expect(groupRow).toHaveClass(/timeline-attention-target/);
+    await expect(groupRow).toHaveCSS("outline-style", "none");
+    expect(await groupRow.evaluate((element) => getComputedStyle(element).boxShadow)).toContain("inset");
 
     await window.keyboard.press("Alt+ArrowDown");
     await expect(nav.locator(".timeline-attention-nav__current span")).toContainText("3 of");

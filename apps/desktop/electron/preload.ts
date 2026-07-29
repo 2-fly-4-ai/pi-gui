@@ -30,15 +30,18 @@ import type { RuntimeSettingsSnapshot, RuntimeSkillProfileRecord } from "@pi-gui
 import type {
   AppView,
   ComposerAttachment,
+  ComposerSubmitResult,
   ComposerImageAttachment,
   CreateSessionInput,
   CreateWorktreeInput,
   DesktopAppState,
+  DisplayModeProjectionChangedEvent,
+  DisplayModeProjectionResponse,
   DiagnosticReportingPreferences,
-  DisplayModeThreadRecord,
   NotificationPreferences,
   RemoveWorktreeInput,
   SelectedTranscriptRecord,
+  SessionComposerState,
   StartThreadInput,
   WorkspaceSessionTarget,
 } from "../src/desktop-state";
@@ -123,8 +126,10 @@ contextBridge.exposeInMainWorld("piApp", {
     subscribeIpc(desktopIpc.statePatchChanged, listener),
   getSelectedTranscript: () =>
     ipcRenderer.invoke(desktopIpc.selectedTranscriptRequest) as Promise<SelectedTranscriptRecord | null>,
-  getDisplayModeThreads: () =>
-    ipcRenderer.invoke(desktopIpc.displayModeThreadsRequest) as Promise<readonly DisplayModeThreadRecord[]>,
+  getDisplayModeThreadProjection: (target: WorkspaceSessionTarget, knownRevision?: number) =>
+    ipcRenderer.invoke(desktopIpc.displayModeProjectionRequest, target, knownRevision) as Promise<DisplayModeProjectionResponse>,
+  onDisplayModeProjectionChanged: (listener: (event: DisplayModeProjectionChangedEvent) => void) =>
+    subscribeIpc(desktopIpc.displayModeProjectionChanged, listener),
   listObservabilityEvents: (input?: ObservabilityQuery) =>
     ipcRenderer.invoke(desktopIpc.listObservabilityEvents, input) as Promise<ObservabilityEventPage>,
   listTaskEvidence: (input: TaskEvidenceQuery) =>
@@ -453,7 +458,11 @@ contextBridge.exposeInMainWorld("piApp", {
       readonly messageMetadata?: unknown;
     },
   ) =>
-    ipcRenderer.invoke(desktopIpc.submitComposerToSession, target, text, options) as Promise<void>,
+    ipcRenderer.invoke(desktopIpc.submitComposerToSession, target, text, options) as Promise<ComposerSubmitResult>,
+  getSessionComposerState: (target: WorkspaceSessionTarget) =>
+    ipcRenderer.invoke(desktopIpc.getSessionComposerState, target) as Promise<SessionComposerState>,
+  setSessionComposerAttachments: (target: WorkspaceSessionTarget, attachments: readonly ComposerAttachment[]) =>
+    ipcRenderer.invoke(desktopIpc.setSessionComposerAttachments, target, attachments) as Promise<void>,
   getSessionTree: (target: WorkspaceSessionTarget) =>
     ipcRenderer.invoke(desktopIpc.getSessionTree, target) as Promise<SessionTreeSnapshot>,
   navigateSessionTree: (target: WorkspaceSessionTarget, targetId: string, options?: NavigateSessionTreeOptions) =>

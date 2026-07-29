@@ -81,6 +81,27 @@ export interface AppDiagnosticsSnapshot {
   readonly statePatchChangedIpcCount: number;
   readonly statePatchChangedIpcBytes: number;
   readonly statePatchChangedLastIpcBytes: number;
+  readonly displayModeProjectionRequests: number;
+  readonly displayModeProjectionHits: number;
+  readonly displayModeProjectionNotModified: number;
+  readonly displayModeProjectionBytes: number;
+  readonly displayModeProjectionSidecarReads: number;
+  readonly displayModeProjectionSidecarWrites: number;
+  readonly displayModeLegacyTranscriptReads: number;
+  readonly displayModeProjectionEvents: number;
+  readonly displayModeChangedFilesRequests: number;
+  readonly displayModeProjectionMisses: number;
+  readonly displayModeLegacyProjectionBuilds: number;
+  readonly fullTranscriptCacheEntries: number;
+  readonly fullTranscriptCacheBytes: number;
+}
+
+export interface DisplayModeScaleFixture {
+  readonly count: number;
+  readonly sidecarCount: number;
+  readonly legacyCount: number;
+  readonly draftTarget: SessionRef;
+  readonly attachmentTarget: SessionRef;
 }
 
 export interface LaunchDesktopOptions {
@@ -1247,6 +1268,47 @@ export async function getAppDiagnostics(harness: DesktopHarness): Promise<AppDia
     }
     return hooks.getDiagnostics();
   });
+}
+
+export async function seedDisplayModeScaleFixture(
+  harness: DesktopHarness,
+  options: { readonly count?: number; readonly legacyCount?: number } = {},
+): Promise<DisplayModeScaleFixture> {
+  return harness.electronApp.evaluate(async (_, { count, legacyCount }) => {
+    const hooks = (globalThis as {
+      __PI_APP_TEST_HOOKS?: {
+        seedDisplayModeScaleFixture?: (input: {
+          readonly count?: number;
+          readonly legacyCount?: number;
+        }) => Promise<DisplayModeScaleFixture>;
+      };
+    }).__PI_APP_TEST_HOOKS;
+    if (!hooks?.seedDisplayModeScaleFixture) {
+      throw new Error("Display Mode scale fixture hook is unavailable");
+    }
+    return hooks.seedDisplayModeScaleFixture({ count, legacyCount });
+  }, options);
+}
+
+export async function updateDisplayModeFixtureSession(
+  harness: DesktopHarness,
+  target: SessionRef,
+  patch: { readonly status?: "idle" | "running" | "failed"; readonly preview?: string },
+): Promise<void> {
+  await harness.electronApp.evaluate(async (_, { target, patch }) => {
+    const hooks = (globalThis as {
+      __PI_APP_TEST_HOOKS?: {
+        updateDisplayModeFixtureSession?: (
+          target: SessionRef,
+          patch: { readonly status?: "idle" | "running" | "failed"; readonly preview?: string },
+        ) => Promise<void>;
+      };
+    }).__PI_APP_TEST_HOOKS;
+    if (!hooks?.updateDisplayModeFixtureSession) {
+      throw new Error("Display Mode fixture update hook is unavailable");
+    }
+    await hooks.updateDisplayModeFixtureSession(target, patch);
+  }, { target, patch });
 }
 
 export async function setDeferredThreadTitleMode(harness: DesktopHarness): Promise<void> {

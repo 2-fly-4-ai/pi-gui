@@ -22,6 +22,7 @@ interface CreateDisplayModePropsOptions {
   readonly openSkillProfiles: (workspaceId?: string) => void;
   readonly openVsCodeForWorkspace: (workspaceId: string, folderPath: string) => void;
   readonly runtimeByWorkspace: Readonly<Record<string, RuntimeSnapshot>>;
+  readonly workspaces: DesktopAppState["workspaces"];
   readonly sessionCommandsBySession: Readonly<Record<string, readonly RuntimeCommandRecord[]>>;
   readonly sessionExtensionUiBySession: DesktopAppState["sessionExtensionUiBySession"];
   readonly setSharedVsCodeWidth: (width: number) => void;
@@ -48,6 +49,7 @@ export function createDisplayModeProps({
   openSkillProfiles,
   openVsCodeForWorkspace,
   runtimeByWorkspace,
+  workspaces,
   sessionCommandsBySession,
   sessionExtensionUiBySession,
   setSharedVsCodeWidth,
@@ -78,6 +80,7 @@ export function createDisplayModeProps({
     showThinking,
     vscodeSlotRef: setVsCodeSlotElement,
     runtimeByWorkspace,
+    workspaces,
     sessionCommandsBySession,
     sessionExtensionUiBySession,
     commandCompatibilityByWorkspace,

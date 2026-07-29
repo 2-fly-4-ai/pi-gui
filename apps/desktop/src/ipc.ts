@@ -8,16 +8,19 @@ import type {
 import type {
   AppView,
   ComposerAttachment,
+  ComposerSubmitResult,
   ComposerImageAttachment,
   CreateSessionInput,
   CreateWorktreeInput,
   DesktopAppState,
-  DisplayModeThreadRecord,
+  DisplayModeProjectionChangedEvent,
+  DisplayModeProjectionResponse,
   DiagnosticReportingPreferences,
   ModelSettingsScopeMode,
   NotificationPreferences,
   RemoveWorktreeInput,
   SelectedTranscriptRecord,
+  SessionComposerState,
   StartThreadInput,
   TranscriptMessage,
   WorkspaceSessionTarget,
@@ -75,7 +78,8 @@ export const desktopIpc = {
   selectedTranscriptRequest: "pi-gui:selected-transcript-request",
   transcriptEvent: "pi-gui:transcript-event",
   transcriptResetRequest: "pi-gui:transcript-reset-request",
-  displayModeThreadsRequest: "pi-gui:display-mode-threads-request",
+  displayModeProjectionRequest: "pi-gui:display-mode-projection-request",
+  displayModeProjectionChanged: "pi-gui:display-mode-projection-changed",
   listObservabilityEvents: "pi-gui:list-observability-events",
   listTaskEvidence: "pi-gui:list-task-evidence",
   recordProjectActionEvidence: "pi-gui:record-project-action-evidence",
@@ -197,6 +201,8 @@ export const desktopIpc = {
   updateComposerDraft: "pi-gui:update-composer-draft",
   submitComposer: "pi-gui:submit-composer",
   submitComposerToSession: "pi-gui:submit-composer-to-session",
+  getSessionComposerState: "pi-gui:get-session-composer-state",
+  setSessionComposerAttachments: "pi-gui:set-session-composer-attachments",
   getSessionTree: "pi-gui:get-session-tree",
   navigateSessionTree: "pi-gui:navigate-session-tree",
   toggleWindowMaximize: "pi-gui:toggle-window-maximize",
@@ -294,6 +300,7 @@ export interface StatePatchEvent {
 export type PiDesktopTranscriptEventListener = (event: TranscriptSyncEvent) => void;
 export type PiDesktopStatePatchListener = (event: StatePatchEvent) => void;
 export type PiDesktopTaskEvidenceListener = (event: TaskEvidenceDelta) => void;
+export type PiDesktopDisplayModeProjectionListener = (event: DisplayModeProjectionChangedEvent) => void;
 
 export interface RecordProjectActionEvidenceInput {
   readonly workspaceId: string;
@@ -473,7 +480,11 @@ export interface PiDesktopApi {
   getSelectedTranscript(): Promise<SelectedTranscriptRecord | null>;
   onTranscriptEvent(listener: PiDesktopTranscriptEventListener): () => void;
   requestTranscriptReset(input: TranscriptResetRequest): Promise<SelectedTranscriptRecord | null>;
-  getDisplayModeThreads(): Promise<readonly DisplayModeThreadRecord[]>;
+  getDisplayModeThreadProjection(
+    target: WorkspaceSessionTarget,
+    knownRevision?: number,
+  ): Promise<DisplayModeProjectionResponse>;
+  onDisplayModeProjectionChanged(listener: PiDesktopDisplayModeProjectionListener): () => void;
   listObservabilityEvents(input?: ObservabilityQuery): Promise<ObservabilityEventPage>;
   listTaskEvidence(input: TaskEvidenceQuery): Promise<TaskEvidencePage>;
   recordProjectActionEvidence(input: RecordProjectActionEvidenceInput): Promise<void>;
@@ -675,6 +686,11 @@ export interface PiDesktopApi {
       readonly deliverAs?: "steer" | "followUp";
       readonly messageMetadata?: unknown;
     },
+  ): Promise<ComposerSubmitResult>;
+  getSessionComposerState(target: WorkspaceSessionTarget): Promise<SessionComposerState>;
+  setSessionComposerAttachments(
+    target: WorkspaceSessionTarget,
+    attachments: readonly ComposerAttachment[],
   ): Promise<void>;
   getSessionTree(target: WorkspaceSessionTarget): Promise<SessionTreeSnapshot>;
   navigateSessionTree(

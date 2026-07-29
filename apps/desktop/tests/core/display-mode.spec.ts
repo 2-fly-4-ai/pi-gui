@@ -5,6 +5,7 @@ import type { SessionDriverEvent } from "@pi-gui/session-driver";
 import {
   createNamedThread,
   emitTestSessionEvent,
+  getAppDiagnostics,
   launchDesktop,
   makeUserDataDir,
   makeWorkspace,
@@ -113,10 +114,19 @@ test("loads Display Mode with clipped recent transcript rows", async () => {
 
     await expect
       .poll(async () => window.evaluate(async () => {
-        const records = await window.piApp?.getDisplayModeThreads();
-        return records?.find((record) => record.session.title === "Display mode clipped transcript")?.transcript.length ?? -1;
+        const app = window.piApp;
+        const state = await app?.getState();
+        const workspace = state?.workspaces.find((entry) =>
+          entry.sessions.some((session) => session.title === "Display mode clipped transcript"));
+        const session = workspace?.sessions.find((entry) => entry.title === "Display mode clipped transcript");
+        if (!app || !workspace || !session) return -1;
+        const response = await app.getDisplayModeThreadProjection({
+          workspaceId: workspace.id,
+          sessionId: session.id,
+        });
+        return response.kind === "projection" ? response.projection.excerptRows.length : -1;
       }))
-      .toBeLessThanOrEqual(12);
+      .toBeLessThanOrEqual(8);
 
     const tile = window.getByTestId("display-mode-thread-tile").filter({ hasText: "Display mode clipped transcript" });
     await expect(tile).toContainText("Display mode clipped transcript row 39");
@@ -201,8 +211,17 @@ test("summarizes durable workflow runs when transcript lifecycle rows are absent
 
     await expect
       .poll(async () => window.evaluate(async () => {
-        const records = await window.piApp?.getDisplayModeThreads();
-        return records?.find((record) => record.session.title === "Display mode durable workflow")?.subagentActivity?.label ?? "";
+        const app = window.piApp;
+        const state = await app?.getState();
+        const workspace = state?.workspaces.find((entry) =>
+          entry.sessions.some((session) => session.title === "Display mode durable workflow"));
+        const session = workspace?.sessions.find((entry) => entry.title === "Display mode durable workflow");
+        if (!app || !workspace || !session) return "";
+        const response = await app.getDisplayModeThreadProjection({
+          workspaceId: workspace.id,
+          sessionId: session.id,
+        });
+        return response.kind === "projection" ? response.projection.subagentActivity?.label ?? "" : "";
       }))
       .toBe("1 Workflow needs attention · scout, planner");
 
@@ -229,6 +248,7 @@ test("loads Display Mode transcripts from persisted history after restart", asyn
       count: 1,
       textFactory: () => "Persisted Display Mode transcript sentinel",
     });
+    await createNamedThread(window, "Display mode selected after persisted target");
   } finally {
     await harness.close();
   }
@@ -241,11 +261,18 @@ test("loads Display Mode transcripts from persisted history after restart", asyn
   try {
     const window = await restarted.firstWindow();
     await waitForWorkspaceByPath(window, workspacePath);
+    const baseline = await getAppDiagnostics(restarted);
     await window.locator(".sidebar__nav").getByRole("button", { name: "Display Mode" }).click();
     await expect.poll(async () => window.evaluate(() => window.piApp?.getState().then((state) => state.activeView) ?? "missing")).toBe("display-mode");
 
     const tile = window.getByTestId("display-mode-thread-tile").filter({ hasText: "Display mode persisted transcript" });
     await expect(tile).toContainText("Persisted Display Mode transcript sentinel");
+    const diagnostics = await getAppDiagnostics(restarted);
+    expect(diagnostics.displayModeProjectionSidecarReads).toBeGreaterThan(baseline.displayModeProjectionSidecarReads);
+    expect(
+      diagnostics.displayModeLegacyTranscriptReads - baseline.displayModeLegacyTranscriptReads,
+    ).toBeLessThanOrEqual(1);
+    expect(diagnostics.fullTranscriptCacheEntries).toBe(baseline.fullTranscriptCacheEntries);
   } finally {
     await restarted.close();
   }
@@ -450,9 +477,18 @@ test("uses the thread composer input in Display Mode tiles", async () => {
     await tile.getByRole("button", { name: "Send reply" }).click();
     await expect(tile.locator(".composer-attachment")).toHaveCount(0);
     await expect.poll(async () => window.evaluate(async () => {
-      const records = await window.piApp?.getDisplayModeThreads();
-      const record = records?.find((entry) => entry.session.title === "Display mode composer parity");
-      return JSON.stringify(record?.transcript ?? []).includes("display-mode-note.txt");
+      const app = window.piApp;
+      const state = await app?.getState();
+      const workspace = state?.workspaces.find((entry) =>
+        entry.sessions.some((session) => session.title === "Display mode composer parity"));
+      const session = workspace?.sessions.find((entry) => entry.title === "Display mode composer parity");
+      if (!app || !workspace || !session) return false;
+      const response = await app.getDisplayModeThreadProjection({
+        workspaceId: workspace.id,
+        sessionId: session.id,
+      });
+      return response.kind === "projection" &&
+        JSON.stringify(response.projection.excerptRows).includes("display-mode-note.txt");
     })).toBe(true);
 
     await window.setViewportSize({ width: 860, height: 760 });

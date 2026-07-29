@@ -163,6 +163,7 @@ export function AppPrimaryContent({
         openSkillProfiles,
         openVsCodeForWorkspace: panelLayout.openVsCodeForWorkspace,
         runtimeByWorkspace: snapshot.runtimeByWorkspace,
+        workspaces: snapshot.workspaces,
         sessionCommandsBySession: snapshot.sessionCommandsBySession,
         sessionExtensionUiBySession: snapshot.sessionExtensionUiBySession,
         setSharedVsCodeWidth: panelLayout.setSharedVsCodeWidth,
