@@ -1042,6 +1042,8 @@ void app.whenReady().then(async () => {
   }
 
   recordStartupStage("app-ready");
+  recordStartupStage("theme:restore-mode");
+  await themeManager.initialize(configuredUserDataDir);
 
   // On macOS, packaged builds already render the dock icon from `icon.icns`
   // in the app bundle. In dev we override the generic Electron dock icon with
@@ -1382,8 +1384,8 @@ void app.whenReady().then(async () => {
   );
   handleMainFrameIpc(desktopIpc.getThemeMode, () => themeManager.getMode());
   handleMainFrameIpc(desktopIpc.getResolvedTheme, () => themeManager.getResolvedTheme());
-  handleMainFrameIpc(desktopIpc.setThemeMode, (_event, mode: ThemeMode) => {
-    themeManager.setMode(mode);
+  handleMainFrameIpc(desktopIpc.setThemeMode, async (_event, mode: ThemeMode) => {
+    await themeManager.setMode(mode);
     return mode;
   });
   handleMainFrameIpc(desktopIpc.openExternal, (_event, url: string) => openExternalIfAllowed(url));
