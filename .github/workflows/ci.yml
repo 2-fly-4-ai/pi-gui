@@ -83,6 +83,11 @@ jobs:
   desktop-core:
     needs: unit
     runs-on: macos-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
 
     steps:
       - uses: actions/checkout@v4
@@ -98,7 +103,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Desktop Core
-        run: pnpm --filter @pi-gui/desktop run test:e2e:ci:mac
+        run: pnpm --filter @pi-gui/desktop run test:e2e:ci:mac -- --shard=${{ matrix.shard }}/2
 
   desktop-package-linux:
     needs: unit
