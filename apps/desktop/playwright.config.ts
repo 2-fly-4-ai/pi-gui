@@ -1,6 +1,7 @@
 import { defineConfig } from "@playwright/test";
 
 const isBackgroundRun = process.env.PI_APP_TEST_MODE === "background";
+const isCi = Boolean(process.env.CI);
 
 export default defineConfig({
   testDir: "./tests",
@@ -12,7 +13,10 @@ export default defineConfig({
   fullyParallel: isBackgroundRun,
   // Electron user-surface tests are materially more reliable when one app owns the input loop at a time.
   workers: 1,
-  retries: process.env.PI_APP_TEST_MODE === "foreground" ? 1 : 0,
+  // Hosted macOS occasionally delays one Electron surface even after the
+  // underlying operation has completed. Retry only the failed test once in
+  // CI; local background runs stay one-shot so flakes remain visible.
+  retries: isCi || process.env.PI_APP_TEST_MODE === "foreground" ? 1 : 0,
   use: {
     trace: "retain-on-failure",
     screenshot: "only-on-failure",

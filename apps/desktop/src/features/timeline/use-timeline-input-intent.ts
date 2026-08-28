@@ -55,6 +55,7 @@ export function useTimelineInputIntent({
       readonly startScrollTop: number;
       readonly startY: number;
       readonly trackHeight: number;
+      targetScrollTop: number;
     } | null = null;
     const markUserScrollIntent = () => {
       userTimelineScrollIntentRef.current = true;
@@ -81,6 +82,7 @@ export function useTimelineInputIntent({
         startScrollTop: pane.scrollTop,
         startY: clientY,
         trackHeight: Math.max(1, pane.clientHeight),
+        targetScrollTop: pane.scrollTop,
       };
     };
 
@@ -93,10 +95,12 @@ export function useTimelineInputIntent({
       if (selectedSessionKey) sessionsWithExplicitTimelineScrollRef.current.add(selectedSessionKey);
       const maxScrollTop = Math.max(0, pane.scrollHeight - pane.clientHeight);
       const deltaY = clientY - scrollbarDragState.startY;
-      pane.scrollTop = Math.min(
+      const targetScrollTop = Math.min(
         maxScrollTop,
         Math.max(0, scrollbarDragState.startScrollTop + deltaY * (maxScrollTop / scrollbarDragState.trackHeight)),
       );
+      scrollbarDragState.targetScrollTop = targetScrollTop;
+      pane.scrollTop = targetScrollTop;
       timelineScrollHandlerRef.current();
     };
 
@@ -173,19 +177,30 @@ export function useTimelineInputIntent({
 
     const clearScrollbarDragIntent = () => {
       const wasDragging = timelineScrollbarDragActiveRef.current;
+      const targetScrollTop = scrollbarDragState?.targetScrollTop ?? pane.scrollTop;
       if (wasDragging) {
         lastTimelineScrollbarDragAtRef.current = performance.now();
-        stabilizeScrollbarDragPosition(pane.scrollTop);
       }
       timelineScrollbarDragActiveRef.current = false;
       scrollbarDragState = null;
-      if (wasDragging) onScrollbarDragEnd();
+      if (wasDragging) {
+        stabilizeScrollbarDragPosition(targetScrollTop);
+        onScrollbarDragEnd();
+      }
     };
 
     const handlePointerMove = (event: PointerEvent) => dragScrollbar(event.clientY);
     const handleMouseMove = (event: MouseEvent) => dragScrollbar(event.clientY);
 
     const handleNativeScroll = () => {
+      if (timelineScrollbarDragActiveRef.current && scrollbarDragState) {
+        const maxScrollTop = Math.max(0, pane.scrollHeight - pane.clientHeight);
+        const targetScrollTop = Math.min(maxScrollTop, Math.max(0, scrollbarDragState.targetScrollTop));
+        scrollbarDragState.targetScrollTop = targetScrollTop;
+        if (Math.abs(pane.scrollTop - targetScrollTop) > 1) {
+          pane.scrollTop = targetScrollTop;
+        }
+      }
       timelineScrollHandlerRef.current();
     };
 
