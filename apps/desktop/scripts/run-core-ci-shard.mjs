@@ -46,7 +46,9 @@ const SPEC_GROUPS = [
 const appRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const repoRoot = resolve(appRoot, "../..");
 const coreTestDir = join(appRoot, "tests/core");
-const shardIndex = Number.parseInt(process.argv[2] ?? "", 10) - 1;
+const cliArgs = process.argv.slice(2);
+if (cliArgs[0] === "--") cliArgs.shift();
+const shardIndex = Number.parseInt(cliArgs.shift() ?? "", 10) - 1;
 
 if (!Number.isInteger(shardIndex) || shardIndex < 0 || shardIndex >= SPEC_GROUPS.length) {
   console.error(`Expected a core CI shard number from 1 to ${SPEC_GROUPS.length}.`);
@@ -83,7 +85,7 @@ console.log(`Running duration-balanced core shard ${shardIndex + 1}/${SPEC_GROUP
 
 const result = spawnSync(
   "pnpm",
-  ["exec", "playwright", "test", "-c", "apps/desktop/playwright.config.ts", ...selectedSpecs, ...process.argv.slice(3)],
+  ["exec", "playwright", "test", "-c", "apps/desktop/playwright.config.ts", ...selectedSpecs, ...cliArgs],
   {
     cwd: repoRoot,
     env: { ...process.env, PI_APP_TEST_MODE: "background" },
