@@ -39,9 +39,13 @@ test("opt-in minimap stays bounded and navigable for long virtualized timelines"
     await expect(minimap.locator("[data-signal-types~='milestone']").first()).toBeVisible();
     await expect(minimap.locator("[data-signal-types~='completion']").first()).toBeVisible();
 
-    await segments.first().click();
-    await expect(window.locator(".timeline-attention-target")).toHaveCount(1);
-    await expect(window.locator(".timeline-attention-target")).toHaveAttribute("data-timeline-row-id", /.+/);
+    const pane = window.getByTestId("timeline-pane");
+    const initialScrollTop = await pane.evaluate((element) => element.scrollTop);
+    expect(initialScrollTop).toBeGreaterThan(0);
+    const firstSegment = segments.first();
+    await firstSegment.click();
+    await expect(firstSegment).toHaveAttribute("aria-current", "location");
+    await expect.poll(() => pane.evaluate((element) => element.scrollTop)).toBeLessThan(initialScrollTop);
 
     await window.setViewportSize({ width: 1120, height: 720 });
     await expect(minimap).toBeVisible();

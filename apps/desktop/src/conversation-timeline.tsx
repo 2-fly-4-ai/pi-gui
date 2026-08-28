@@ -302,15 +302,16 @@ export function ConversationTimeline({
 
   const navigateToRow = useCallback((rowId: string) => {
     const rowIndex = displayRows.findIndex((row) => row.id === rowId);
+    if (rowIndex < 0) return;
+    setActiveTarget({ sessionKey: timelineSessionKey, rowId });
+    onTimelineNavigate();
     const referencedPane = timelinePaneRef.current as TimelinePaneElement | null;
     const pane = referencedPane?.dataset.timelineSessionKey === timelineSessionKey
       ? referencedPane
       : document.querySelector<TimelinePaneElement>(
         `[data-testid="timeline-pane"][data-timeline-session-key="${CSS.escape(timelineSessionKey)}"]`,
       );
-    if (!pane || rowIndex < 0) return;
-    setActiveTarget({ sessionKey: timelineSessionKey, rowId });
-    onTimelineNavigate();
+    if (!pane) return;
     const approximateOffset = displayRows.length > 1
       ? rowIndex / (displayRows.length - 1) * Math.max(0, pane.scrollHeight - pane.clientHeight)
       : 0;
@@ -374,7 +375,7 @@ export function ConversationTimeline({
     />
   ) : null;
   const timelineMinimap = minimapSegments.length ? (
-    <TimelineMinimap segments={minimapSegments} onNavigate={navigateToRow} />
+    <TimelineMinimap segments={minimapSegments} activeTargetRowId={activeTargetRowId} onNavigate={navigateToRow} />
   ) : null;
 
   if (shouldVirtualize && !isTranscriptLoading && stableTranscript.length > 0) {
@@ -510,9 +511,11 @@ function TimelineAttentionNavigation({
 
 function TimelineMinimap({
   segments,
+  activeTargetRowId,
   onNavigate,
 }: {
   readonly segments: readonly TimelineMinimapSegment[];
+  readonly activeTargetRowId?: string;
   readonly onNavigate: (rowId: string) => void;
 }) {
   return (
@@ -521,9 +524,10 @@ function TimelineMinimap({
         <button
           key={segment.id}
           type="button"
-          className="timeline-minimap__segment"
+          className={`timeline-minimap__segment${activeTargetRowId === segment.rowId ? " timeline-minimap__segment--active" : ""}`}
           data-signal-types={segment.types.join(" ")}
           data-timeline-target-row-id={segment.rowId}
+          aria-current={activeTargetRowId === segment.rowId ? "location" : undefined}
           style={{ top: `${segment.position * 100}%` }}
           aria-label={`${segment.label}. ${segment.count} event${segment.count === 1 ? "" : "s"}.`}
           title={segment.label}
