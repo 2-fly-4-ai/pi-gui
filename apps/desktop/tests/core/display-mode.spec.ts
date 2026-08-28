@@ -455,7 +455,8 @@ test("uses the thread composer input in Display Mode tiles", async () => {
     await createNamedThread(window, "Display mode composer parity");
 
     await window.getByTestId("composer").evaluate((textarea) => textarea.blur());
-    await window.waitForTimeout(200);
+    await expect.poll(() => window.getByTestId("composer-surface").evaluate((surface) =>
+      surface.getAnimations().filter((animation) => animation.playState !== "finished").length)).toBe(0);
     const threadComposerStyles = await window.getByTestId("composer-surface").evaluate(readComposerSurfaceStyles);
 
     await window.locator(".sidebar__nav").getByRole("button", { name: "Display Mode" }).click();

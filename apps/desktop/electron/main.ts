@@ -2102,8 +2102,8 @@ void app.whenReady().then(async () => {
     ) => {
       const attachments = validateComposerAttachmentsPayload(options?.attachments ?? []);
       const state = await store.submitComposerToSession(target, validateComposerText(text), {
-        ...options,
         attachments,
+        deliverAs: options?.deliverAs,
         messageMetadata: validateComposerMessageMetadata(options?.messageMetadata),
       });
       return state.lastError
@@ -2245,10 +2245,12 @@ void app.whenReady().then(async () => {
         publishSubagentRunsChanged(target.workspaceId, target.sessionId);
       }
     });
-    await subagentRuns.reconcileInterruptedRuns(
-      workspaceId,
-      (target) => store.sessionFromState(target)?.status === "running",
-    );
+    if (process.env.PI_APP_TEST_DEFER_SUBAGENT_WORKFLOW !== "1") {
+      await subagentRuns.reconcileInterruptedRuns(
+        workspaceId,
+        (target) => store.sessionFromState(target)?.status === "running",
+      );
+    }
     return subagentRuns.listRuns(workspaceId, store.getWorkspacePath(workspaceId));
   });
   handleMainFrameIpc(desktopIpc.runSubagentWorkflow, async (_event, workspaceId: string, input: RunSubagentWorkflowInput) => {

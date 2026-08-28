@@ -547,6 +547,7 @@ test("settings subagents submits a built-in workflow and persists the run record
     agentDir,
     initialWorkspaces: [workspacePath],
     testMode: "background",
+    envOverrides: { PI_APP_TEST_DEFER_SUBAGENT_WORKFLOW: "1" },
   });
 
   try {
@@ -758,6 +759,7 @@ test("settings subagents creates, runs, and deletes a custom workflow template",
     agentDir,
     initialWorkspaces: [workspacePath],
     testMode: "background",
+    envOverrides: { PI_APP_TEST_DEFER_SUBAGENT_WORKFLOW: "1" },
   });
 
   try {
@@ -864,6 +866,7 @@ test("settings subagents marks a submitted workflow failed when no Agent tool ru
     agentDir,
     initialWorkspaces: [workspacePath],
     testMode: "background",
+    envOverrides: { PI_APP_TEST_DEFER_SUBAGENT_WORKFLOW: "1" },
   });
 
   try {
@@ -936,6 +939,7 @@ test("settings subagents cancels an active workflow run from the Runs tab", asyn
     agentDir,
     initialWorkspaces: [workspacePath],
     testMode: "background",
+    envOverrides: { PI_APP_TEST_DEFER_SUBAGENT_WORKFLOW: "1" },
   });
 
   try {

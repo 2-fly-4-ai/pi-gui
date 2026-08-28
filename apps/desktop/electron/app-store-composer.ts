@@ -605,6 +605,7 @@ export async function submitComposerToSession(
     readonly attachments?: readonly ComposerAttachment[];
     readonly deliverAs?: "steer" | "followUp";
     readonly messageMetadata?: unknown;
+    readonly deferProviderForTest?: boolean;
   } = {},
 ): Promise<DesktopAppState> {
   await store.initialize();
@@ -668,7 +669,10 @@ export async function submitComposerToSession(
       });
     }
 
-    await sendMessageToSession(store, sessionRef, text, attachments, { messageMetadata: options.messageMetadata });
+    await sendMessageToSession(store, sessionRef, text, attachments, {
+      messageMetadata: options.messageMetadata,
+      deferProviderForTest: options.deferProviderForTest,
+    });
     const nextState = await store.refreshState({
       clearLastError: true,
       markSelectedSessionViewed: false,
@@ -722,6 +726,7 @@ export async function sendMessageToSession(
   options: {
     readonly rollbackOptimisticMessageOnError?: boolean;
     readonly messageMetadata?: unknown;
+    readonly deferProviderForTest?: boolean;
   } = {},
 ): Promise<void> {
   const key = sessionKey(sessionRef);
@@ -751,6 +756,9 @@ export async function sendMessageToSession(
   store.emit();
   clearActiveAssistantMessage(store.sessionState.activeAssistantMessageBySession, sessionRef);
   store.sessionState.sessionErrorsBySession.delete(key);
+  if (options.deferProviderForTest && process.env.PI_APP_TEST_DEFER_SUBAGENT_WORKFLOW === "1") {
+    return;
+  }
   try {
     await store.driver.sendUserMessage(sessionRef, {
       text: toProviderMessageText(text, options.messageMetadata),

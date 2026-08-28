@@ -172,6 +172,7 @@ test("theme gallery previews, cancels, applies across modes, and persists after 
     }))).toEqual({ palette: "builtin:ocean-terminal", mode: "light", main: "#f3f8ff" });
     await window.locator('input[name="theme"][aria-label="Dark"]').check();
     await expect.poll(() => window.evaluate(() => document.documentElement.style.getPropertyValue("--main"))).toBe("#111a24");
+    await expect.poll(() => window.evaluate(() => window.piApp?.getThemeMode())).toBe("dark");
   } finally {
     await firstRun.close();
   }

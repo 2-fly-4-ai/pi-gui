@@ -1206,6 +1206,7 @@ export class DesktopAppStore implements AppStoreInternals {
       readonly attachments?: readonly ComposerAttachment[];
       readonly deliverAs?: "steer" | "followUp";
       readonly messageMetadata?: unknown;
+      readonly deferProviderForTest?: boolean;
     },
   ): Promise<DesktopAppState> {
     return composer.submitComposerToSession(

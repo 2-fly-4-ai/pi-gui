@@ -45,7 +45,7 @@ esac
       await app.createSession({ workspaceId: snapshot.selectedWorkspaceId, title: "PR workbench" });
     });
     await window.getByRole("button", { name: "GitHub actions" }).click();
-    await window.getByRole("button", { name: "Pull requests", exact: true }).click();
+    await window.getByRole("button", { name: "Pull requests" }).click();
 
     const workbench = window.getByTestId("pull-request-workbench");
     await expect(workbench).toBeVisible();
