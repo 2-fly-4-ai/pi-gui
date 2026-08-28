@@ -87,7 +87,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2]
+        shard: [1, 2, 3, 4]
 
     steps:
       - uses: actions/checkout@v4
@@ -103,7 +103,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Desktop Core
-        run: pnpm --filter @pi-gui/desktop run test:e2e:ci:mac -- --shard=${{ matrix.shard }}/2
+        run: pnpm --filter @pi-gui/desktop run test:e2e:ci:mac -- --shard=${{ matrix.shard }}/4
 
   desktop-package-linux:
     needs: unit
