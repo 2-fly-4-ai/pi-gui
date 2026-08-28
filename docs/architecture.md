@@ -15,6 +15,12 @@ The current app-state source of truth is `DesktopAppStore` in Electron main. Mai
 
 Selected transcript hydration is separate: main loads the selected session transcript, caches it by session key, and publishes `desktopIpc.selectedTranscriptChanged`. Renderer materializes the active transcript and timeline, while persistence stays in main.
 
+The renderer receives one bounded selected-transcript projection: duplicate structured tool output is omitted when
+`outputText` already carries the visible result, and oversized historical tool payloads become explicit previews.
+The complete persisted transcript remains main-owned. Ordered append/update/truncate events carry only the changed
+rows; they must not be preceded by a full-history reset. Dormant full-transcript cache entries are byte- and
+count-bounded, while the selected and running tasks remain protected.
+
 Display Mode never bulk-loads those full transcripts. Its shells, counts, filters, and ordering come from the existing
 workspace/session summaries. A render-resident detailed card requests a per-session `DisplayModeThreadProjection`
 through narrow IPC; each projection is limited to eight dashboard-safe rows and 96 KiB, persisted as a user-data
@@ -68,6 +74,12 @@ Logs, Plan, Display Mode drawer, and VS Code restore independently; unavailable 
 windows clamp or overlay utility panels, Focus mode remains a temporary presentation override, and Reset clears every
 layout owner together.
 
+The embedded VS Code surface runs in a dedicated sandboxed Electron webview partition rather than inside the main
+renderer. Its renderer lifecycle and memory are isolated from chat, and a guest failure leaves the task usable with
+an explicit editor retry action. Electron main applies the same navigation and window-open policy to the guest.
+Stock Electron's pointer-compressed V8 build has a roughly 4 GiB heap cage per renderer, so large product surfaces
+must use bounded projections and process isolation instead of relying on a larger runtime heap flag.
+
 The artifact shelf is an index of references, not a content cache or repository writer. Main exposes only narrow
 workspace-bounded inspect, reveal, handoff-save, and attachment-snapshot IPC. Private/log paths remain visible as
 metadata but are excluded from handoff export. Absolute external paths, secret-shaped values, transcript bodies,
@@ -86,6 +98,15 @@ trusted and green. Partial, failed, blocked, cancelled, interrupted, or assistan
 them. The renderer suppresses motion for reduced-motion users, active text selection, Review, and focused writing.
 
 State and transcript updates use typed delta channels. Extend the existing store/event contracts rather than adding parallel state paths.
+
+## Experimental Execution Environment Boundary
+
+The local changed-files read path and the disabled-by-default loopback prototype share a typed
+`ExecutionEnvironment` capability descriptor. The loopback helper is a separately supervised,
+read-only process with bounded framed messages, per-launch authentication, heartbeat, cancellation,
+version negotiation, traversal protection, and explicit shutdown. It is architecture evidence, not
+a production remote-workspace claim. The source-of-truth split, threat model, measured proof, and
+no-go product recommendation are recorded in [`remote-execution-spike.md`](remote-execution-spike.md).
 
 ## Driver Stack
 

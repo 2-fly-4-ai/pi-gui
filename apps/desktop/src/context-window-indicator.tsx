@@ -79,6 +79,16 @@ export function ContextWindowIndicator({
               </div>
             </div>
           ) : null}
+          <button
+            className="context-window-indicator__usage-link"
+            type="button"
+            onClick={() => {
+              setOpen(false);
+              window.dispatchEvent(new Event("pi-gui:open-usage"));
+            }}
+          >
+            Open usage dashboard
+          </button>
         </div>
       ) : null}
     </div>

@@ -17,7 +17,7 @@ export type {
 } from "./display-mode-projection";
 import type { CreateReviewSnapshotOptions } from "./review/review-types";
 
-export type AppView = "threads" | "new-thread" | "display-mode" | "skills" | "extensions" | "settings" | "review";
+export type AppView = "threads" | "new-thread" | "display-mode" | "skills" | "extensions" | "settings" | "review" | "pull-requests" | "usage" | "project-actions" | "prompt-shelf";
 export type WorkspaceKind = "primary" | "worktree";
 export type WorktreeStatus = "ready" | "missing" | "error";
 export type NewThreadEnvironment = "local" | "worktree";
@@ -202,6 +202,11 @@ export interface CreateWorktreeInput {
 }
 
 export type StartThreadInput = {
+  /**
+   * Identifies one user submission across renderer/main retries. The main
+   * process uses this to make thread creation idempotent.
+   */
+  readonly requestId?: string;
   readonly rootWorkspaceId: string;
   readonly environment: NewThreadEnvironment;
   readonly prompt?: string;

@@ -8,6 +8,7 @@ import type {
   DesktopAppState,
   ExtensionCommandCompatibilityRecord,
   QueuedComposerMessage,
+  TranscriptMessage,
   WorkspaceSessionTarget,
 } from "../src/desktop-state";
 import type { PendingAutoTitle, QueuedComposerEditState, SessionStateMap } from "./session-state-map";
@@ -62,7 +63,11 @@ export interface AppStoreInternals {
   persistUiState(): Promise<void>;
   persistComposerAttachments(key: string, attachments: readonly ComposerAttachment[]): Promise<void>;
   persistQueuedComposerMessages(sessionRef: SessionRef): Promise<void>;
-  persistTranscriptCacheForSession(sessionRef: SessionRef): void;
+  persistTranscriptCacheForSession(
+    sessionRef: SessionRef,
+    options?: { readonly immediate?: boolean },
+  ): Promise<void>;
+  pruneFullTranscriptCache(additionalProtectedKeys?: ReadonlySet<string>, maxEntries?: number, maxBytes?: number): void;
   schedulePersistUiState(): void;
   updateSessionConfig(sessionRef: SessionRef, config: SessionConfig | undefined): void;
   setPendingAutoTitle(sessionRef: SessionRef, pending: PendingAutoTitle): void;
@@ -79,6 +84,11 @@ export interface AppStoreInternals {
   reloadTranscriptFromDriver(sessionRef: SessionRef): Promise<void>;
   publishSelectedTranscript(): void;
   publishSelectedTranscriptFor(sessionRef: SessionRef): void;
+  publishTranscriptDeltaFor(
+    sessionRef: SessionRef,
+    before: readonly TranscriptMessage[],
+    after: readonly TranscriptMessage[],
+  ): void;
   buildCreateSessionOptions(workspaceId: string): Promise<CreateSessionOptions | undefined>;
 }
 

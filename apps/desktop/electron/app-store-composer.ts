@@ -23,6 +23,12 @@ import {
 import type { AppStoreInternals } from "./app-store-internals";
 import { updateSessionRecord } from "./app-store-session-state";
 import { appendAgentActivity } from "./observability-service";
+import {
+  boundComposerAttachments,
+  validateComposerAttachmentLimits,
+  validateComposerMessageMetadata,
+  validateComposerText,
+} from "../src/composer-attachments";
 
 /* ── Public methods ─────────────────────────────────────── */
 
@@ -30,13 +36,22 @@ export async function updateComposerDraft(
   store: AppStoreInternals,
   target: WorkspaceSessionTarget,
   composerDraft: string,
-  options?: { readonly syncToEditor?: boolean },
+  options?: { readonly syncToEditor?: boolean; readonly baseSyncNonce?: number },
 ): Promise<DesktopAppState> {
   await store.initialize();
   const sessionRef = toSessionRef(target);
   const key = sessionKey(sessionRef);
-  if (composerDraft) {
-    store.sessionState.composerDraftsBySession.set(key, composerDraft);
+  const boundedDraft = validateComposerText(composerDraft);
+  if (
+    options?.baseSyncNonce !== undefined
+    && options.baseSyncNonce < store.state.composerDraftSyncNonce
+    && store.state.composerDraftSyncSource !== "persist"
+    && store.state.composerDraftSyncSource !== "state"
+  ) {
+    return store.state;
+  }
+  if (boundedDraft) {
+    store.sessionState.composerDraftsBySession.set(key, boundedDraft);
   } else {
     store.sessionState.composerDraftsBySession.delete(key);
   }
@@ -48,7 +63,7 @@ export async function updateComposerDraft(
   }
   store.state = {
     ...store.state,
-    composerDraft,
+    composerDraft: boundedDraft,
     composerDraftSyncSource: options?.syncToEditor ? "command" : "persist",
     composerDraftSyncNonce: store.state.composerDraftSyncNonce + 1,
     revision: store.state.revision + 1,
@@ -68,7 +83,9 @@ export async function addComposerAttachments(
 
   const key = sessionKey(sessionRef);
   const existing = store.sessionState.composerAttachmentsBySession.get(key) ?? [];
-  const next = [...existing, ...attachments];
+  const combined = [...existing, ...attachments];
+  validateComposerAttachmentLimits(combined);
+  const next = boundComposerAttachments(combined);
   store.sessionState.composerAttachmentsBySession.set(key, next);
   store.state = {
     ...store.state,
@@ -357,6 +374,7 @@ export async function submitComposer(
   } = {},
 ): Promise<DesktopAppState> {
   await store.initialize();
+  validateComposerMessageMetadata(options.messageMetadata);
   const text = textInput.trim();
   const sessionRef = store.selectedSessionRef();
   const attachments = sessionRef
@@ -587,9 +605,11 @@ export async function submitComposerToSession(
     readonly attachments?: readonly ComposerAttachment[];
     readonly deliverAs?: "steer" | "followUp";
     readonly messageMetadata?: unknown;
+    readonly deferProviderForTest?: boolean;
   } = {},
 ): Promise<DesktopAppState> {
   await store.initialize();
+  validateComposerMessageMetadata(options.messageMetadata);
   const text = textInput.trim();
   const attachments = options.attachments ?? [];
   if (!text && attachments.length === 0) {
@@ -649,7 +669,10 @@ export async function submitComposerToSession(
       });
     }
 
-    await sendMessageToSession(store, sessionRef, text, attachments, { messageMetadata: options.messageMetadata });
+    await sendMessageToSession(store, sessionRef, text, attachments, {
+      messageMetadata: options.messageMetadata,
+      deferProviderForTest: options.deferProviderForTest,
+    });
     const nextState = await store.refreshState({
       clearLastError: true,
       markSelectedSessionViewed: false,
@@ -703,6 +726,7 @@ export async function sendMessageToSession(
   options: {
     readonly rollbackOptimisticMessageOnError?: boolean;
     readonly messageMetadata?: unknown;
+    readonly deferProviderForTest?: boolean;
   } = {},
 ): Promise<void> {
   const key = sessionKey(sessionRef);
@@ -717,7 +741,8 @@ export async function sendMessageToSession(
   if (store.sessionFromState(sessionRef)?.archivedAt) {
     await store.driver.unarchiveSession(sessionRef);
   }
-  appendUserMessage(
+  const transcriptBefore = store.sessionState.transcriptCache.get(key) ?? [];
+  const transcriptAfter = appendUserMessage(
     store.sessionState.transcriptCache,
     sessionRef,
     text,
@@ -725,19 +750,25 @@ export async function sendMessageToSession(
     options.messageMetadata,
   );
   markSessionOptimisticallyRunning(store, sessionRef);
-  store.publishSelectedTranscriptFor(sessionRef);
-  store.persistTranscriptCacheForSession(sessionRef);
+  store.publishTranscriptDeltaFor(sessionRef, transcriptBefore, transcriptAfter);
+  void store.persistTranscriptCacheForSession(sessionRef);
   store.schedulePersistUiState();
   store.emit();
   clearActiveAssistantMessage(store.sessionState.activeAssistantMessageBySession, sessionRef);
   store.sessionState.sessionErrorsBySession.delete(key);
+  if (options.deferProviderForTest && process.env.PI_APP_TEST_DEFER_SUBAGENT_WORKFLOW === "1") {
+    return;
+  }
   try {
     await store.driver.sendUserMessage(sessionRef, {
       text: toProviderMessageText(text, options.messageMetadata),
       attachments: toSessionAttachments(attachments),
       ...(options.messageMetadata !== undefined ? { metadata: options.messageMetadata } : {}),
     });
-    store.sessionState.composerDraftsBySession.delete(key);
+    const draftAfterSend = store.sessionState.composerDraftsBySession.get(key);
+    if (draftAfterSend === undefined || draftAfterSend === previousDraft || draftAfterSend === text) {
+      store.sessionState.composerDraftsBySession.delete(key);
+    }
     store.sessionState.composerAttachmentsBySession.delete(key);
     await store.persistComposerAttachments(key, []);
   } catch (error) {
@@ -749,11 +780,12 @@ export async function sendMessageToSession(
     }
     await store.persistComposerAttachments(key, previousAttachments);
     if (rollbackOptimisticMessageOnError) {
-      const transcript = store.sessionState.transcriptCache.get(key) ?? [];
-      store.sessionState.transcriptCache.set(key, transcript.slice(0, -1));
+      const transcriptBeforeRollback = store.sessionState.transcriptCache.get(key) ?? [];
+      const transcriptAfterRollback = transcriptBeforeRollback.slice(0, -1);
+      store.sessionState.transcriptCache.set(key, transcriptAfterRollback);
       clearOptimisticRunningState(store, sessionRef);
-      store.publishSelectedTranscriptFor(sessionRef);
-      store.persistTranscriptCacheForSession(sessionRef);
+      store.publishTranscriptDeltaFor(sessionRef, transcriptBeforeRollback, transcriptAfterRollback);
+      void store.persistTranscriptCacheForSession(sessionRef);
       store.schedulePersistUiState();
       store.emit();
     }
@@ -846,6 +878,7 @@ function applyMessageMetadataToLatestUserMessage(
   if (!transcript) {
     return;
   }
+  const transcriptBefore = [...transcript];
   for (let index = transcript.length - 1; index >= 0; index -= 1) {
     const item = transcript[index];
     if (item?.kind !== "message" || item.role !== "user" || item.text !== text) {
@@ -856,8 +889,8 @@ function applyMessageMetadataToLatestUserMessage(
     }
     transcript[index] = { ...item, metadata };
     store.sessionState.transcriptCache.set(key, transcript);
-    store.publishSelectedTranscriptFor(sessionRef);
-    store.persistTranscriptCacheForSession(sessionRef);
+    store.publishTranscriptDeltaFor(sessionRef, transcriptBefore, transcript);
+    void store.persistTranscriptCacheForSession(sessionRef);
     return;
   }
 }
@@ -973,7 +1006,7 @@ function appendLocalActivity(store: AppStoreInternals, sessionRef: SessionRef, l
   const transcript = [...(store.sessionState.transcriptCache.get(key) ?? [])];
   transcript.push(makeActivityItem(label));
   store.sessionState.transcriptCache.set(key, transcript);
-  store.persistTranscriptCacheForSession(sessionRef);
+  void store.persistTranscriptCacheForSession(sessionRef);
 }
 
 function finishComposerCommand(
@@ -984,6 +1017,7 @@ function finishComposerCommand(
 ): DesktopAppState {
   store.sessionState.composerDraftsBySession.delete(key);
   store.sessionState.composerAttachmentsBySession.delete(key);
+  const transcriptBefore = store.sessionState.transcriptCache.get(key) ?? [];
   appendLocalActivity(store, sessionRef, label);
   const transcript = store.sessionState.transcriptCache.get(key) ?? [];
   const preview = previewFromTranscript(transcript);
@@ -1014,6 +1048,6 @@ function finishComposerCommand(
   };
   store.schedulePersistUiState();
   const snapshot = store.emit();
-  store.publishSelectedTranscriptFor(sessionRef);
+  store.publishTranscriptDeltaFor(sessionRef, transcriptBefore, transcript);
   return snapshot;
 }

@@ -24,7 +24,7 @@ const selectedTranscript = (
 });
 
 describe("createTranscriptMaterializerState", () => {
-  it("creates an isolated state snapshot from the selected transcript", () => {
+  it("reuses the immutable selected transcript without another full-history copy", () => {
     const source = [message("m1")];
     const state = createTranscriptMaterializerState(selectedTranscript(source), 4);
 
@@ -35,7 +35,7 @@ describe("createTranscriptMaterializerState", () => {
       transcript: source,
       resyncing: false,
     });
-    expect(state?.transcript).not.toBe(source);
+    expect(state?.transcript).toBe(source);
   });
 
   it("keeps null selections empty", () => {
@@ -79,6 +79,28 @@ describe("applyTranscriptSyncEvent", () => {
     expect(result.status).toBe("applied");
     expect(result.state.sequence).toBe(4);
     expect(result.state.transcript.map((item) => item.id)).toEqual(["m1", "m2", "m3"]);
+  });
+
+  it("keeps long-running append streams inside the renderer row budget", () => {
+    let state = createTranscriptMaterializerState(selectedTranscript([]), 0);
+    for (let sequence = 1; sequence <= 2_600; sequence += 1) {
+      const result = applyTranscriptSyncEvent(state, {
+        kind: "append",
+        workspaceId: "workspace-1",
+        sessionId: "session-1",
+        sequence,
+        items: [message(`m${sequence}`)],
+      });
+      expect(result.status).toBe("applied");
+      state = result.state;
+    }
+
+    expect(state?.transcript.length).toBeLessThanOrEqual(2_501);
+    expect(state?.transcript[0]).toMatchObject({
+      kind: "summary",
+      id: expect.stringContaining("__pi-gui-omitted-history__"),
+    });
+    expect(state?.transcript.at(-1)?.id).toBe("m2600");
   });
 
   it("ignores non-reset events for stale selections", () => {

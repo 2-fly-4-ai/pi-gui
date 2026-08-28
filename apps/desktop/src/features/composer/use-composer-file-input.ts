@@ -69,7 +69,16 @@ export function useComposerFileInput({
         return;
       }
       setSnapshot((current) => current ? appendComposerAttachments(current, [clipboardImage]) : current);
-      void api.addComposerAttachments([clipboardImage]);
+      void api.addComposerAttachments([clipboardImage])
+        .then(() => api.getState())
+        .then(setSnapshot)
+        .catch(async (error: unknown) => {
+          const current = await api.getState().catch(() => null);
+          setSnapshot(current ? {
+            ...current,
+            lastError: error instanceof Error ? error.message : String(error),
+          } : current);
+        });
       return;
     }
 
@@ -95,9 +104,14 @@ export function useComposerFileInput({
       if (clipboardImage) {
         onImage(clipboardImage);
       }
+    }).catch((error: unknown) => {
+      setSnapshot((current) => current ? {
+        ...current,
+        lastError: error instanceof Error ? error.message : String(error),
+      } : current);
     });
     return true;
-  }, [api]);
+  }, [api, setSnapshot]);
 
   return {
     handleClipboardImageShortcut,

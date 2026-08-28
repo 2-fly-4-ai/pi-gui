@@ -61,6 +61,35 @@ test("toggles assistant thinking blocks in the chat", async () => {
     await expect(window.getByTestId("transcript")).toContainText(thinkingText);
 
     await emitTestSessionEvent(harness, {
+      type: "toolStarted",
+      sessionRef,
+      timestamp: new Date().toISOString(),
+      toolName: "find",
+      callId: "thinking-round-tool",
+      input: { path: "." },
+    });
+    await emitTestSessionEvent(harness, {
+      type: "toolFinished",
+      sessionRef,
+      timestamp: new Date().toISOString(),
+      callId: "thinking-round-tool",
+      success: true,
+      output: "src\ntests",
+    });
+    const continuedThinkingText = "I should summarize the directory results now.";
+    await emitTestSessionEvent(harness, {
+      type: "assistantThinkingDelta",
+      sessionRef,
+      timestamp: new Date().toISOString(),
+      text: continuedThinkingText,
+    });
+
+    await expect(window.locator(".timeline-item--thinking")).toHaveCount(1);
+    await expect(window.getByTestId("transcript")).not.toContainText(thinkingText);
+    await expect(window.getByTestId("transcript")).toContainText(continuedThinkingText);
+    await expect(window.getByTestId("transcript")).toContainText("Ran find");
+
+    await emitTestSessionEvent(harness, {
       type: "assistantThinkingFinished",
       sessionRef,
       timestamp: new Date().toISOString(),
@@ -117,7 +146,7 @@ test("shows thinking immediately before thinking text arrives", async () => {
   }
 });
 
-test("shows running command output without foregrounding raw JSON", async () => {
+test("keeps running command output collapsed until explicitly opened", async () => {
   const userDataDir = await makeUserDataDir();
   const workspacePath = await makeWorkspace("timeline-tool-output-workspace");
   const harness = await launchDesktop(userDataDir, {
@@ -151,18 +180,20 @@ test("shows running command output without foregrounding raw JSON", async () => 
     await expect(transcript).toContainText("Running printf");
     await expect(transcript.locator(".timeline-tool__spinner")).toBeVisible();
 
-    await expect(transcript).toContainText("Still running.");
-    await expect(transcript).toContainText("No stdout/stderr emitted yet.");
     await expect(transcript).toContainText(/bash · running for \d+s/);
-    await expect(transcript).toContainText(`$ ${command}`);
+    await expect(transcript).not.toContainText("Still running.");
+    await expect(transcript).not.toContainText("No stdout/stderr emitted yet.");
+    await expect(transcript).not.toContainText(`$ ${command}`);
     await expect(transcript).not.toContainText('"command"');
 
     const runningToolButton = transcript.getByRole("button", { name: /Running printf/ });
-    await expect(runningToolButton).toHaveAttribute("aria-expanded", "true");
+    await expect(runningToolButton).toHaveAttribute("aria-expanded", "false");
 
     await runningToolButton.click();
-    await expect(runningToolButton).toHaveAttribute("aria-expanded", "false");
-    await expect(transcript).not.toContainText(`$ ${command}`);
+    await expect(runningToolButton).toHaveAttribute("aria-expanded", "true");
+    await expect(transcript).toContainText("Still running.");
+    await expect(transcript).toContainText("No stdout/stderr emitted yet.");
+    await expect(transcript).toContainText(`$ ${command}`);
 
     await emitTestSessionEvent(harness, {
       type: "toolUpdated",
@@ -172,14 +203,14 @@ test("shows running command output without foregrounding raw JSON", async () => 
       text: "live output one\nlive output two",
     } satisfies Extract<SessionDriverEvent, { type: "toolUpdated" }>);
 
-    await expect(runningToolButton).toHaveAttribute("aria-expanded", "false");
-    await expect(transcript).not.toContainText("live output one");
-
-    await runningToolButton.click();
     await expect(runningToolButton).toHaveAttribute("aria-expanded", "true");
     await expect(transcript).toContainText("live output one");
     await expect(transcript).toContainText("live output two");
     await expect(transcript).not.toContainText('"command"');
+
+    await runningToolButton.click();
+    await expect(runningToolButton).toHaveAttribute("aria-expanded", "false");
+    await expect(transcript).not.toContainText("live output one");
   } finally {
     await harness.close();
   }
@@ -330,6 +361,43 @@ test("renders typed subagent lifecycle events in the transcript", async () => {
     await expect(drawer).toBeVisible();
     await expect(drawer).toContainText("Reviewed the diff from inside the child transcript.");
     await expect(transcript.getByRole("button", { name: "Copy full transcript path" })).toBeVisible();
+  } finally {
+    await harness.close();
+  }
+});
+
+test("keeps agent tool portraits on a light plate in dark mode", async () => {
+  const userDataDir = await makeUserDataDir();
+  const workspacePath = await makeWorkspace("timeline-agent-portrait-workspace");
+  const harness = await launchDesktop(userDataDir, {
+    initialWorkspaces: [workspacePath],
+    testMode: "background",
+  });
+
+  try {
+    const window = await harness.firstWindow();
+    await waitForWorkspaceByPath(window, workspacePath);
+    await createSessionViaIpc(window, workspacePath, "Agent portrait contrast");
+    const state = await getDesktopState(window);
+    const sessionRef = {
+      workspaceId: state.selectedWorkspaceId,
+      sessionId: state.selectedSessionId,
+    };
+
+    await window.evaluate(() => document.documentElement.classList.add("dark"));
+    await emitTestSessionEvent(harness, {
+      type: "toolStarted",
+      sessionRef,
+      timestamp: new Date().toISOString(),
+      toolName: "Agent",
+      callId: "agent-portrait-contrast",
+      input: { subagent_type: "reviewer", description: "Review the current diff" },
+    });
+
+    const portrait = window.locator(".timeline-tool__agent-avatar");
+    await expect(portrait).toBeVisible();
+    await expect.poll(() => portrait.evaluate((element) => getComputedStyle(element).backgroundColor))
+      .toBe("rgb(247, 247, 242)");
   } finally {
     await harness.close();
   }

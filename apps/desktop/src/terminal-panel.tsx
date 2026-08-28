@@ -208,12 +208,7 @@ export function TerminalPanel({
       fontFamily: "Menlo, Monaco, Consolas, 'Liberation Mono', monospace",
       fontSize: 12,
       scrollback: 2_000,
-      theme: {
-        background: "#0f1117",
-        foreground: "#d7dae0",
-        cursor: "#f2f4f8",
-        selectionBackground: "#39557a",
-      },
+      theme: resolvedTerminalTheme(),
     });
     const fitAddon = new FitAddon();
     const clipboardAddon = new ClipboardAddon();
@@ -274,12 +269,18 @@ export function TerminalPanel({
     terminal.focus();
     terminalRef.current = terminal;
     fitAddonRef.current = fitAddon;
-    window.requestAnimationFrame(fitAndResize);
+    let fitFrame = 0;
+    const scheduleFitAndResize = () => {
+      window.cancelAnimationFrame(fitFrame);
+      fitFrame = window.requestAnimationFrame(fitAndResize);
+    };
+    scheduleFitAndResize();
 
-    const resizeObserver = new ResizeObserver(() => fitAndResize());
+    const resizeObserver = new ResizeObserver(scheduleFitAndResize);
     resizeObserver.observe(container);
 
     return () => {
+      window.cancelAnimationFrame(fitFrame);
       resizeObserver.disconnect();
       selectionDisposable.dispose();
       document.removeEventListener("selectionchange", handleDocumentSelectionChange);
@@ -290,6 +291,14 @@ export function TerminalPanel({
       terminal.dispose();
     };
   }, [activeSessionId, activeSessionReplay, api, createTerminal, fitAndResize, onOpenUrl, refreshSelectionAction]);
+
+  useEffect(() => {
+    const applyPalette = () => {
+      if (terminalRef.current) terminalRef.current.options.theme = resolvedTerminalTheme();
+    };
+    window.addEventListener("pi-gui:theme-palette-changed", applyPalette);
+    return () => window.removeEventListener("pi-gui:theme-palette-changed", applyPalette);
+  }, []);
 
   const startResize = (event: ReactMouseEvent<HTMLDivElement>) => {
     event.preventDefault();
@@ -468,4 +477,15 @@ function macTerminalSequenceForEvent(event: KeyboardEvent): string | undefined {
     default:
       return undefined;
   }
+}
+
+function resolvedTerminalTheme() {
+  const styles = getComputedStyle(document.documentElement);
+  const read = (variable: string, fallback: string) => styles.getPropertyValue(variable).trim() || fallback;
+  return {
+    background: read("--main", "#0f1117"),
+    foreground: read("--text", "#d7dae0"),
+    cursor: read("--text-strong", "#f2f4f8"),
+    selectionBackground: `color-mix(in srgb, ${read("--accent", "#39557a")} 42%, transparent)`,
+  };
 }

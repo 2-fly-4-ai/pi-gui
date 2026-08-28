@@ -12,11 +12,11 @@ describe("attention markers", () => {
     ];
     const evidence = [
       record("approval-pending", "approval", "pending", 1_100, { toolCallId: "tool-1" }),
-      record("approval-done", "approval", "passed", 1_200),
-      record("failure", "error", "failed", 2_000),
-      record("checkpoint", "checkpoint", "passed", 3_000),
-      record("decision", "decision", "passed", 4_000),
-      record("test", "test", "passed", 5_000),
+      record("approval-done", "approval", "passed", 1_200, { toolCallId: "tool-1" }),
+      record("failure", "error", "failed", 2_000, { toolCallId: "tool-1" }),
+      record("checkpoint", "checkpoint", "passed", 3_000, { toolCallId: "tool-1" }),
+      record("decision", "decision", "passed", 4_000, { toolCallId: "tool-1" }),
+      record("test", "test", "passed", 5_000, { toolCallId: "tool-1" }),
       record("completion", "completion", "passed", 6_000),
     ];
 
@@ -39,6 +39,22 @@ describe("attention markers", () => {
     const transcript = [message("user-1", "Start", 0), tool("tool-1", 1_000)];
     const evidence = [record("failure-1", "error", "failed", 1_100, { toolCallId: "tool-1" })];
     expect(deriveAttentionMarkers(transcript, evidence)).toEqual(deriveAttentionMarkers([...transcript], [...evidence]));
+  });
+
+  it("never attaches uncorrelated milestone evidence to an ordinary chat message", () => {
+    const transcript: TranscriptMessage[] = [
+      message("user-1", "Start", 0),
+      { kind: "summary", id: "summary-1", label: "Worked for 1s", presentation: "divider", createdAt: timestamp(1_000) },
+      message("user-2", "Continue", 2_000),
+    ];
+    const evidence = [
+      record("test", "test", "passed", 2_000),
+      record("completion", "completion", "passed", 1_000),
+    ];
+
+    const markers = deriveAttentionMarkers(transcript, evidence);
+    expect(markers.find((marker) => marker.evidenceId === "test")).toBeUndefined();
+    expect(markers.find((marker) => marker.evidenceId === "completion")?.rowId).toBe("summary-1");
   });
 });
 

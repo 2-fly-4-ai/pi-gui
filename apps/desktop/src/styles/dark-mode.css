@@ -366,6 +366,7 @@ mark.thread-find-active {
 }
 
 :root.dark .settings-search,
+:root.dark .settings-global-search__input,
 :root.dark .settings-text-input,
 :root.dark .settings-textarea {
   border-color: var(--line);

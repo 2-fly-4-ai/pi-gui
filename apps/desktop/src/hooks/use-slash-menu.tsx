@@ -406,6 +406,7 @@ export function useSlashMenu(params: UseSlashMenuParams): SlashMenuState {
   };
 
   const handleSlashKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>): boolean => {
+    const liveSlashQuery = extractActiveSlashQuery(event.currentTarget.value);
     if ((showSlashMenu || showSlashOptionMenu) && event.key === "Escape") {
       event.preventDefault();
       closeSlashOptionMenu();
@@ -437,7 +438,13 @@ export function useSlashMenu(params: UseSlashMenuParams): SlashMenuState {
       return true;
     }
 
-    if (showSlashMenu && event.key === "Enter" && selectedSlashCommand && !slashQuery.includes(" ")) {
+    if (
+      showSlashMenu
+      && event.key === "Enter"
+      && selectedSlashCommand
+      && liveSlashQuery
+      && !liveSlashQuery.query.includes(" ")
+    ) {
       event.preventDefault();
       applySlashCommandSelection(selectedSlashCommand, "enter");
       return true;

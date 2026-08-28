@@ -42,13 +42,17 @@ function readComposerSurfaceStyles(surfaceElement: Element) {
 async function expectVSCodePanelSettled(panel: Locator): Promise<void> {
   const webview = panel.locator(".display-mode-vscode__webview");
   const error = panel.locator(".display-mode-vscode__error");
-  await expect(webview.or(error)).toHaveCount(1, { timeout: 45_000 });
+  // The backend intentionally gives VS Code up to 45 seconds to start before
+  // surfacing its recoverable error state. Leave enough time for that state to
+  // cross IPC and commit in React instead of racing the same deadline.
+  await expect(webview.or(error)).toHaveCount(1, { timeout: 55_000 });
   if (await error.count()) {
     await expect(error).toContainText("Could not start VS Code");
     await expect(error.locator("p")).not.toBeEmpty();
     return;
   }
   await expect(webview).toHaveAttribute("title", "VS Code");
+  await expect.poll(() => webview.evaluate((element) => element.tagName)).toBe("WEBVIEW");
 }
 
 async function runDisplayTileAction(tile: Locator, actionName: string): Promise<void> {
@@ -57,6 +61,57 @@ async function runDisplayTileAction(tile: Locator, actionName: string): Promise<
   await expect(menu).toBeVisible();
   await menu.getByRole("menuitem", { name: actionName, exact: true }).click();
 }
+
+test("keeps the chat alive when the isolated VS Code renderer stops", async () => {
+  test.setTimeout(60_000);
+  const userDataDir = await makeUserDataDir();
+  const workspacePath = await makeWorkspace("vscode-renderer-isolation-workspace");
+  const harness = await launchDesktop(userDataDir, {
+    initialWorkspaces: [workspacePath],
+    testMode: "background",
+  });
+
+  try {
+    const window = await harness.firstWindow();
+    await waitForWorkspaceByPath(window, workspacePath);
+    await createNamedThread(window, "VS Code renderer isolation");
+    await toggleTopbarPanel(window, "VS Code");
+
+    const panel = window.getByTestId("thread-vscode-panel");
+    await expect(panel).toBeVisible();
+    await expectVSCodePanelSettled(panel);
+    if (await panel.locator(".display-mode-vscode__error").count()) {
+      await expect(window.getByTestId("composer")).toBeVisible();
+      return;
+    }
+
+    const processIds = await harness.electronApp.evaluate(({ BrowserWindow, webContents }) => {
+      const host = BrowserWindow.getAllWindows()[0]?.webContents;
+      const guest = webContents.getAllWebContents().find((candidate) => candidate.getType() === "webview");
+      return {
+        host: host?.getOSProcessId(),
+        guest: guest?.getOSProcessId(),
+      };
+    });
+    expect(processIds.host).toBeTruthy();
+    expect(processIds.guest).toBeTruthy();
+    expect(processIds.guest).not.toBe(processIds.host);
+
+    await harness.electronApp.evaluate(({ webContents }) => {
+      const guest = webContents.getAllWebContents().find((candidate) => candidate.getType() === "webview");
+      if (!guest) throw new Error("Expected an isolated VS Code webview");
+      guest.forcefullyCrashRenderer();
+    });
+
+    await expect(panel.locator(".display-mode-vscode__error")).toContainText("The chat is still safe");
+    await expect(window.getByTestId("composer")).toBeVisible();
+    await expect(window.locator(".topbar__session")).toHaveText("VS Code renderer isolation");
+    await panel.getByRole("button", { name: "Retry" }).click();
+    await expectVSCodePanelSettled(panel);
+  } finally {
+    await harness.close();
+  }
+});
 
 test("opens a Display Mode tile back into Threads with its transcript hydrated", async () => {
   const userDataDir = await makeUserDataDir();
@@ -400,7 +455,8 @@ test("uses the thread composer input in Display Mode tiles", async () => {
     await createNamedThread(window, "Display mode composer parity");
 
     await window.getByTestId("composer").evaluate((textarea) => textarea.blur());
-    await window.waitForTimeout(200);
+    await expect.poll(() => window.getByTestId("composer-surface").evaluate((surface) =>
+      surface.getAnimations().filter((animation) => animation.playState !== "finished").length)).toBe(0);
     const threadComposerStyles = await window.getByTestId("composer-surface").evaluate(readComposerSurfaceStyles);
 
     await window.locator(".sidebar__nav").getByRole("button", { name: "Display Mode" }).click();

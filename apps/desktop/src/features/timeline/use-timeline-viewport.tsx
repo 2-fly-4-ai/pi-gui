@@ -3,6 +3,7 @@ import type { AppView, SelectedTranscriptRecord } from "../../desktop-state";
 import { VIRTUALIZATION_THRESHOLD } from "../../conversation-timeline";
 import { useTimelineDiagnostics } from "../../timeline-diagnostics";
 import { useComposerTimelineResize } from "./use-composer-timeline-resize";
+import { BoundedTimelineScheduler } from "./bounded-timeline-scheduler";
 import { useTimelineInputIntent } from "./use-timeline-input-intent";
 import { useTimelinePaneResize } from "./use-timeline-pane-resize";
 import { useTimelineSessionScrollSnapshot } from "./use-timeline-session-scroll-snapshot";
@@ -19,6 +20,7 @@ interface LegendListInternalState {
 }
 
 const VIRTUALIZED_GAP_FALLBACK_ROW_ID = "__timeline-virtualized-gap-fallback";
+const virtualizedGapFallbackTimers = new WeakMap<HTMLElement, number>();
 
 interface UseTimelineViewportOptions {
   readonly activeView: AppView | undefined;
@@ -77,8 +79,12 @@ export function useTimelineViewport({
   const deferredPinnedBottomAlignmentRef = useRef(false);
   const pendingPinnedBottomBehaviorRef = useRef<ScrollBehavior>("auto");
   const [showJumpToLatest, setShowJumpToLatest] = useState(false);
+  const [timelineScrollbarDragging, setTimelineScrollbarDragging] = useState(false);
   const [timelinePaneMountVersion, setTimelinePaneMountVersion] = useState(0);
   const [disableTimelineVirtualization, setDisableTimelineVirtualization] = useState(true);
+  const timelineSchedulerRef = useRef<BoundedTimelineScheduler | null>(null);
+  timelineSchedulerRef.current ??= new BoundedTimelineScheduler();
+  const timelineScheduler = timelineSchedulerRef.current;
   selectedSessionKeyRef.current = selectedSessionKey;
   transcriptLengthRef.current = transcript.length;
   latestFollowRowRef.current = resolveLatestFollowRow(transcript);
@@ -99,6 +105,10 @@ export function useTimelineViewport({
     followingLatestRef,
     pinnedToBottomRef,
   });
+
+  useLayoutEffect(() => () => {
+    timelineScheduler.cancelAll();
+  }, [selectedSessionKey, timelineScheduler]);
 
   const resetExactBottomRestoreState = useCallback((nextSessionKey: string | null = null) => {
     exactBottomRestoreSessionKeyRef.current = nextSessionKey;
@@ -155,7 +165,18 @@ export function useTimelineViewport({
       followingLatestRef.current &&
       transcriptLengthRef.current > VIRTUALIZATION_THRESHOLD &&
       performance.now() < suppressVirtualizedHydrationScrollIntentUntilRef.current;
-    if (lastTimelinePinnedBySessionRef.current.get(sessionKey) === false && !isVirtualizedFollowHydration) {
+    if (
+      lastTimelinePinnedBySessionRef.current.get(sessionKey) === false
+      && !followingLatestRef.current
+      && !isVirtualizedFollowHydration
+    ) {
+      return;
+    }
+    // A single alignment already retries across subsequent animation frames.
+    // Starting another imperative LegendList scroll while that pass is active
+    // can feed container measurement updates back into React until it reaches
+    // the maximum update depth on very large restored tasks.
+    if (autoAligningTimelineRef.current) {
       return;
     }
 
@@ -164,6 +185,16 @@ export function useTimelineViewport({
 
     const align = (remainingChecks: number) => {
       if (timelineBottomAlignmentGenerationRef.current !== alignmentGeneration) {
+        autoAligningTimelineRef.current = false;
+        return;
+      }
+      const remainingBeforeScroll = pane.scrollHeight - pane.scrollTop - pane.clientHeight;
+      if (remainingBeforeScroll <= 1 && isLatestTimelineRowVisible(pane)) {
+        pinnedToBottomRef.current = true;
+        followingLatestRef.current = true;
+        manualTimelineScrollTopRef.current = null;
+        lastTimelinePinnedBySessionRef.current.set(sessionKey, true);
+        setShowJumpToLatest(false);
         autoAligningTimelineRef.current = false;
         return;
       }
@@ -302,8 +333,11 @@ export function useTimelineViewport({
     if (remainingFrames <= 0) {
       return;
     }
-    window.requestAnimationFrame(() => restoreManualTimelinePositionAcrossFrames(remainingFrames - 1));
-  }, [restoreManualTimelinePosition]);
+    timelineScheduler.scheduleAnimationFrame(
+      "manual-position-restore",
+      () => restoreManualTimelinePositionAcrossFrames(remainingFrames - 1),
+    );
+  }, [restoreManualTimelinePosition, timelineScheduler]);
 
   const recoverBlankVirtualizedFollowViewport = useCallback(() => {
     const pane = timelinePaneRef.current as TimelinePaneElement | null;
@@ -344,9 +378,12 @@ export function useTimelineViewport({
       return;
     }
     if (recovered || (pane && !isLatestTimelineRowVisible(pane))) {
-      window.requestAnimationFrame(() => recoverBlankVirtualizedFollowViewportAcrossFrames(remainingFrames - 1));
+      timelineScheduler.scheduleAnimationFrame(
+        "blank-viewport-recovery",
+        () => recoverBlankVirtualizedFollowViewportAcrossFrames(remainingFrames - 1),
+      );
     }
-  }, [isLatestTimelineRowVisible, recoverBlankVirtualizedFollowViewport]);
+  }, [isLatestTimelineRowVisible, recoverBlankVirtualizedFollowViewport, timelineScheduler]);
 
   const finalizeTimelineVirtualizationDisable = useCallback(() => {
     const pane = timelinePaneRef.current;
@@ -486,7 +523,7 @@ export function useTimelineViewport({
   const schedulePinnedBottomRealignment = useCallback((delayFrames = 0) => {
     const scheduledGeneration = timelineBottomAlignmentGenerationRef.current;
     const waitForFrames = (remainingFrames: number) => {
-      window.requestAnimationFrame(() => {
+      timelineScheduler.scheduleAnimationFrame("pinned-bottom-realignment", () => {
         if (timelineBottomAlignmentGenerationRef.current !== scheduledGeneration || !pinnedToBottomRef.current) {
           preserveBottomOnNextPaneResizeRef.current = false;
           return;
@@ -496,7 +533,7 @@ export function useTimelineViewport({
           return;
         }
         requestPinnedBottomAlignment("auto");
-        window.requestAnimationFrame(() => {
+        timelineScheduler.scheduleAnimationFrame("pinned-bottom-realignment-finish", () => {
           preserveBottomOnNextPaneResizeRef.current = false;
           if (timelineBottomAlignmentGenerationRef.current === scheduledGeneration && pinnedToBottomRef.current) {
             requestPinnedBottomAlignment("auto");
@@ -506,7 +543,7 @@ export function useTimelineViewport({
     };
 
     waitForFrames(delayFrames);
-  }, [requestPinnedBottomAlignment]);
+  }, [requestPinnedBottomAlignment, timelineScheduler]);
 
   const preserveTimelineBottomForLayoutChange = useCallback((delayFrames = 0) => {
     const pane = timelinePaneRef.current;
@@ -527,6 +564,7 @@ export function useTimelineViewport({
       : (savedPinned ?? true);
 
     setShowJumpToLatest(false);
+    setTimelineScrollbarDragging(false);
     lastTranscriptMarkerRef.current = "";
     pinnedToBottomRef.current = shouldFollowLatest;
     followingLatestRef.current = shouldFollowLatest;
@@ -622,7 +660,16 @@ export function useTimelineViewport({
       const pinned = isNearBottom(pane);
       lastTimelineScrollTopBySessionRef.current.set(sessionKey, pane.scrollTop);
       lastTimelinePinnedBySessionRef.current.set(sessionKey, pinned);
-      if (!pinned) sessionsWithExplicitTimelineScrollRef.current.add(sessionKey);
+      if (pinned) {
+        sessionsWithExplicitTimelineScrollRef.current.delete(sessionKey);
+        followingLatestRef.current = true;
+        pinnedToBottomRef.current = true;
+        manualTimelineScrollTopRef.current = null;
+        manualTimelineAnchorRef.current = null;
+        setShowJumpToLatest(false);
+      } else {
+        sessionsWithExplicitTimelineScrollRef.current.add(sessionKey);
+      }
     });
   }, []);
   const handleTimelineNavigate = useCallback(() => {
@@ -647,12 +694,16 @@ export function useTimelineViewport({
     setShowJumpToLatest(true);
   }, [resetExactBottomRestoreState]);
   const handleScrollbarDragStart = useCallback(() => {
+    setTimelineScrollbarDragging(true);
     followingLatestRef.current = false;
     pinnedToBottomRef.current = false;
     preserveBottomOnNextPaneResizeRef.current = false;
     suppressVirtualizedHydrationScrollIntentUntilRef.current = 0;
     resetExactBottomRestoreState();
   }, [resetExactBottomRestoreState]);
+  const handleScrollbarDragEnd = useCallback(() => {
+    setTimelineScrollbarDragging(false);
+  }, []);
 
   useTimelineInputIntent({
     activeView,
@@ -663,6 +714,7 @@ export function useTimelineViewport({
     lastTimelineScrollbarDragAtRef,
     lastUserTimelineScrollIntentAtRef,
     onExplicitTimelineScrollIntent: snapshotExplicitTimelineScrollPosition,
+    onScrollbarDragEnd: handleScrollbarDragEnd,
     onScrollbarDragStart: handleScrollbarDragStart,
     preserveBottomOnNextPaneResizeRef,
     sessionsWithExplicitTimelineScrollRef,
@@ -755,15 +807,10 @@ export function useTimelineViewport({
         setShowJumpToLatest(false);
       };
       forceInitialBottomAlignment();
-      window.requestAnimationFrame(forceInitialBottomAlignment);
-      window.setTimeout(forceInitialBottomAlignment, 100);
-      window.setTimeout(forceInitialBottomAlignment, 250);
-      window.setTimeout(forceInitialBottomAlignment, 500);
-      window.setTimeout(forceInitialBottomAlignment, 1_000);
-      window.setTimeout(forceInitialBottomAlignment, 1_750);
-      window.setTimeout(forceInitialBottomAlignment, 2_500);
-      window.setTimeout(forceInitialBottomAlignment, 4_000);
-      window.setTimeout(forceInitialBottomAlignment, 6_000);
+      timelineScheduler.scheduleAnimationFrame("follow-realignment:frame", forceInitialBottomAlignment);
+      for (const delay of [100, 250, 500, 1_000, 1_750, 2_500, 4_000, 6_000]) {
+        timelineScheduler.scheduleTimeout(`follow-realignment:${delay}`, forceInitialBottomAlignment, delay);
+      }
     }
 
     if (
@@ -795,7 +842,7 @@ export function useTimelineViewport({
         requestPinnedBottomAlignment("auto");
       };
       for (const delay of [100, 250, 500, 1_000, 2_000, 4_000]) {
-        window.setTimeout(realignLateFollowingLayout, delay);
+        timelineScheduler.scheduleTimeout(`follow-realignment:${delay}`, realignLateFollowingLayout, delay);
       }
       return;
     }
@@ -817,6 +864,7 @@ export function useTimelineViewport({
     restoreManualTimelineScrollTop,
     scrollLatestTimelineRowIntoView,
     selectedSessionKey,
+    timelineScheduler,
     transcript,
   ]);
 
@@ -843,7 +891,12 @@ export function useTimelineViewport({
   const handleTimelineContentHeightChange = useCallback(() => {
     const now = performance.now();
     const recentUserScroll = now - lastUserTimelineScrollIntentAtRef.current < 350;
-    if (timelineScrollbarDragActiveRef.current || recentUserScroll) {
+    if (
+      autoAligningTimelineRef.current
+      ||
+      timelineScrollbarDragActiveRef.current
+      || (recentUserScroll && !followingLatestRef.current)
+    ) {
       return;
     }
 
@@ -865,13 +918,13 @@ export function useTimelineViewport({
     }
 
     setShowJumpToLatest(false);
-    window.requestAnimationFrame(() => {
+    timelineScheduler.scheduleAnimationFrame("content-height-alignment", () => {
       if (!followingLatestRef.current || (!pinnedToBottomRef.current && !preserveBottomOnNextPaneResizeRef.current)) {
         return;
       }
       requestPinnedBottomAlignment("auto");
     });
-  }, [requestPinnedBottomAlignment, restoreManualTimelinePositionAcrossFrames, restoreManualTimelineScrollTop, selectedSessionKey]);
+  }, [requestPinnedBottomAlignment, restoreManualTimelinePositionAcrossFrames, restoreManualTimelineScrollTop, selectedSessionKey, timelineScheduler]);
 
   const handleTimelineScroll = useCallback(() => {
     const pane = timelinePaneRef.current;
@@ -889,7 +942,7 @@ export function useTimelineViewport({
       recoverBlankVirtualizedFollowViewportAcrossFrames(8);
     }
     if (transcriptLength > VIRTUALIZATION_THRESHOLD) {
-      window.requestAnimationFrame(() => {
+      timelineScheduler.scheduleAnimationFrame("scroll-blank-viewport-check", () => {
         if (timelinePaneRef.current === pane && pane.dataset.timelineSessionKey === sessionKey) {
           const viewportStillBlank = reprocessBlankVirtualizedViewport(pane, transcriptLength);
           if (viewportStillBlank && followingLatestRef.current) {
@@ -982,7 +1035,8 @@ export function useTimelineViewport({
       savedManualScrollTop !== null &&
       maxScrollTop < savedManualScrollTop - 2;
     const resumesManualFollowing =
-      immediateExplicitUserScrollIntent
+      pinned
+      && !manualTimelineScrollRestoreRef.current
       && (recentScrollbarDragIntent || lastExplicitTimelineWheelDeltaYRef.current > 0);
     if (
       pinned
@@ -1020,7 +1074,7 @@ export function useTimelineViewport({
         pinnedToBottomRef.current = true;
         followingLatestRef.current = true;
         manualTimelineScrollTopRef.current = null;
-        window.requestAnimationFrame(() => {
+        timelineScheduler.scheduleAnimationFrame("composer-bottom-alignment", () => {
           requestPinnedBottomAlignment("auto");
         });
         return;
@@ -1035,7 +1089,7 @@ export function useTimelineViewport({
         followingLatestRef.current = true;
         manualTimelineScrollTopRef.current = null;
         lastTimelinePinnedBySessionRef.current.set(sessionKey, true);
-        window.requestAnimationFrame(() => {
+        timelineScheduler.scheduleAnimationFrame("virtualized-follow-alignment", () => {
           requestPinnedBottomAlignment("auto");
         });
         return;
@@ -1110,6 +1164,7 @@ export function useTimelineViewport({
     requestPinnedBottomAlignment,
     resetExactBottomRestoreState,
     restoreManualTimelinePositionAcrossFrames,
+    timelineScheduler,
   ]);
 
   timelineScrollHandlerRef.current = handleTimelineScroll;
@@ -1149,6 +1204,7 @@ export function useTimelineViewport({
     setTimelinePaneElement,
     shouldDisableTimelineVirtualization,
     showJumpToLatest,
+    timelineScrollbarDragging,
     timelinePaneRef,
   };
 }
@@ -1205,13 +1261,24 @@ function showVirtualizedGapFallback(pane: TimelinePaneElement): void {
   if (!existing) {
     pane.append(fallback);
   }
-  window.setTimeout(() => {
+  const pendingTimer = virtualizedGapFallbackTimers.get(pane);
+  if (pendingTimer !== undefined) {
+    window.clearTimeout(pendingTimer);
+  }
+  const timer = window.setTimeout(() => {
+    virtualizedGapFallbackTimers.delete(pane);
     if (fallback.isConnected) {
       fallback.remove();
     }
   }, 180);
+  virtualizedGapFallbackTimers.set(pane, timer);
 }
 
 function removeVirtualizedGapFallback(pane: TimelinePaneElement): void {
+  const pendingTimer = virtualizedGapFallbackTimers.get(pane);
+  if (pendingTimer !== undefined) {
+    window.clearTimeout(pendingTimer);
+    virtualizedGapFallbackTimers.delete(pane);
+  }
   pane.querySelector<HTMLElement>(`[data-timeline-row-id="${VIRTUALIZED_GAP_FALLBACK_ROW_ID}"]`)?.remove();
 }

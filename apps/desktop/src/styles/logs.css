@@ -128,6 +128,18 @@
   white-space: nowrap;
 }
 
+.resource-health-label--healthy {
+  color: #7ee2aa;
+}
+
+.resource-health-label--warning {
+  color: #ffd58a;
+}
+
+.resource-health-label--critical {
+  color: #ffb4aa;
+}
+
 .logs-panel__issue-button {
   min-height: 30px;
   padding: 0 10px;
@@ -258,6 +270,199 @@
 .logs-panel__runtime-job-message {
   color: #8b98ad;
   font-size: var(--font-size-sm);
+}
+
+.logs-panel__resources {
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  padding: 12px 10px 10px;
+  min-height: 0;
+  overflow: auto;
+}
+
+.resource-health {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.resource-health > div {
+  display: grid;
+  gap: 3px;
+  padding: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-md);
+  background: #151b26;
+}
+
+.resource-health span,
+.resource-owner__title span,
+.resource-owner__metrics,
+.resource-diagnose span {
+  color: #8b98ad;
+  font-size: var(--font-size-xs);
+}
+
+.resource-health strong {
+  font-size: var(--font-size-lg);
+  text-transform: capitalize;
+}
+
+.resource-health--warning > div:first-child {
+  border-color: rgba(210, 153, 34, 0.48);
+}
+
+.resource-health--critical > div:first-child {
+  border-color: rgba(248, 81, 73, 0.56);
+}
+
+.resource-sparkline {
+  width: 100%;
+  height: 54px;
+  padding: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-md);
+  background: linear-gradient(180deg, rgba(125, 146, 255, 0.12), transparent);
+  overflow: visible;
+}
+
+.resource-sparkline polyline {
+  fill: none;
+  stroke: #8ea0ff;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.resource-warning--critical {
+  background: rgba(248, 81, 73, 0.14);
+  color: #ffb4aa;
+}
+
+.resource-warning--warning,
+.resource-warning--critical {
+  display: grid;
+  gap: 3px;
+}
+
+.resource-owner-list {
+  display: grid;
+  gap: 6px;
+}
+
+.resource-owner-toolbar {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 6px 8px;
+}
+
+.resource-owner-toolbar label {
+  color: #8b98ad;
+  font-size: var(--font-size-xs);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.resource-owner-toolbar select {
+  min-width: 0;
+  min-height: 30px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: var(--radius-sm);
+  background: #151b26;
+  color: #e8edf7;
+  padding: 0 8px;
+}
+
+.resource-owner-toolbar .secondary-button {
+  grid-column: 1 / -1;
+  justify-self: start;
+}
+
+.resource-owner {
+  display: grid;
+  gap: 6px;
+  padding: 9px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-md);
+  background: #151b26;
+}
+
+.resource-owner__title,
+.resource-owner__metrics {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.resource-owner__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.resource-owner__title span {
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.resource-diagnose {
+  display: grid;
+  gap: 10px;
+  padding: 11px;
+  border: 1px solid rgba(125, 146, 255, 0.34);
+  border-radius: var(--radius-md);
+  background: rgba(125, 146, 255, 0.08);
+}
+
+.resource-diagnose > div {
+  display: grid;
+  gap: 3px;
+}
+
+.resource-diagnose .primary-button {
+  justify-self: start;
+}
+
+.resource-diagnose > .secondary-button {
+  justify-self: start;
+}
+
+.resource-history-table {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-md);
+  background: #151b26;
+  overflow: hidden;
+}
+
+.resource-history-table summary {
+  cursor: pointer;
+  padding: 9px 10px;
+  color: #c4ccda;
+  font-size: var(--font-size-sm);
+  font-weight: 650;
+}
+
+.resource-history-table table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--font-size-xs);
+}
+
+.resource-history-table th,
+.resource-history-table td {
+  padding: 6px;
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+  text-align: right;
+  white-space: nowrap;
+}
+
+.resource-history-table th:first-child,
+.resource-history-table td:first-child {
+  text-align: left;
 }
 
 .logs-panel__body {
@@ -397,3 +602,23 @@
     box-shadow: -18px 0 36px rgba(3, 8, 18, 0.28);
   }
 }
+.logs-panel__remote { display: grid; gap: 14px; padding: 14px; overflow: auto; }
+.remote-spike-intro, .remote-spike-actions, .remote-spike-facts, .remote-spike-capabilities, .remote-spike-probe { border: 1px solid var(--line); border-radius: 12px; background: var(--surface-muted); }
+.remote-spike-intro { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 14px; }
+.remote-spike-intro div, .remote-spike-actions label { display: grid; gap: 4px; }
+.remote-spike-intro span, .remote-spike-actions label span, .remote-spike-probe > span { color: var(--muted); font-size: 12px; }
+.remote-spike-status { padding: 4px 8px; border-radius: 999px; background: var(--surface); text-transform: capitalize; }
+.remote-spike-status--connected { color: var(--success); }
+.remote-spike-status--error, .remote-spike-status--disconnected { color: var(--error-ink); }
+.remote-spike-actions { display: flex; align-items: end; flex-wrap: wrap; gap: 10px; padding: 12px; }
+.remote-spike-actions label { flex: 1 1 180px; }
+.remote-spike-actions input { width: 100%; }
+.remote-spike-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); margin: 0; padding: 10px; }
+.remote-spike-facts div { min-width: 0; padding: 7px; }
+.remote-spike-facts dt { color: var(--muted); font-size: 11px; text-transform: uppercase; }
+.remote-spike-facts dd { margin: 3px 0 0; overflow-wrap: anywhere; }
+.remote-spike-capabilities { display: flex; flex-wrap: wrap; gap: 7px; padding: 10px; }
+.remote-spike-capabilities span { padding: 4px 7px; border: 1px solid var(--line); border-radius: 999px; font-size: 11px; }
+.remote-spike-probe { display: grid; gap: 7px; padding: 12px; }
+.remote-spike-probe ul { max-height: 150px; overflow: auto; }
+@media (max-width: 720px) { .remote-spike-facts { grid-template-columns: 1fr; } }

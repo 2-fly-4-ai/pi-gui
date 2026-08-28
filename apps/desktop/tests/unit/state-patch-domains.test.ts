@@ -37,7 +37,7 @@ describe("buildDesktopStatePatchEvents", () => {
 
   it("emits composer and diagnostics when only the composer draft changes", () => {
     const previous = baseState({ composerDraft: "old", revision: 1 });
-    const next = baseState({ composerDraft: "new", revision: 2 });
+    const next = { ...previous, composerDraft: "new", revision: 2 };
 
     expect(buildDesktopStatePatchEvents(previous, next).map((event) => event.domain)).toEqual([
       "composer",
@@ -47,7 +47,7 @@ describe("buildDesktopStatePatchEvents", () => {
 
   it("emits selection and diagnostics when only selection changes", () => {
     const previous = baseState({ selectedSessionId: "s1", revision: 1 });
-    const next = baseState({ selectedSessionId: "s2", revision: 2 });
+    const next = { ...previous, selectedSessionId: "s2", revision: 2 };
 
     expect(buildDesktopStatePatchEvents(previous, next).map((event) => event.domain)).toEqual([
       "selection",
@@ -57,7 +57,7 @@ describe("buildDesktopStatePatchEvents", () => {
 
   it("emits only diagnostics for revision and error changes", () => {
     const previous = baseState({ revision: 1 });
-    const next = baseState({ revision: 2, lastError: "boom" });
+    const next = { ...previous, revision: 2, lastError: "boom" };
 
     const events = buildDesktopStatePatchEvents(previous, next);
 
@@ -73,16 +73,16 @@ describe("applyDesktopStatePatchEvent", () => {
       composerDraft: "old",
       revision: 1,
     });
-    const [selectionPatch] = buildDesktopStatePatchEvents(previous, baseState({
+    const [selectionPatch] = buildDesktopStatePatchEvents(previous, {
+      ...previous,
       selectedSessionId: "s2",
-      composerDraft: "old",
       revision: 2,
-    }));
-    const [composerPatch] = buildDesktopStatePatchEvents(previous, baseState({
-      selectedSessionId: "s1",
+    });
+    const [composerPatch] = buildDesktopStatePatchEvents(previous, {
+      ...previous,
       composerDraft: "new",
       revision: 2,
-    }));
+    });
 
     const withSelection = applyDesktopStatePatchEvent(previous, selectionPatch!);
     const withComposer = applyDesktopStatePatchEvent(withSelection, composerPatch!);
@@ -96,7 +96,7 @@ describe("applyDesktopStatePatchEvent", () => {
 
   it("applies diagnostics patches to advance the materialized revision", () => {
     const previous = baseState({ revision: 1 });
-    const next = baseState({ revision: 2, lastError: "boom" });
+    const next = { ...previous, revision: 2, lastError: "boom" };
     const [diagnosticsPatch] = buildDesktopStatePatchEvents(previous, next);
 
     expect(applyDesktopStatePatchEvent(previous, diagnosticsPatch!)).toMatchObject({

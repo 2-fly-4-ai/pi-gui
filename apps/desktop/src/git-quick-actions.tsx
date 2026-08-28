@@ -7,9 +7,12 @@ interface GitQuickActionsProps {
   readonly onCommit: () => void;
   readonly onPush: () => void;
   readonly onCreatePr: () => void;
+  readonly onOpenPullRequests: () => void;
+  readonly currentPullRequest?: { readonly number: number; readonly title: string; readonly checksSummary: { readonly failure: number; readonly pending: number } };
+  readonly authState?: string;
 }
 
-export function GitQuickActions({ disabled = false, disabledReason, onCommit, onPush, onCreatePr }: GitQuickActionsProps) {
+export function GitQuickActions({ disabled = false, disabledReason, onCommit, onPush, onCreatePr, onOpenPullRequests, currentPullRequest, authState }: GitQuickActionsProps) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
 
@@ -54,6 +57,12 @@ export function GitQuickActions({ disabled = false, disabledReason, onCommit, on
       {open ? (
         <div className="git-quick-actions__menu">
           {disabled && disabledReason ? <div className="git-quick-actions__note">{disabledReason}</div> : null}
+          {currentPullRequest ? (
+            <button className="git-quick-actions__current-pr" type="button" onClick={() => { setOpen(false); onOpenPullRequests(); }}>
+              <strong>#{currentPullRequest.number} {currentPullRequest.title}</strong>
+              <span>{currentPullRequest.checksSummary.failure ? `${currentPullRequest.checksSummary.failure} checks failed` : currentPullRequest.checksSummary.pending ? `${currentPullRequest.checksSummary.pending} checks pending` : "Checks passing"}</span>
+            </button>
+          ) : authState && authState !== "ready" ? <div className="git-quick-actions__note">GitHub: {authState.replaceAll("-", " ")}</div> : null}
           <button className="git-quick-actions__item" disabled={disabled} type="button" onClick={() => { setOpen(false); onCommit(); }}>
             <GitCommitIcon />Commit
           </button>
@@ -62,6 +71,9 @@ export function GitQuickActions({ disabled = false, disabledReason, onCommit, on
           </button>
           <button className="git-quick-actions__item" disabled={disabled} type="button" onClick={() => { setOpen(false); onCreatePr(); }}>
             <GitHubIcon />Create PR
+          </button>
+          <button className="git-quick-actions__item" disabled={disabled} type="button" onClick={() => { setOpen(false); onOpenPullRequests(); }}>
+            <GitHubIcon />Pull requests{currentPullRequest ? ` · #${currentPullRequest.number}` : ""}
           </button>
         </div>
       ) : null}

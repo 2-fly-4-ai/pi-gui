@@ -6,6 +6,8 @@ import { parseReviewDiff } from "../../src/review/review-diff-parser";
 import { getChangedFiles } from "../app-store-diff";
 
 const execFileAsync = promisify(execFile);
+export const MAX_REVIEW_SNAPSHOT_FILES = 250;
+export const MAX_REVIEW_SNAPSHOT_BYTES = 32 * 1024 * 1024;
 
 export async function createReviewSnapshot(
   workspaceId: string,
@@ -15,6 +17,7 @@ export async function createReviewSnapshot(
   const files = options.base
     ? await createBaseSnapshotFiles(workspacePath, options.base)
     : await createWorkingTreeSnapshotFiles(workspacePath);
+  assertReviewSnapshotBudget(files);
 
   return {
     id: randomUUID(),
@@ -35,6 +38,7 @@ async function createWorkingTreeSnapshotFiles(workspacePath: string): Promise<Re
       continue;
     }
     files.push(toReviewFile(file.path, file.status, diff));
+    assertReviewSnapshotBudget(files);
   }
 
   return files;
@@ -45,14 +49,29 @@ async function createBaseSnapshotFiles(workspacePath: string, base: string): Pro
   const baseDiff = await runGitDiff(workspacePath, ["diff", `${base}...HEAD`]);
   for (const file of splitUnifiedDiffByFile(baseDiff)) {
     byPath.set(file.path, toReviewFile(file.path, inferStatus(file.diff), file.diff));
+    assertReviewSnapshotBudget([...byPath.values()]);
   }
 
   for (const file of await createWorkingTreeSnapshotFiles(workspacePath)) {
     const existing = byPath.get(file.path);
     byPath.set(file.path, existing ? toReviewFile(file.path, file.status, `${existing.diff.trimEnd()}\n${file.diff}`) : file);
+    assertReviewSnapshotBudget([...byPath.values()]);
   }
 
   return [...byPath.values()].sort((left, right) => left.path.localeCompare(right.path));
+}
+
+export function assertReviewSnapshotBudget(files: readonly ReviewFileSnapshot[]): void {
+  if (files.length > MAX_REVIEW_SNAPSHOT_FILES) {
+    throw new Error(`Review snapshots support up to ${MAX_REVIEW_SNAPSHOT_FILES} changed files.`);
+  }
+  let bytes = 0;
+  for (const file of files) {
+    bytes += Buffer.byteLength(file.path, "utf8") + Buffer.byteLength(file.diff, "utf8");
+    if (bytes > MAX_REVIEW_SNAPSHOT_BYTES) {
+      throw new Error("Review snapshots must be 32 MB or smaller.");
+    }
+  }
 }
 
 function toReviewFile(path: string, status: ReviewFileSnapshot["status"], diff: string): ReviewFileSnapshot {

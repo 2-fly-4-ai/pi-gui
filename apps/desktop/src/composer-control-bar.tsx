@@ -16,6 +16,8 @@ interface ComposerControlBarProps {
   readonly sendDisabled: boolean;
   readonly stopMode: boolean;
   readonly onAttach: () => void;
+  readonly onStash?: () => void;
+  readonly stashDisabled?: boolean;
   readonly onSubmit: () => void;
 }
 
@@ -32,6 +34,8 @@ export function ComposerControlBar({
   sendDisabled,
   stopMode,
   onAttach,
+  onStash,
+  stashDisabled,
   onSubmit,
 }: ComposerControlBarProps) {
   const barRef = useRef<HTMLDivElement | null>(null);
@@ -46,7 +50,8 @@ export function ComposerControlBar({
     }
 
     const updateLayout = () => {
-      setIsCompact(bar.getBoundingClientRect().width < COMPACT_CONTROL_BAR_WIDTH);
+      const nextCompact = bar.getBoundingClientRect().width < COMPACT_CONTROL_BAR_WIDTH;
+      setIsCompact((current) => current === nextCompact ? current : nextCompact);
     };
 
     updateLayout();
@@ -133,6 +138,7 @@ export function ComposerControlBar({
                   <span aria-hidden="true"><PlusIcon /></span>
                   <span>Attach files</span>
                 </button>
+                {onStash ? <button className="composer-control-bar__attach-row" disabled={stashDisabled} type="button" onClick={() => { onStash(); setIsOverflowOpen(false); }}><span aria-hidden="true">↗</span><span>Stash prompt</span></button> : null}
               </div>
             ) : null}
           </div>
@@ -173,6 +179,7 @@ export function ComposerControlBar({
         <div className="composer-control-bar__quick-actions" aria-label="Message tools" role="toolbar">
           {thinkingTraceControl}
           {contextControl}
+          {onStash ? <button aria-label="Stash prompt" className="icon-button composer__stash" disabled={stashDisabled} title="Stash prompt for later" type="button" onClick={onStash}><span aria-hidden="true">↗</span></button> : null}
           <button
             aria-label="Attach files"
             className="icon-button composer__attach"

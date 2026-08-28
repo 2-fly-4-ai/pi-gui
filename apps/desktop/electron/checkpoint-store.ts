@@ -686,23 +686,42 @@ export class CheckpointStore {
   private async applyRetention(): Promise<void> {
     await this.ensureRetentionLoaded();
     const manifests = await this.list();
-    if (manifests.length <= this.retentionPolicy.maxCheckpoints) return;
-    // Retention is intentionally manifest-only for now. Blob garbage collection is
-    // deferred until pending-restore leases exist, so a retained manifest can never
-    // silently lose content required for recovery.
-    const { unlink } = await import("node:fs/promises");
     const retained = new Set([
       ...this.retentionPolicy.protectedCheckpointIds,
       ...this.retentionPolicy.pendingRestoreCheckpointIds,
     ]);
-    let removableCount = manifests.length - this.retentionPolicy.maxCheckpoints;
-    const removable = [...manifests].reverse().filter((manifest) => {
-      if (removableCount <= 0 || retained.has(manifest.id)) return false;
-      removableCount -= 1;
-      return true;
-    });
-    await Promise.all(removable.map((manifest) =>
-      unlink(this.manifestPath(manifest.id)).catch(() => undefined)));
+    if (manifests.length > this.retentionPolicy.maxCheckpoints) {
+      let removableCount = manifests.length - this.retentionPolicy.maxCheckpoints;
+      const removable = [...manifests].reverse().filter((manifest) => {
+        if (removableCount <= 0 || retained.has(manifest.id)) return false;
+        removableCount -= 1;
+        return true;
+      });
+      await Promise.all(removable.map((manifest) =>
+        unlink(this.manifestPath(manifest.id)).catch(() => undefined)));
+    }
+    await this.garbageCollectBlobs(await this.list());
+  }
+
+  private async garbageCollectBlobs(
+    retainedManifests: readonly CheckpointManifest[],
+  ): Promise<void> {
+    const referenced = new Set<string>();
+    for (const manifest of retainedManifests) {
+      for (const entry of manifest.entries) {
+        if (entry.before.blobId) referenced.add(entry.before.blobId);
+        if (entry.expectedAfterBlobId) referenced.add(entry.expectedAfterBlobId);
+      }
+    }
+    let blobNames: string[];
+    try {
+      blobNames = await readdir(this.blobDirectory);
+    } catch {
+      return;
+    }
+    await Promise.all(blobNames
+      .filter((name) => /^[a-f0-9]{64}$/.test(name) && !referenced.has(name))
+      .map((name) => unlink(join(this.blobDirectory, name)).catch(() => undefined)));
   }
 
   private async acquireRestoreLease(checkpointId: string): Promise<void> {

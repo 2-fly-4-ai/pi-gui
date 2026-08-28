@@ -1,17 +1,66 @@
+import { readFile, rm, mkdtemp } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vitest";
 import {
   buildSnapshot,
   createWorkspaceRef,
   determineRunOutcome,
+  forcePersistSession,
   injectFileAttachmentPreamble,
   messageText,
   mergeSessionConfigWithToolAccess,
+  normalizeLegacyAssistantMessage,
   sessionKey,
   toSessionErrorInfo,
   transcriptFromMessages,
 } from "../../src/session-supervisor-utils";
+import { mergeReplaceableDriverEvent } from "../../src/session-supervisor";
 
 describe("session-supervisor utilities", () => {
+  it("coalesces adjacent replaceable stream events without folding lifecycle boundaries", () => {
+    const sessionRef = { workspaceId: "w1", sessionId: "s1" };
+    expect(mergeReplaceableDriverEvent(
+      {
+        type: "assistantDelta",
+        sessionRef,
+        runId: "run-1",
+        timestamp: "2026-07-30T00:00:00.000Z",
+        text: "hello ",
+      },
+      {
+        type: "assistantDelta",
+        sessionRef,
+        runId: "run-1",
+        timestamp: "2026-07-30T00:00:00.010Z",
+        text: "world",
+      },
+    )).toMatchObject({
+      type: "assistantDelta",
+      text: "hello world",
+      timestamp: "2026-07-30T00:00:00.010Z",
+    });
+    expect(mergeReplaceableDriverEvent(
+      {
+        type: "toolStarted",
+        sessionRef,
+        runId: "run-1",
+        timestamp: "2026-07-30T00:00:00.020Z",
+        toolName: "read",
+        callId: "call-1",
+      },
+      {
+        type: "toolFinished",
+        sessionRef,
+        runId: "run-1",
+        timestamp: "2026-07-30T00:00:00.030Z",
+        callId: "call-1",
+        success: true,
+      },
+    )).toBeUndefined();
+  });
+
   it("builds snapshots with defensive copies and derived titles", () => {
     const snapshot = buildSnapshot({
       ref: { workspaceId: "w1", sessionId: "s1" },
@@ -51,6 +100,25 @@ describe("session-supervisor utilities", () => {
       displayName: "pi-gui",
     });
     expect(sessionKey({ workspaceId: "w1", sessionId: "s1" })).toBe("w1:s1");
+  });
+
+  it("keeps Pi's delayed flush state aligned after eagerly persisting a new thread", async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "pi-gui-session-flush-"));
+    try {
+      const sessionManager = SessionManager.create(workspace);
+      sessionManager.appendSessionInfo("New thread");
+      forcePersistSession(sessionManager);
+      expect(() => sessionManager.appendMessage({
+        role: "assistant",
+        content: [],
+      } as never)).not.toThrow();
+
+      const sessionFile = sessionManager.getSessionFile();
+      expect(sessionFile).toBeTruthy();
+      expect((await readFile(sessionFile!, "utf8")).trim().split("\n")).toHaveLength(3);
+    } finally {
+      await rm(workspace, { recursive: true, force: true });
+    }
   });
 
   it("detects failed run outcomes from assistant stop reasons", () => {
@@ -112,13 +180,6 @@ describe("session-supervisor utilities", () => {
       },
     ])).toEqual([
       {
-        kind: "message",
-        id: "a1",
-        role: "assistant",
-        text: "First answer",
-        createdAt: "2026-07-08T00:00:00.000Z",
-      },
-      {
         kind: "thinking",
         id: "a1:thinking-0",
         text: "Reasoning",
@@ -127,9 +188,9 @@ describe("session-supervisor utilities", () => {
       },
       {
         kind: "message",
-        id: "a1:text-1",
+        id: "a1",
         role: "assistant",
-        text: "Final answer",
+        text: "First answer Final answer",
         createdAt: "2026-07-08T00:00:00.000Z",
       },
     ]);
@@ -141,5 +202,44 @@ describe("session-supervisor utilities", () => {
       code: "RUN_FAILED",
       details: { name: "Error" },
     });
+  });
+
+  it("normalizes legacy assistant records without rewriting valid usage", () => {
+    const legacyMessage: Record<string, unknown> = {
+      role: "assistant",
+      content: "Legacy answer",
+      timestamp: 123,
+      usage: {
+        input: 5,
+        output: 3,
+      },
+    };
+    expect(normalizeLegacyAssistantMessage(legacyMessage, {
+      api: "openai-responses",
+      provider: "openai",
+      model: "gpt-5.5",
+    })).toBe(true);
+    expect(legacyMessage).toMatchObject({
+      content: [{ type: "text", text: "Legacy answer" }],
+      api: "openai-responses",
+      provider: "openai",
+      model: "gpt-5.5",
+      stopReason: "stop",
+      usage: {
+        input: 5,
+        output: 3,
+        cacheRead: 0,
+        cacheWrite: 0,
+        totalTokens: 8,
+        cost: {
+          input: 0,
+          output: 0,
+          cacheRead: 0,
+          cacheWrite: 0,
+          total: 0,
+        },
+      },
+    });
+    expect(normalizeLegacyAssistantMessage(legacyMessage)).toBe(false);
   });
 });

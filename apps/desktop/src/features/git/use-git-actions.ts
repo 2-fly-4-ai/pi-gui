@@ -1,5 +1,6 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { WorkspaceRecord } from "../../desktop-state";
+import type { PullRequestSummary, SourceControlAuthState } from "../../source-control-types";
 
 export type GitDialogKind = "commit" | "push" | "pr";
 
@@ -32,6 +33,25 @@ export function useGitActions({ api, selectedWorkspace }: UseGitActionsOptions) 
   const [gitBranchName, setGitBranchName] = useState<string | undefined>();
   const [gitActionPending, setGitActionPending] = useState(false);
   const [gitActionError, setGitActionError] = useState<string | undefined>();
+  const [currentPullRequest, setCurrentPullRequest] = useState<PullRequestSummary>();
+  const [sourceControlAuthState, setSourceControlAuthState] = useState<SourceControlAuthState>();
+
+  useEffect(() => {
+    let active = true;
+    if (!api || !selectedWorkspace) {
+      setCurrentPullRequest(undefined);
+      setSourceControlAuthState(undefined);
+      return () => { active = false; };
+    }
+    void api.getSourceControlSnapshot(selectedWorkspace.id).then((snapshot) => {
+      if (!active) return;
+      setCurrentPullRequest(snapshot.currentPullRequest);
+      setSourceControlAuthState(snapshot.auth.state);
+    }).catch(() => {
+      if (active) setSourceControlAuthState("error");
+    });
+    return () => { active = false; };
+  }, [api, selectedWorkspace]);
 
   const loadGitChangedFiles = useCallback(async () => {
     if (!api || !selectedWorkspace) {
@@ -128,6 +148,7 @@ export function useGitActions({ api, selectedWorkspace }: UseGitActionsOptions) 
 
   return {
     closeGitDialog,
+    currentPullRequest,
     gitActionError,
     gitActionPending,
     gitBranchName,
@@ -138,5 +159,6 @@ export function useGitActions({ api, selectedWorkspace }: UseGitActionsOptions) 
     handlePushBranch,
     loadGitChangedFiles,
     openGitDialog,
+    sourceControlAuthState,
   };
 }

@@ -41,7 +41,7 @@ jobs:
         run: pnpm lint
 
   typecheck:
-    needs: lint
+    needs: gitleaks
     runs-on: ubuntu-latest
 
     steps:
@@ -61,7 +61,7 @@ jobs:
         run: pnpm typecheck
 
   unit:
-    needs: typecheck
+    needs: gitleaks
     runs-on: ubuntu-latest
 
     steps:
@@ -81,8 +81,13 @@ jobs:
         run: pnpm test:unit
 
   desktop-core:
-    needs: unit
+    needs: [lint, typecheck, unit]
     runs-on: macos-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4, 5, 6, 7, 8]
 
     steps:
       - uses: actions/checkout@v4
@@ -98,10 +103,10 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Desktop Core
-        run: pnpm --filter @pi-gui/desktop run test:e2e:ci:mac
+        run: pnpm --filter @pi-gui/desktop run test:e2e:ci:mac -- ${{ matrix.shard }}
 
   desktop-package-linux:
-    needs: unit
+    needs: [lint, typecheck, unit]
     runs-on: ubuntu-latest
 
     steps:

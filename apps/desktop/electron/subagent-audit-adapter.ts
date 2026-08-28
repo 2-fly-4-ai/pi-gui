@@ -143,11 +143,11 @@ export class SubagentAuditAdapter {
     }
 
     if (!agentId) return;
+    const pending = this.agents.has(agentId) ? undefined : this.claimPendingSpawn(role, cwd);
     const correlation = this.agents.get(agentId) ?? {
-      timestamp,
+      ...(pending ?? { timestamp, claimed: true }),
       ...(role ? { role } : {}),
       ...(cwd ? { cwd } : {}),
-      claimed: true,
       toolUseCount: 0,
     };
     this.agents.set(agentId, correlation);

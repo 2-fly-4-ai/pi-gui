@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type Dispatch, type SetStateAction } from "react";
+import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import { DEFAULT_TOOL_ACCESS, type ToolAccessSelection } from "@pi-gui/session-driver";
 import type { RuntimeSnapshot } from "@pi-gui/session-driver/runtime-types";
 import type {
@@ -9,7 +9,10 @@ import type {
   StartThreadInput,
   WorkspaceRecord,
 } from "../../desktop-state";
-import { readComposerAttachmentsFromFiles } from "../../composer-attachments";
+import {
+  readComposerAttachmentsFromFiles,
+  validateComposerAttachmentLimits,
+} from "../../composer-attachments";
 import { parseTreeComposerCommand } from "../../composer-commands";
 import { resolveRepoWorkspaceId } from "../../workspace-roots";
 
@@ -50,6 +53,8 @@ export function useNewThreadState({
   const [newThreadThinkingLevel, setNewThreadThinkingLevel] = useState<string | undefined>();
   const [newThreadToolAccess, setNewThreadToolAccess] = useState<ToolAccessSelection>(DEFAULT_TOOL_ACCESS);
   const [newThreadComposerError, setNewThreadComposerError] = useState<string | undefined>();
+  const [newThreadStarting, setNewThreadStarting] = useState(false);
+  const startThreadInFlightRef = useRef(false);
 
   const resetNewThreadSurface = useCallback((workspaceId?: string) => {
     const nextWorkspaceId =
@@ -89,12 +94,28 @@ export function useNewThreadState({
   }, []);
 
   const handleNewThreadAddAttachments = useCallback((files: File[]) => {
-    void readComposerAttachmentsFromFiles(files).then((attachments) => {
-      if (attachments.length === 0) {
-        return;
-      }
-      setNewThreadAttachments((current) => [...current, ...attachments]);
-    });
+    void readComposerAttachmentsFromFiles(files)
+      .then((attachments) => {
+        if (attachments.length === 0) {
+          return;
+        }
+        setNewThreadAttachments((current) => {
+          try {
+            const next = [...current, ...attachments];
+            validateComposerAttachmentLimits(next);
+            queueMicrotask(() => setNewThreadComposerError(undefined));
+            return next;
+          } catch (error: unknown) {
+            queueMicrotask(() => {
+              setNewThreadComposerError(error instanceof Error ? error.message : String(error));
+            });
+            return current;
+          }
+        });
+      })
+      .catch((error: unknown) => {
+        setNewThreadComposerError(error instanceof Error ? error.message : String(error));
+      });
   }, []);
 
   const handleNewThreadRemoveAttachment = useCallback((attachmentId: string) => {
@@ -102,7 +123,19 @@ export function useNewThreadState({
   }, []);
 
   const addNewThreadClipboardImage = useCallback((clipboardImage: ComposerImageAttachment) => {
-    setNewThreadAttachments((current) => [...current, clipboardImage]);
+    setNewThreadAttachments((current) => {
+      try {
+        const next = [...current, clipboardImage];
+        validateComposerAttachmentLimits(next);
+        queueMicrotask(() => setNewThreadComposerError(undefined));
+        return next;
+      } catch (error: unknown) {
+        queueMicrotask(() => {
+          setNewThreadComposerError(error instanceof Error ? error.message : String(error));
+        });
+        return current;
+      }
+    });
   }, []);
 
   const selectLocalNewThreadCheckout = useCallback((workspaceId: string) => {
@@ -128,7 +161,12 @@ export function useNewThreadState({
     onFocusComposer,
     onRecordSubmittedSkillUsage,
   }: StartNewThreadOptions) => {
-    if (!api || !newThreadRootWorkspaceId || (!newThreadPrompt.trim() && newThreadAttachments.length === 0)) {
+    if (
+      startThreadInFlightRef.current ||
+      !api ||
+      !newThreadRootWorkspaceId ||
+      (!newThreadPrompt.trim() && newThreadAttachments.length === 0)
+    ) {
       return;
     }
     if (modelSelectionRequired) {
@@ -144,7 +182,11 @@ export function useNewThreadState({
       return;
     }
     onRecordSubmittedSkillUsage(newThreadPrompt, runtime);
+    startThreadInFlightRef.current = true;
+    setNewThreadStarting(true);
+    setNewThreadComposerError(undefined);
     const input: StartThreadInput = {
+      requestId: crypto.randomUUID(),
       rootWorkspaceId: newThreadRootWorkspaceId,
       environment: newThreadEnvironment,
       prompt: newThreadPrompt,
@@ -155,19 +197,28 @@ export function useNewThreadState({
       toolAccess,
     };
     onExpandWorkspace(newThreadRootWorkspaceId);
-    void api.startThread(input).then(() => api.getState()).then((state) => {
-      setSnapshot(state);
-      setNewThreadPrompt("");
-      setNewThreadAttachments([]);
-      setNewThreadProvider(undefined);
-      setNewThreadModelId(undefined);
-      setNewThreadThinkingLevel(undefined);
-      setNewThreadToolAccess(DEFAULT_TOOL_ACCESS);
-      setNewThreadEnvironment("local");
-      window.requestAnimationFrame(() => {
-        onFocusComposer();
+    void api.startThread(input)
+      .then(() => api.getState())
+      .then((state) => {
+        setSnapshot(state);
+        setNewThreadPrompt("");
+        setNewThreadAttachments([]);
+        setNewThreadProvider(undefined);
+        setNewThreadModelId(undefined);
+        setNewThreadThinkingLevel(undefined);
+        setNewThreadToolAccess(DEFAULT_TOOL_ACCESS);
+        setNewThreadEnvironment("local");
+        window.requestAnimationFrame(() => {
+          onFocusComposer();
+        });
+      })
+      .catch((error: unknown) => {
+        setNewThreadComposerError(error instanceof Error ? error.message : String(error));
+      })
+      .finally(() => {
+        startThreadInFlightRef.current = false;
+        setNewThreadStarting(false);
       });
-    });
   }, [newThreadAttachments, newThreadEnvironment, newThreadPrompt, newThreadRootWorkspaceId]);
 
   useEffect(() => {
@@ -208,6 +259,7 @@ export function useNewThreadState({
     newThreadPrompt,
     newThreadProvider,
     newThreadRootWorkspaceId,
+    newThreadStarting,
     newThreadThinkingLevel,
     newThreadToolAccess,
     resetNewThreadSurface,

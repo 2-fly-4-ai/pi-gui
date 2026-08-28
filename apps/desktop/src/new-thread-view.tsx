@@ -58,6 +58,7 @@ export interface NewThreadViewProps {
   readonly prompt: string;
   readonly attachments: readonly ComposerAttachment[];
   readonly lastError?: string;
+  readonly submitting: boolean;
   readonly provider: string | undefined;
   readonly modelId: string | undefined;
   readonly thinkingLevel: string | undefined;
@@ -100,6 +101,7 @@ export interface NewThreadViewProps {
   readonly onSelectMention: (filePath: string) => void;
   readonly onAddAttachments: (files: File[]) => void;
   readonly onRemoveAttachment: (attachmentId: string) => void;
+  readonly onStashPrompt: () => void;
   readonly onSubmit: () => void;
   readonly checkoutSelector?: ReactNode;
 }
@@ -112,6 +114,7 @@ export function NewThreadView({
   prompt,
   attachments,
   lastError,
+  submitting,
   provider,
   modelId,
   thinkingLevel,
@@ -154,6 +157,7 @@ export function NewThreadView({
   onSelectMention,
   onAddAttachments,
   onRemoveAttachment,
+  onStashPrompt,
   onSubmit,
   checkoutSelector,
 }: NewThreadViewProps) {
@@ -307,6 +311,7 @@ export function NewThreadView({
                   fastModeAvailable={fastModeAvailable}
                   skillProfileControl={skillProfileControl}
                   hasContent={Boolean(prompt.trim() || attachments.length > 0)}
+                  submitting={submitting}
                   fileInputRef={fileInputRef}
                   onSelectEnvironment={onSelectEnvironment}
                   onSetModel={onSetModel}
@@ -315,6 +320,7 @@ export function NewThreadView({
                   onSetToolAccess={onSetToolAccess}
                   onSetFastMode={onSetFastMode}
                   onAddAttachments={onAddAttachments}
+                  onStashPrompt={onStashPrompt}
                   onSubmit={onSubmit}
                 />
               )}
@@ -339,6 +345,7 @@ interface NewThreadComposerFooterProps {
   readonly fastModeAvailable: boolean;
   readonly skillProfileControl?: ReactNode;
   readonly hasContent: boolean;
+  readonly submitting: boolean;
   readonly fileInputRef: RefObject<HTMLInputElement | null>;
   readonly onSelectEnvironment: (environment: NewThreadEnvironment) => void;
   readonly onSetModel: (provider: string, modelId: string) => void;
@@ -347,6 +354,7 @@ interface NewThreadComposerFooterProps {
   readonly onSetToolAccess: (selection: ToolAccessSelection) => void;
   readonly onSetFastMode: (mode: FastModeSelection) => void;
   readonly onAddAttachments: (files: File[]) => void;
+  readonly onStashPrompt: () => void;
   readonly onSubmit: () => void;
 }
 
@@ -363,6 +371,7 @@ function NewThreadComposerFooter({
   fastModeAvailable,
   skillProfileControl,
   hasContent,
+  submitting,
   fileInputRef,
   onSelectEnvironment,
   onSetModel,
@@ -371,6 +380,7 @@ function NewThreadComposerFooter({
   onSetToolAccess,
   onSetFastMode,
   onAddAttachments,
+  onStashPrompt,
   onSubmit,
 }: NewThreadComposerFooterProps) {
   return (
@@ -423,10 +433,12 @@ function NewThreadComposerFooter({
               onToggle={onToggleShowThinking}
             />
           )}
-          sendLabel="Start thread"
-          sendDisabled={!hasContent || modelOnboarding.requiresModelSelection}
+          sendLabel={submitting ? "Starting thread" : "Start thread"}
+          sendDisabled={submitting || !hasContent || modelOnboarding.requiresModelSelection}
           stopMode={false}
           onAttach={() => fileInputRef.current?.click()}
+          onStash={onStashPrompt}
+          stashDisabled={!hasContent || submitting}
           onSubmit={onSubmit}
         />
         <input

@@ -1,4 +1,4 @@
-import type { SessionRef, SessionStatus, WorkspaceId } from "@pi-gui/session-driver";
+import type { SessionConfig, SessionRef, SessionStatus, WorkspaceId } from "@pi-gui/session-driver";
 
 export type { SessionRef, SessionStatus, WorkspaceId };
 
@@ -41,6 +41,7 @@ export interface SessionCatalogEntry {
   archivedAt?: string;
   previewSnippet?: string;
   sessionFilePath?: string;
+  config?: SessionConfig;
   status: SessionStatus;
 }
 

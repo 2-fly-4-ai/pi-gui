@@ -26,6 +26,7 @@ interface TimelineViewportProps {
   readonly handleTimelineScroll: ThreadSurfaceProps["timelineProps"]["onTimelineScroll"];
   readonly handleTimelineNavigate: ThreadSurfaceProps["timelineProps"]["onTimelineNavigate"];
   readonly showJumpToLatest: ThreadSurfaceProps["timelineProps"]["showJumpToLatest"];
+  readonly timelineScrollbarDragging: ThreadSurfaceProps["timelineProps"]["scrollbarDragging"];
   readonly jumpToLatest: ThreadSurfaceProps["timelineProps"]["onJumpToLatest"];
   readonly handleTimelineContentHeightChange: ThreadSurfaceProps["timelineProps"]["onContentHeightChange"];
 }
@@ -81,6 +82,7 @@ interface CreateThreadSurfacePropsOptions {
   readonly navigateTreeSelection: (targetId: string, options?: NavigateSessionTreeOptions) => void;
   readonly openSettings: (workspaceId?: string, section?: ModelOnboardingSettingsSection) => void;
   readonly onOpenLogs: () => void;
+  readonly onStashPrompt: () => void;
   readonly onOpenCommit: () => void;
   readonly openSkillProfiles: (workspaceId?: string) => void;
   readonly openUrl: ThreadSurfaceProps["timelineProps"]["onOpenUrl"];
@@ -161,6 +163,7 @@ export function createThreadSurfaceProps({
   navigateTreeSelection,
   openSettings,
   onOpenLogs,
+  onStashPrompt,
   onOpenCommit,
   openSkillProfiles,
   openUrl,
@@ -203,6 +206,7 @@ export function createThreadSurfaceProps({
       onTimelineNavigate: timelineViewport.handleTimelineNavigate,
       threadSearch,
       showJumpToLatest: timelineViewport.showJumpToLatest,
+      scrollbarDragging: timelineViewport.timelineScrollbarDragging,
       onJumpToLatest: timelineViewport.jumpToLatest,
       onContentHeightChange: timelineViewport.handleTimelineContentHeightChange,
       onViewFileInDiff: handleViewFileInDiff,
@@ -215,6 +219,7 @@ export function createThreadSurfaceProps({
       workspaceId: selectedWorkspace.id,
       sessionId: selectedSession.id,
       onOpenLogs,
+      onStashPrompt,
       onReviewChanges: (path) => handleViewFileInDiff?.(path),
       onCommit: onOpenCommit,
       onOpenErrorSettings: () =>

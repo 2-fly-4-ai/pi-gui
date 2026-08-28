@@ -83,6 +83,7 @@ interface ComposerPanelProps {
   readonly onSetToolAccess: (selection: ToolAccessSelection) => void;
   readonly onOpenModelSettings: (section: ModelOnboardingSettingsSection) => void;
   readonly onSubmit: () => void;
+  readonly onStashPrompt?: () => void;
   readonly showMentionMenu: boolean;
   readonly mentionOptions: readonly string[];
   readonly selectedMentionIndex: number;
@@ -150,6 +151,7 @@ export const ComposerPanel = memo(function ComposerPanel({
   onSetToolAccess,
   onOpenModelSettings,
   onSubmit,
+  onStashPrompt,
   showMentionMenu,
   mentionOptions,
   selectedMentionIndex,
@@ -310,6 +312,8 @@ export const ComposerPanel = memo(function ComposerPanel({
                 }
                 stopMode={primaryActionIsStop}
                 onAttach={onPickAttachments}
+                onStash={onStashPrompt}
+                stashDisabled={!hasComposerInput}
                 onSubmit={onSubmit}
               />
             </div>

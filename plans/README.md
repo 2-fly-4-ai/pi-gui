@@ -17,8 +17,11 @@ archived elsewhere.
 
 ## Standalone Or Archived
 
+- [`2026-08-28-t3-inspired-product-and-platform-improvements.md`](2026-08-28-t3-inspired-product-and-platform-improvements.md) - completed 2026-08-28 resource diagnosis, PR workbench, usage, Project Actions v2, Prompt Shelf, theme gallery, and executable remote-boundary spike.
 - [`display-mode.md`](display-mode.md) - display mode plan; partially superseded by the active roadmap's state-sync and polish work.
 - [`ui-polish.md`](ui-polish.md) - completed 2026-07-10 minimalist visual polish cleanup pass.
+- [`runtime-resource-safety-and-regression-closeout.md`](runtime-resource-safety-and-regression-closeout.md) - completed 2026-07-30 driver backpressure, dormancy, bounded persistence, crash recovery, and July regression closeout.
+- [`subagent-runtime-reliability.md`](subagent-runtime-reliability.md) - completed 2026-08-22 bounded/cancellable background joins, detached execution limits, memory-safe output, stable lifecycle identity, and real-provider Electron proof.
 - [`phase-1-codex-parity/plan.md`](phase-1-codex-parity/plan.md) - early Codex parity plan retained for historical context.
 - [`pi-app-mvp/plan.md`](pi-app-mvp/plan.md) - MVP plan retained for historical context.
 - [`sidebar-unseen-notification-consistency/plan.md`](sidebar-unseen-notification-consistency/plan.md) - sidebar unread/notification consistency plan retained for historical context.

@@ -1,5 +1,6 @@
 import { useLayoutEffect, type RefObject } from "react";
 import type { AppView } from "../../desktop-state";
+import { BoundedTimelineScheduler } from "./bounded-timeline-scheduler";
 import type { TimelinePaneSize } from "./timeline-viewport-utils";
 
 interface UseTimelinePaneResizeOptions {
@@ -35,14 +36,15 @@ export function useTimelinePaneResize({
       previousTimelinePaneSizeRef.current = null;
       return undefined;
     }
+    const scheduler = new BoundedTimelineScheduler();
 
     const stickToBottomAfterLayoutChange = () => {
       preserveBottomOnNextPaneResizeRef.current = false;
       pinnedToBottomRef.current = true;
       followingLatestRef.current = true;
-      window.requestAnimationFrame(() => {
+      scheduler.scheduleAnimationFrame("pane-resize-bottom-alignment", () => {
         requestPinnedBottomAlignment("auto");
-        window.requestAnimationFrame(() => {
+        scheduler.scheduleAnimationFrame("pane-resize-bottom-alignment-finish", () => {
           if (pinnedToBottomRef.current) {
             requestPinnedBottomAlignment("auto");
           }
@@ -78,6 +80,7 @@ export function useTimelinePaneResize({
 
     resizeObserver.observe(pane);
     return () => {
+      scheduler.cancelAll();
       resizeObserver.disconnect();
       previousTimelinePaneSizeRef.current = null;
     };

@@ -2,20 +2,23 @@ import { useEffect, useRef, useState } from "react";
 import type { SessionRecord } from "../../desktop-state";
 import type { PiDesktopApi } from "../../ipc";
 import { formatExactLocalTime } from "../../string-utils";
-import { deriveTaskEvidencePresentation } from "./task-evidence-presentation";
+import {
+  deriveTaskEvidencePresentation,
+  deriveTaskRecoveryPresentation,
+  type TaskRecoveryPresentation,
+} from "./task-evidence-presentation";
 import { useTaskEvidence } from "./use-task-evidence";
 import { TaskErrorRecovery } from "./task-error-recovery";
 import { canSupportTrustedVerification } from "../../product-experience/task-evidence";
 import { CheckpointRecovery } from "./checkpoint-recovery";
 import { useStableTaskActivity } from "./use-stable-task-activity";
-import { activeDecisions } from "../../product-experience/project-knowledge";
 import {
   canAnimateProductDelight,
   deriveProductPersonalityState,
   isEvidenceBackedTerminalSuccess,
 } from "../../product-experience/product-delight";
 import { readAppearancePreferences } from "../../appearance-preferences";
-import { useSelectedShuriken } from "../../shuriken-roster";
+import { CloseIcon } from "../../icons";
 
 interface TaskEvidenceSurfaceProps {
   readonly api: PiDesktopApi;
@@ -41,18 +44,14 @@ export function TaskEvidenceSurface({
   onCommit,
 }: TaskEvidenceSurfaceProps) {
   const { records, loading, refresh } = useTaskEvidence(api, workspaceId, sessionId);
-  const resumeLoadResolvedRef = useRef(false);
-  const [resumeEligible, setResumeEligible] = useState(false);
-  const [resumeDismissed, setResumeDismissed] = useState(false);
-  const [resumeChangedPaths, setResumeChangedPaths] = useState<readonly string[]>([]);
-  const [resumeRefreshedAt, setResumeRefreshedAt] = useState<string>();
+  const [dismissedRecoveryId, setDismissedRecoveryId] = useState("");
   const [contextEntryCount, setContextEntryCount] = useState(0);
   const [successMomentsEnabled, setSuccessMomentsEnabled] = useState(() => readAppearancePreferences().successMoments);
   const [successMomentVisible, setSuccessMomentVisible] = useState(false);
   const [animateSuccessMoment, setAnimateSuccessMoment] = useState(false);
   const lastCelebratedCompletionRef = useRef("");
-  const [selectedShuriken] = useSelectedShuriken();
   const presentation = deriveTaskEvidencePresentation(records, sessionStatus);
+  const recovery = deriveTaskRecoveryPresentation(records);
   const activity = useStableTaskActivity(presentation.activity, sessionStatus);
   const completion = presentation.completion;
   const verificationRecords = records.filter((record) => (
@@ -86,35 +85,8 @@ export function TaskEvidenceSurface({
     return () => window.clearTimeout(timer);
   }, [completion, successMomentsEnabled, terminalSuccess]);
   useEffect(() => {
-    resumeLoadResolvedRef.current = false;
-    setResumeEligible(false);
-    setResumeDismissed(sessionStorage.getItem(`pi-gui.resume-dismissed.${workspaceId}:${sessionId}`) === "true");
+    setDismissedRecoveryId(localStorage.getItem(`pi-gui.recovery-dismissed.${workspaceId}:${sessionId}`) ?? "");
   }, [sessionId, workspaceId]);
-  useEffect(() => {
-    if (loading || resumeLoadResolvedRef.current) return;
-    resumeLoadResolvedRef.current = true;
-    setResumeEligible(records.some((record) => (
-      record.kind === "completion"
-      || record.kind === "error"
-      || record.kind === "test"
-      || record.kind === "file-write"
-    )));
-  }, [loading, records]);
-  const refreshResume = () => {
-    refresh();
-    void api.getChangedFiles(workspaceId).then((files) => {
-      setResumeChangedPaths(files.map((file) => file.path));
-      setResumeRefreshedAt(new Date().toISOString());
-    }).catch(() => {
-      setResumeChangedPaths([]);
-      setResumeRefreshedAt(new Date().toISOString());
-    });
-  };
-  useEffect(() => {
-    if (resumeEligible && !resumeDismissed) refreshResume();
-  // Refresh only when a pre-existing resume state becomes eligible.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [resumeEligible, resumeDismissed, sessionId, workspaceId]);
   useEffect(() => {
     let active = true;
     void api.listContextManifests(workspaceId, sessionId).then((snapshots) => {
@@ -167,26 +139,15 @@ export function TaskEvidenceSurface({
       data-product-state={productState.state}
       data-testid="task-evidence-surface"
     >
-      {productState.state !== "empty" ? (
-        <span className={`product-state-accent product-state-accent--${productState.state}`} aria-hidden="true" title={productState.label}>
-          <img src={selectedShuriken.imageUrl} alt="" />
-        </span>
-      ) : null}
-      {resumeEligible && !resumeDismissed && sessionStatus !== "running" ? (
-        <ResumeCard
-          decisions={activeDecisions({ workspaceId, sessionId }).length}
-          records={records}
-          changedPaths={resumeChangedPaths}
-          refreshedAt={resumeRefreshedAt}
-          onContinue={() => onRetry("Continue from the observed thread state. Preserve completed work and address remaining blockers.")}
+      {recovery && recovery.evidenceId !== dismissedRecoveryId && sessionStatus !== "running" ? (
+        <RecoveryStrip
+          recovery={recovery}
+          onDraft={() => onRetry(recovery.prompt)}
           onDismiss={() => {
-            sessionStorage.setItem(`pi-gui.resume-dismissed.${workspaceId}:${sessionId}`, "true");
-            setResumeDismissed(true);
+            localStorage.setItem(`pi-gui.recovery-dismissed.${workspaceId}:${sessionId}`, recovery.evidenceId);
+            setDismissedRecoveryId(recovery.evidenceId);
           }}
-          onInspectContext={navigateToContext}
-          onRefresh={refreshResume}
-          onRetry={() => onRetry("Retry the latest observed failure once after checking whether its blocker changed.")}
-          onReview={() => onReviewChanges(resumeChangedPaths[0] ?? presentation.changedPaths[0] ?? "")}
+          onReview={() => onReviewChanges(recovery.changedPaths[0] ?? "")}
         />
       ) : null}
       {activity ? (
@@ -331,59 +292,30 @@ export function TaskEvidenceSurface({
   );
 }
 
-function ResumeCard({
-  decisions,
-  records,
-  changedPaths,
-  refreshedAt,
-  onContinue,
+function RecoveryStrip({
+  recovery,
+  onDraft,
   onDismiss,
-  onInspectContext,
-  onRefresh,
-  onRetry,
   onReview,
 }: {
-  readonly decisions: number;
-  readonly records: readonly import("../../product-experience/task-evidence").TaskEvidenceRecord[];
-  readonly changedPaths: readonly string[];
-  readonly refreshedAt?: string;
-  readonly onContinue: () => void;
+  readonly recovery: TaskRecoveryPresentation;
+  readonly onDraft: () => void;
   readonly onDismiss: () => void;
-  readonly onInspectContext: () => void;
-  readonly onRefresh: () => void;
-  readonly onRetry: () => void;
   readonly onReview: () => void;
 }) {
-  const completed = records.filter((record) => record.kind === "completion" && record.status !== "failed").length;
-  const failed = records.filter((record) => record.status === "failed" || record.kind === "error").length;
-  const blockers = records.filter((record) => record.completion?.outcome === "blocked").length;
   return (
-    <section className="resume-card" data-testid="resume-card">
-      <div className="resume-card__header">
-        <div>
-          <span>Resume thread</span>
-          <strong>Observed state since this thread was last active</strong>
-        </div>
-        <button aria-label="Dismiss resume card for this session" type="button" onClick={onDismiss}>×</button>
+    <section className={`recovery-strip recovery-strip--${recovery.outcome}`} data-testid="recovery-strip">
+      <span className="recovery-strip__indicator" aria-hidden="true" />
+      <div className="recovery-strip__copy">
+        <strong>{recovery.title}</strong>
+        <span>{recovery.detail}</span>
       </div>
-      <div className="resume-card__facts">
-        <span>{completed ? `${completed} completion record(s)` : "No completed run recorded"}</span>
-        <span>Remaining plan items unavailable</span>
-        <span>{failed ? `${failed} failure record(s)` : "No failures observed"}</span>
-        <span>{blockers ? `${blockers} blocker(s)` : "No blockers observed"}</span>
-        <span>{decisions ? `${decisions} active decision(s)` : "No active decisions"}</span>
-        <span>{changedPaths.length ? `${changedPaths.length} currently dirty path(s)` : "Checkout clean or unavailable"}</span>
-      </div>
-      <p>
-        Current checkout state was rechecked safely. Provider-side or remote state is not assumed.
-        {refreshedAt ? ` Refreshed ${formatExactLocalTime(refreshedAt)}.` : " Refresh pending."}
-      </p>
-      <div className="resume-card__actions">
-        <button type="button" onClick={onContinue}>Continue</button>
-        {changedPaths.length ? <button type="button" onClick={onReview}>Review changes</button> : null}
-        {failed ? <button type="button" onClick={onRetry}>Retry failure</button> : null}
-        <button type="button" onClick={onInspectContext}>Inspect context</button>
-        <button type="button" onClick={onRefresh}>Refresh</button>
+      <div className="recovery-strip__actions">
+        <button type="button" onClick={onDraft}>{recovery.actionLabel}</button>
+        {recovery.changedPaths.length ? <button type="button" onClick={onReview}>Review task changes</button> : null}
+        <button aria-label="Dismiss recovery for this run" type="button" onClick={onDismiss}>
+          <CloseIcon />
+        </button>
       </div>
     </section>
   );

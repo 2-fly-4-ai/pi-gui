@@ -8,6 +8,7 @@ import {
   nativeImage,
   session as electronSession,
   shell,
+  type ContextMenuParams,
   type IpcMainEvent,
   type IpcMainInvokeEvent,
   type MenuItemConstructorOptions,
@@ -17,12 +18,20 @@ import {
 } from "electron";
 import { randomUUID } from "node:crypto";
 import { constants as fsConstants, readFileSync } from "node:fs";
-import { copyFile, mkdir, open as openFile, readFile, realpath, stat, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, open as openFile, readFile, readdir, realpath, stat, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { DesktopAppStore } from "./app-store";
 import { getChangedFiles, getFileDiff, stageFile } from "./app-store-diff";
-import { commitChanges, createPullRequest, currentBranch, pushBranch, stageAllFiles } from "./git-actions";
+import { commitChanges, currentBranch, pushBranch, stageAllFiles } from "./git-actions";
+import { SourceControlService } from "./source-control-service";
+import { UsageIndexService } from "./usage-index-service";
+import { ProjectActionStore } from "./project-action-store";
+import { PromptShelfStore } from "./prompt-shelf-store";
+import { ThemeGalleryService } from "./theme-gallery-service";
+import { LoopbackRemoteService } from "./loopback-remote-service";
+import { flushBeforeQuit } from "./quit-persistence";
+import { withStartupTimeout } from "./startup-guard";
 import { deleteAgentDefinition, listAgentDefinitions, resetAgentDefinition, saveAgentDefinition } from "./agent-definitions";
 import {
   deleteSubagentWorkflow,
@@ -43,7 +52,14 @@ import type {
 } from "../src/subagent-workflows";
 import { dryRunSubagentWorkflow, roleFromDryRunWorkflowId } from "../src/subagent-workflows";
 import { listWorkspaceFiles } from "./app-store-files";
-import { ensureVSCodeServer, killAllVSCodeServers, killVSCodeServer } from "./vscode-server-manager";
+import {
+  ensureVSCodeServer,
+  killAllVSCodeServers,
+  killVSCodeServer,
+  listOwnedVSCodeServerRoots,
+  reclaimStaleVSCodeServers,
+  setEmbeddedVSCodePalette,
+} from "./vscode-server-manager";
 import { MAIN_DEV_RELOAD_MARKER } from "./dev-reload-main-probe";
 import { NotificationManager } from "./notification-manager";
 import {
@@ -60,6 +76,14 @@ import {
 import { ThemeManager } from "./theme-manager";
 import { TerminalService } from "./terminal-service";
 import { startMemoryMonitor } from "./memory-monitor";
+import { startMemoryPressureGuard } from "./memory-pressure-guard";
+import { ResourceInspectorService } from "./resource-inspector-service";
+import type { ResourceRuntimeRoot } from "../src/resource-inspector-types";
+import type { SourceControlMutation } from "../src/source-control-types";
+import type { UsageQuery } from "../src/usage-types";
+import type { LegacyProjectAction, SaveProjectActionInput } from "../src/project-actions";
+import type { StashPromptInput } from "../src/prompt-shelf-types";
+import { canStopRuntimeJob } from "../src/runtime-jobs";
 import { appendAgentActivity, listObservabilityEvents } from "./observability-service";
 import {
   attachWindowDiagnostics,
@@ -72,7 +96,6 @@ import {
 } from "./diagnostics";
 import type {
   AppView,
-  DesktopAppState,
   DesktopCustomInstructionsRecord,
   DiagnosticReportingPreferences,
   ModelSettingsScopeMode,
@@ -84,14 +107,21 @@ import {
   getDesktopCommandFromShortcut,
   type DesktopUpdateStatus,
   type RecordProjectActionEvidenceInput,
+  type SelectedTranscriptRequestOptions,
   type StatePatchEvent,
   type SubagentTranscriptPreview,
   type TerminalSize,
   type TranscriptResetRequest,
   type TranscriptSyncEvent,
 } from "../src/ipc";
-import { buildDesktopStatePatchEvents } from "../src/state/state-patch-domains";
-import { SUPPORTED_COMPOSER_IMAGE_TYPES } from "../src/composer-attachments";
+import {
+  MAX_COMPOSER_IMAGE_BYTES,
+  MAX_COMPOSER_IMAGE_DIMENSION,
+  SUPPORTED_COMPOSER_IMAGE_TYPES,
+  validateComposerAttachmentLimits,
+  validateComposerMessageMetadata,
+  validateComposerText,
+} from "../src/composer-attachments";
 import type {
   ComposerAttachment,
   ComposerFileAttachment,
@@ -107,7 +137,7 @@ import type { HostUiResponse, ToolAccessSelection } from "@pi-gui/session-driver
 import type { RuntimeSettingsSnapshot, RuntimeSkillProfileRecord } from "@pi-gui/session-driver/runtime-types";
 import type { NavigateSessionTreeOptions } from "@pi-gui/session-driver/types";
 import type { GenerateThreadTitleOptions } from "@pi-gui/pi-sdk-driver";
-import type { WorkspaceRef } from "@pi-gui/session-driver";
+import type { SessionRef, WorkspaceRef } from "@pi-gui/session-driver";
 import type { ObservabilityQuery } from "../src/observability-types";
 import {
   TASK_EVIDENCE_SCHEMA_VERSION,
@@ -140,10 +170,58 @@ import {
   type CommandRisk,
 } from "../src/product-experience/command-preview";
 
+// Stock Electron's pointer-compressed V8 build has an effective old-generation
+// ceiling of roughly 4 GiB. Requests above that are silently capped (the
+// renderer reports about 3.76 GB through performance.memory), so advertising
+// an 8/16 GiB setting would create false confidence. Keep the explicit flag
+// within the runtime's real supported range; projection/resource bounds are
+// the correctness mechanism.
+const requestedRendererHeapMb = Number.parseInt(process.env.PI_APP_RENDERER_HEAP_MB ?? "4096", 10);
+const rendererHeapMb = Number.isFinite(requestedRendererHeapMb)
+  ? Math.min(4_096, Math.max(2_048, requestedRendererHeapMb))
+  : 4_096;
+app.commandLine.appendSwitch("js-flags", `--max-old-space-size=${rendererHeapMb}`);
+
 const isDev = Boolean(process.env.ELECTRON_RENDERER_URL);
 const windowTestMode = resolveWindowTestMode();
 const devReloadMarkersEnabled = process.env.PI_APP_DEV_RELOAD_MARKERS === "1";
+interface StartupDiagnostics {
+  stage: string;
+  stageStartedAt: number;
+  stageHistory: Array<{ readonly stage: string; readonly at: number }>;
+  hasSingleInstanceLock?: boolean;
+}
+const startupDiagnostics: StartupDiagnostics = {
+  stage: "module-loaded",
+  stageStartedAt: Date.now(),
+  stageHistory: [{ stage: "module-loaded", at: Date.now() }],
+};
+
+function recordStartupStage(stage: string): void {
+  const at = Date.now();
+  startupDiagnostics.stage = stage;
+  startupDiagnostics.stageStartedAt = at;
+  startupDiagnostics.stageHistory.push({ stage, at });
+  if (startupDiagnostics.stageHistory.length > 24) startupDiagnostics.stageHistory.shift();
+}
+
+if (process.env.PI_APP_TEST_MODE) {
+  Object.assign(globalThis, { __PI_APP_STARTUP_DIAGNOSTICS: startupDiagnostics });
+}
 let store: DesktopAppStore;
+const recentStartThreadRequests = new Map<string, Promise<void>>();
+let activeStartThreadRequest: Promise<void> | undefined;
+const START_THREAD_REQUEST_RETENTION_MS = 60_000;
+
+function retainStartThreadRequest(requestId: string, request: Promise<void>): void {
+  recentStartThreadRequests.set(requestId, request);
+  const retentionTimer = setTimeout(() => {
+    if (recentStartThreadRequests.get(requestId) === request) {
+      recentStartThreadRequests.delete(requestId);
+    }
+  }, START_THREAD_REQUEST_RETENTION_MS);
+  retentionTimer.unref();
+}
 const themeManager = new ThemeManager();
 let mainWindow: BrowserWindow | null = null;
 let notificationManager: NotificationManager | undefined;
@@ -167,6 +245,14 @@ let stopUpdateChecker: (() => void) | undefined;
 let stopUpdateStatusEvents: (() => void) | undefined;
 let stopPruningTerminals: (() => void) | undefined;
 let stopMemoryMonitor: (() => void) | undefined;
+let stopMemoryPressureGuard: (() => void) | undefined;
+let resourceInspectorService: ResourceInspectorService | undefined;
+let sourceControlService: SourceControlService | undefined;
+let usageIndexService: UsageIndexService | undefined;
+let projectActionStore: ProjectActionStore | undefined;
+let promptShelfStore: PromptShelfStore | undefined;
+let themeGalleryService: ThemeGalleryService | undefined;
+let loopbackRemoteService: LoopbackRemoteService | undefined;
 let retainedTerminalWorkspacePathSignature = "";
 let nextRuntimeRefreshError: string | undefined;
 const terminalFocusedWebContentsIds = new Set<number>();
@@ -176,10 +262,24 @@ const SUPPORTED_IMAGE_TYPES = SUPPORTED_COMPOSER_IMAGE_TYPES;
 const SUPPORTED_IMAGE_MIME_TYPES = new Set<string>(SUPPORTED_IMAGE_TYPES.map((type) => type.mimeType));
 const OPEN_FOLDER_MENU_ITEM_ID = "file.open-folder";
 const CHECK_FOR_UPDATES_MENU_ITEM_ID = "app.check-for-updates";
-const MAX_CLIPBOARD_IMAGE_BYTES = 10 * 1024 * 1024;
-const MAX_CLIPBOARD_IMAGE_DIMENSION = 8_192;
+const MAX_CLIPBOARD_IMAGE_BYTES = MAX_COMPOSER_IMAGE_BYTES;
+const MAX_CLIPBOARD_IMAGE_DIMENSION = MAX_COMPOSER_IMAGE_DIMENSION;
+const MAX_ARTIFACT_SNAPSHOT_BYTES = 100 * 1024 * 1024;
+const MAX_ARTIFACT_SNAPSHOTS_PER_WORKSPACE = 20;
+const MAX_ARTIFACT_SNAPSHOT_TOTAL_BYTES = 512 * 1024 * 1024;
 const MAX_SUBAGENT_TRANSCRIPT_PREVIEW_BYTES = 256 * 1024;
 const SIDE_BROWSER_PARTITION = "persist:pi-side-browser";
+
+async function syncEmbeddedVSCodePalette(themeId?: string): Promise<void> {
+  if (!themeGalleryService) return;
+  const snapshot = await themeGalleryService.snapshot();
+  const targetId = themeId ?? snapshot.selectedThemeId;
+  const theme = [...snapshot.builtIns, ...snapshot.installed].find((candidate) => candidate.id === targetId);
+  if (!theme) throw new Error("Theme was not found while synchronizing embedded VS Code.");
+  // The embedded editor intentionally remains dark, matching the product-level VS Code contract,
+  // while consuming the selected gallery palette's semantic dark colors.
+  await setEmbeddedVSCodePalette(theme.palettes.dark);
+}
 
 function getTerminalService(): TerminalService {
   if (!terminalService) {
@@ -190,6 +290,40 @@ function getTerminalService(): TerminalService {
     });
   }
   return terminalService;
+}
+
+async function listResourceRuntimeRoots(): Promise<readonly ResourceRuntimeRoot[]> {
+  const state = await store.getState();
+  const runtimeRoots = state.workspaces.flatMap((workspace) => workspace.sessions.flatMap((session) =>
+    (session.runtimeSummary?.jobs ?? []).flatMap((job) => {
+      const pid = job.process?.pid;
+      if (!pid || (job.status !== "running" && job.status !== "background")) return [];
+      return [{
+        ownerKind: "runtime" as const,
+        ownerId: job.id,
+        label: job.title || "Runtime job",
+        pid,
+        startedAt: job.process?.startedAt ?? job.startedAt,
+        workspaceId: workspace.id,
+        sessionId: session.id,
+        runtimeJobId: job.id,
+        stoppable: canStopRuntimeJob(job),
+      }];
+    }),
+  ));
+  return [
+    ...runtimeRoots,
+    ...(terminalService?.getResourceRoots() ?? []),
+    ...listOwnedVSCodeServerRoots(),
+  ];
+}
+
+async function listResourceProviderWaits() {
+  const state = await store.getState();
+  return state.workspaces.flatMap((workspace) => workspace.sessions.flatMap((session) => {
+    if (session.status !== "running" || !session.runningSince || !/waiting\s+for\s+provider/i.test(session.preview)) return [];
+    return [{ id: `${workspace.id}:${session.id}`, label: session.title || "Task", startedAt: session.runningSince, workspaceId: workspace.id, sessionId: session.id }];
+  }));
 }
 
 // Resolve the bundled application icon. In dev the repo's `resources/icon.png`
@@ -211,12 +345,12 @@ function readClipboardImageAttachment(): ComposerImageAttachment | null {
 
   const size = image.getSize();
   if (size.width > MAX_CLIPBOARD_IMAGE_DIMENSION || size.height > MAX_CLIPBOARD_IMAGE_DIMENSION) {
-    return null;
+    throw new Error(`Clipboard images must be ${MAX_CLIPBOARD_IMAGE_DIMENSION.toLocaleString()} pixels or smaller per side.`);
   }
 
   const png = image.toPNG();
   if (png.length === 0 || png.length > MAX_CLIPBOARD_IMAGE_BYTES) {
-    return null;
+    throw new Error("Clipboard images must be 10 MB or smaller.");
   }
 
   return {
@@ -350,6 +484,35 @@ function installMainWindowSecurityPolicies(window: BrowserWindow): void {
   });
 }
 
+function installTextContextMenu(window: BrowserWindow): void {
+  window.webContents.on("context-menu", (_event, params: ContextMenuParams) => {
+    const { editFlags } = params;
+    const template: MenuItemConstructorOptions[] = params.isEditable
+      ? [
+          { role: "undo", enabled: editFlags.canUndo },
+          { role: "redo", enabled: editFlags.canRedo },
+          { type: "separator" },
+          { role: "cut", enabled: editFlags.canCut },
+          { role: "copy", enabled: editFlags.canCopy },
+          { role: "paste", enabled: editFlags.canPaste },
+          { type: "separator" },
+          { role: "selectAll", enabled: editFlags.canSelectAll },
+        ]
+      : params.selectionText.trim()
+        ? [
+            { role: "copy", enabled: editFlags.canCopy },
+            { type: "separator" },
+            { role: "selectAll", enabled: editFlags.canSelectAll },
+          ]
+        : [];
+
+    if (template.length === 0) {
+      return;
+    }
+    Menu.buildFromTemplate(template).popup({ window });
+  });
+}
+
 function installPermissionHandler(): void {
   const allowPermission = (contents: WebContents, permission: string, requestingUrl?: string): boolean => {
     if (permission === "notifications") {
@@ -452,7 +615,9 @@ function createWindow(): BrowserWindow {
   });
 
   attachWindowDiagnostics(window);
+  installMainRendererCrashRecovery(window);
   installMainWindowSecurityPolicies(window);
+  installTextContextMenu(window);
 
   window.once("ready-to-show", () => {
     if (!backgroundTestMode) {
@@ -510,6 +675,79 @@ function createWindow(): BrowserWindow {
   return window;
 }
 
+function installMainRendererCrashRecovery(window: BrowserWindow): void {
+  let recoveryInFlight = false;
+  let recoveryWindowStartedAt = 0;
+  let recoveryAttempts = 0;
+
+  window.webContents.on("render-process-gone", (_event, details) => {
+    if (
+      details.reason !== "crashed"
+      && details.reason !== "oom"
+      && details.reason !== "killed"
+      && details.reason !== "memory-eviction"
+    ) {
+      return;
+    }
+
+    const now = Date.now();
+    if (recoveryInFlight) {
+      return;
+    }
+    if (now - recoveryWindowStartedAt > 5 * 60_000) {
+      recoveryWindowStartedAt = now;
+      recoveryAttempts = 0;
+    }
+    recoveryAttempts += 1;
+    if (recoveryAttempts > 2) {
+      const recoveryPage = encodeURIComponent(`<!doctype html>
+        <meta charset="utf-8">
+        <meta name="color-scheme" content="dark light">
+        <title>Pi recovery</title>
+        <style>
+          body{margin:0;min-height:100vh;display:grid;place-items:center;background:#1f2023;color:#f3f4f6;font:15px system-ui}
+          main{max-width:560px;padding:36px;border:1px solid #3b3d43;border-radius:16px;background:#292b30}
+          h1{margin:0 0 12px;font-size:22px}p{line-height:1.55;color:#c7c9d1}
+        </style>
+        <main><h1>Pi stopped the renderer recovery loop</h1>
+        <p>The renderer crashed repeatedly, so Pi did not keep reloading the same task. Your task history and draft remain stored. Close and reopen Pi; the task will start with its bounded recent-history view.</p></main>`);
+      void window.loadURL(`data:text/html;charset=utf-8,${recoveryPage}`);
+      return;
+    }
+    recoveryInFlight = true;
+
+    window.webContents.once("did-finish-load", () => {
+      recoveryInFlight = false;
+      if (mainWindow === window && canPublishToWindow(window)) {
+        attachStatePublisher(window);
+      }
+    });
+
+    setTimeout(() => {
+      if (window.isDestroyed() || window.webContents.isDestroyed()) {
+        recoveryInFlight = false;
+        return;
+      }
+      const currentUrl = window.webContents.getURL();
+      let recoveryUrl = currentUrl;
+      try {
+        const parsed = new URL(currentUrl);
+        parsed.searchParams.set("rendererRecovery", "1");
+        recoveryUrl = parsed.toString();
+      } catch {
+        // A normal app URL is expected; reload remains a safe fallback.
+      }
+      void store.withError(
+        "Pi recovered the renderer in safe mode. This task is showing a bounded recent-history window; the complete transcript remains stored on disk.",
+      ).finally(() => {
+        if (!window.isDestroyed() && !window.webContents.isDestroyed()) {
+          void window.loadURL(recoveryUrl);
+        }
+      });
+    }, 250);
+  });
+}
+
 function attachStatePublisher(window: BrowserWindow): void {
   const webContentsId = window.webContents.id;
   stopPublishingStatePatches?.();
@@ -521,13 +759,8 @@ function attachStatePublisher(window: BrowserWindow): void {
     desktopIpc.statePatchChanged,
     (_payload, bytes) => store.recordIpcPublish("state-patch-changed", bytes),
   );
-  let previousPatchState: DesktopAppState | null = null;
-
-  const unsubscribeState = store.subscribe((state) => {
-    for (const event of buildDesktopStatePatchEvents(previousPatchState, state)) {
-      statePatchPublisher.publish(event);
-    }
-    previousPatchState = state;
+  const unsubscribeState = store.subscribeToStatePatches((event) => {
+    statePatchPublisher.publish(event);
   });
   const transcriptEventPublisher = createImmediateIpcPublisher<TranscriptSyncEvent>(
     window,
@@ -786,6 +1019,8 @@ if (readNativeCrashReportsOptIn(configuredUserDataDir)) {
 }
 
 const hasSingleInstanceLock = app.requestSingleInstanceLock();
+startupDiagnostics.hasSingleInstanceLock = hasSingleInstanceLock;
+recordStartupStage(hasSingleInstanceLock ? "single-instance-lock-acquired" : "single-instance-lock-denied");
 if (!hasSingleInstanceLock) {
   app.quit();
 }
@@ -806,6 +1041,10 @@ void app.whenReady().then(async () => {
     return;
   }
 
+  recordStartupStage("app-ready");
+  recordStartupStage("theme:restore-mode");
+  await themeManager.initialize(configuredUserDataDir);
+
   // On macOS, packaged builds already render the dock icon from `icon.icns`
   // in the app bundle. In dev we override the generic Electron dock icon with
   // the real PNG so the running app looks right end-to-end.
@@ -813,6 +1052,9 @@ void app.whenReady().then(async () => {
     app.dock?.setIcon(appIcon);
   }
   registerProcessDiagnostics();
+  recordStartupStage("reclaim-stale-vscode-servers");
+  reclaimStaleVSCodeServers();
+  recordStartupStage("install-permission-handler");
   installPermissionHandler();
 
   let generateThreadTitleOverride:
@@ -833,6 +1075,7 @@ void app.whenReady().then(async () => {
       return subagentRunsStore.listRunsSnapshot(workspaceId);
     },
     generateThreadTitleOverride: async (workspace, options) => generateThreadTitleOverride?.(workspace, options),
+    onInitializationStage: recordStartupStage,
   });
   const publishSubagentRunsChanged = (workspaceId: string, sessionId?: string) => {
     if (sessionId) {
@@ -846,6 +1089,7 @@ void app.whenReady().then(async () => {
   };
   const subagentRuns = new SubagentRunStore(configuredUserDataDir, publishSubagentRunsChanged);
   subagentRunsStore = subagentRuns;
+  const subagentSessionByToolCall = new Map<string, SessionRef>();
   const evidenceSequences = new Map<string, number>();
   taskEvidenceLedger = new TaskEvidenceLedger(configuredUserDataDir, {
     homePath: app.getPath("home"),
@@ -895,7 +1139,55 @@ void app.whenReady().then(async () => {
     taskEvidenceLedger,
     resolveCheckpointWorkspaceIdentity,
   );
+  recordStartupStage("store:initialize");
   await store.initialize();
+  sourceControlService = new SourceControlService(
+    configuredUserDataDir,
+    (workspaceId) => store.getWorkspacePath(workspaceId),
+  );
+  usageIndexService = new UsageIndexService(
+    configuredUserDataDir,
+    () => store.driver.listSessions(),
+  );
+  projectActionStore = new ProjectActionStore(
+    configuredUserDataDir,
+    (workspaceId) => store.getWorkspacePath(workspaceId),
+  );
+  promptShelfStore = new PromptShelfStore(configuredUserDataDir);
+  themeGalleryService = new ThemeGalleryService(configuredUserDataDir);
+  recordStartupStage("theme:sync-embedded-vscode-palette");
+  await withStartupTimeout(syncEmbeddedVSCodePalette(), "synchronize embedded VS Code theme").catch((error) => {
+    recordStartupStage("theme:sync-failed-nonfatal");
+    logIgnoredError("startup.sync-embedded-vscode-palette", error);
+  });
+  recordStartupStage("services:initialize");
+  loopbackRemoteService = new LoopbackRemoteService();
+  resourceInspectorService = new ResourceInspectorService({
+    getWindow: () => mainWindow,
+    getRuntimeRoots: listResourceRuntimeRoots,
+    getProviderWaits: listResourceProviderWaits,
+    getDiagnostics: () => ({ ...store.getDiagnostics() }),
+    getAppSummary: async () => {
+      const state = await store.getState();
+      const runtimes = Object.values(state.runtimeByWorkspace);
+      const resourceRoots = await listResourceRuntimeRoots();
+      return {
+        activeView: state.activeView,
+        workspaceCount: state.workspaces.length,
+        sessionCount: state.workspaces.reduce((total, workspace) => total + workspace.sessions.length, 0),
+        connectedProviderCount: runtimes.reduce((total, runtime) => total + runtime.providers.filter((provider) => provider.hasAuth).length, 0),
+        availableModelCount: runtimes.reduce((total, runtime) => total + runtime.models.filter((model) => model.available).length, 0),
+        terminalCount: resourceRoots.filter((root) => root.ownerKind === "terminal").length,
+        vscodeServerCount: resourceRoots.filter((root) => root.ownerKind === "vscode").length,
+        ...(state.selectedWorkspaceId ? { selectedWorkspaceId: state.selectedWorkspaceId } : {}),
+        ...(state.selectedSessionId ? { selectedSessionId: state.selectedSessionId } : {}),
+      };
+    },
+    getRecentFailureTitles: async () => {
+      const page = await listObservabilityEvents({ severity: ["error"], limit: 10, includeGlobal: false });
+      return page.events.map((event) => event.title);
+    },
+  });
   store.subscribeToSessionEvents(async (event) => {
     await checkpointObserver?.observe(event);
     taskEvidenceObserver?.observe(event);
@@ -904,6 +1196,13 @@ void app.whenReady().then(async () => {
       publishSubagentRunsChanged(changedTarget.workspaceId, changedTarget.sessionId);
     }
     if (event.type === "subagentRunUpdated") {
+      if (event.toolCallId) {
+        if (event.status === "started" || event.status === "progress") {
+          subagentSessionByToolCall.set(event.toolCallId, event.parentSession);
+        } else {
+          subagentSessionByToolCall.delete(event.toolCallId);
+        }
+      }
       await appendAgentActivity({
         event: `subagent_lifecycle_${event.status}`,
         category: "subagent",
@@ -929,22 +1228,49 @@ void app.whenReady().then(async () => {
   });
   subagentAuditAdapter = new SubagentAuditAdapter({
     onEvent: async (event) => {
+      const correlatedSession = event.parentToolCallId
+        ? subagentSessionByToolCall.get(event.parentToolCallId)
+        : undefined;
+      if (correlatedSession && event.parentToolCallId) {
+        await store.emitExternalSessionEvent({
+          type: "subagentRunUpdated",
+          sessionRef: correlatedSession,
+          parentSession: correlatedSession,
+          timestamp: event.timestamp,
+          // Keep the lifecycle identity stable from tool start through audit
+          // completion. The child process ID remains audit metadata; changing
+          // IDs here would make evidence count one child twice.
+          subagentRunId: event.parentToolCallId,
+          toolCallId: event.parentToolCallId,
+          status: event.status,
+          ...(event.role ? { role: event.role, agentName: event.role } : {}),
+          ...(event.description ? { description: event.description } : {}),
+          ...(event.toolUseCount !== undefined ? { toolUseCount: event.toolUseCount } : {}),
+          ...(event.elapsedMs !== undefined ? { elapsedMs: event.elapsedMs } : {}),
+          ...(event.summary ? { summary: event.summary } : {}),
+        });
+        if (event.status === "completed" || event.status === "failed" || event.status === "cancelled") {
+          subagentSessionByToolCall.delete(event.parentToolCallId);
+        }
+      }
       const changedTargets = await subagentRuns.applyAuditEvent(event);
       for (const target of changedTargets) {
-        await appendAgentActivity({
-          event: `subagent_audit_${event.status}`,
-          category: "subagent",
-          title: `${event.role ?? "Subagent"} ${event.status}`,
-          workspaceId: target.workspaceId,
-          sessionId: target.sessionId,
-          runId: event.workflowRunId ?? event.agentId ?? event.parentToolCallId,
-          subagentId: event.agentId,
-          parentToolCallId: event.parentToolCallId,
-          role: event.role,
-          status: event.status,
-          elapsedMs: event.elapsedMs,
-          message: event.summary,
-        });
+        if (!correlatedSession) {
+          await appendAgentActivity({
+            event: `subagent_audit_${event.status}`,
+            category: "subagent",
+            title: `${event.role ?? "Subagent"} ${event.status}`,
+            workspaceId: target.workspaceId,
+            sessionId: target.sessionId,
+            runId: event.workflowRunId ?? event.agentId ?? event.parentToolCallId,
+            subagentId: event.agentId,
+            parentToolCallId: event.parentToolCallId,
+            role: event.role,
+            status: event.status,
+            elapsedMs: event.elapsedMs,
+            message: event.summary,
+          });
+        }
         publishSubagentRunsChanged(target.workspaceId, target.sessionId);
       }
     },
@@ -974,11 +1300,33 @@ void app.whenReady().then(async () => {
           }
           process.abort();
         },
+        forceRendererCrash: () => {
+          mainWindow?.webContents.forcefullyCrashRenderer();
+        },
+        crashLoopbackRemote: () => loopbackRemoteService?.simulateChildCrashForTest(),
+        testLoopbackCancellation: async () => {
+          if (!loopbackRemoteService) throw new Error("Loopback service unavailable.");
+          const controller = new AbortController();
+          const timer = setTimeout(() => controller.abort(), 20);
+          try { await loopbackRemoteService.request("health", { delayMs: 250 }, 1_000, controller.signal); return "unexpected-success"; }
+          catch (error) { return error instanceof Error ? error.message : String(error); }
+          finally { clearTimeout(timer); }
+        },
+        testLoopbackTimeout: async () => {
+          if (!loopbackRemoteService) throw new Error("Loopback service unavailable.");
+          try { await loopbackRemoteService.request("health", { delayMs: 250 }, 50); return "unexpected-success"; }
+          catch (error) { return error instanceof Error ? error.message : String(error); }
+        },
+        seedOpenVsxThemeFixture: () => themeGalleryService?.useDeterministicOpenVsxFixtureForTest(),
         flushPersistence: () => store.flushPersistence(),
         activateWindow: () => store.handleWindowActivation(),
         getDiagnostics: () => store.getDiagnostics(),
+        relieveMemoryPressure: (level: "warning" | "critical" = "critical") =>
+          store.relieveMemoryPressure(level),
         seedDisplayModeScaleFixture: (options?: { readonly count?: number; readonly legacyCount?: number }) =>
           store.seedDisplayModeScaleFixtureForTest(options),
+        seedSessionDormancyFixture: (count?: number) =>
+          store.seedSessionDormancyFixtureForTest(count),
         updateDisplayModeFixtureSession: (
           target: WorkspaceSessionTarget,
           patch: { readonly status?: "idle" | "running" | "failed"; readonly preview?: string },
@@ -1036,13 +1384,14 @@ void app.whenReady().then(async () => {
   );
   handleMainFrameIpc(desktopIpc.getThemeMode, () => themeManager.getMode());
   handleMainFrameIpc(desktopIpc.getResolvedTheme, () => themeManager.getResolvedTheme());
-  handleMainFrameIpc(desktopIpc.setThemeMode, (_event, mode: ThemeMode) => {
-    themeManager.setMode(mode);
+  handleMainFrameIpc(desktopIpc.setThemeMode, async (_event, mode: ThemeMode) => {
+    await themeManager.setMode(mode);
     return mode;
   });
   handleMainFrameIpc(desktopIpc.openExternal, (_event, url: string) => openExternalIfAllowed(url));
   handleMainFrameIpc(desktopIpc.stateRequest, () => store.getState());
-  handleMainFrameIpc(desktopIpc.selectedTranscriptRequest, () => store.getSelectedTranscript());
+  handleMainFrameIpc(desktopIpc.selectedTranscriptRequest, (_event, options: SelectedTranscriptRequestOptions | undefined) =>
+    store.getSelectedTranscript(options));
   handleMainFrameIpc(desktopIpc.transcriptResetRequest, (_event, input: TranscriptResetRequest) =>
     store.resetSelectedTranscriptForRequest(input),
   );
@@ -1056,6 +1405,21 @@ void app.whenReady().then(async () => {
     return listObservabilityEvents(input, {
       includeNativeCrashReports: state.diagnosticReporting.nativeCrashReportsEnabled,
     });
+  });
+  handleMainFrameIpc(desktopIpc.getResourceInspectorSnapshot, () => {
+    if (!resourceInspectorService) throw new Error("Resource Inspector is unavailable.");
+    return resourceInspectorService.getSnapshot();
+  });
+  handleMainFrameIpc(desktopIpc.setResourceInspectorVisible, (_event, visible: boolean) => {
+    resourceInspectorService?.setVisible(visible === true);
+  });
+  handleMainFrameIpc(desktopIpc.getDiagnosticBundle, () => {
+    if (!resourceInspectorService) throw new Error("Diagnose Pi is unavailable.");
+    return resourceInspectorService.buildDiagnosticBundle();
+  });
+  handleMainFrameIpc(desktopIpc.openDiagnosticLogsFolder, async () => {
+    await mkdir(path.join(configuredUserDataDir, "logs"), { recursive: true });
+    await shell.openPath(path.join(configuredUserDataDir, "logs"));
   });
   handleMainFrameIpc(desktopIpc.listTaskEvidence, (_event, input: TaskEvidenceQuery) => {
     if (!taskEvidenceLedger) {
@@ -1371,6 +1735,7 @@ void app.whenReady().then(async () => {
   });
   handleMainFrameIpc(desktopIpc.selectSession, async (_event, target: WorkspaceSessionTarget) => {
     await store.selectSession(target);
+    return store.getSelectedTranscript({ target });
   });
   handleMainFrameIpc(desktopIpc.renameSession, async (_event, target: WorkspaceSessionTarget, title: string) => {
     await store.renameSession(target, title);
@@ -1578,7 +1943,40 @@ void app.whenReady().then(async () => {
     await store.createSession(input);
   });
   handleMainFrameIpc(desktopIpc.startThread, async (_event, input: StartThreadInput) => {
-    await store.startThread(input);
+    const requestId = input.requestId?.trim();
+    if (requestId && requestId.length > 200) {
+      throw new Error("Invalid start-thread request ID.");
+    }
+
+    const existing = requestId ? recentStartThreadRequests.get(requestId) : undefined;
+    if (existing) {
+      await existing;
+      return;
+    }
+
+    // Starting a task is a single foreground action. Treat any second request
+    // received while the first is still creating its session as the same
+    // action, even if a renderer remount generated a fresh request ID.
+    if (activeStartThreadRequest) {
+      if (requestId) {
+        retainStartThreadRequest(requestId, activeStartThreadRequest);
+      }
+      await activeStartThreadRequest;
+      return;
+    }
+
+    const pending = store.startThread(input).then(() => undefined);
+    activeStartThreadRequest = pending;
+    if (requestId) {
+      retainStartThreadRequest(requestId, pending);
+    }
+    try {
+      await pending;
+    } finally {
+      if (activeStartThreadRequest === pending) {
+        activeStartThreadRequest = undefined;
+      }
+    }
   });
   handleMainFrameIpc(desktopIpc.openSkillInFinder, async (_event, workspaceId: string, filePath: string) => {
     const resolved = store.getSkillFilePath(workspaceId, filePath);
@@ -1630,14 +2028,14 @@ void app.whenReady().then(async () => {
         };
       }
     }));
-    await store.addComposerAttachments(attachments);
+    await store.addComposerAttachments(validateComposerAttachmentsPayload(attachments));
   });
   handleMainFrameIpc(desktopIpc.readClipboardImage, () => readClipboardImageAttachment());
   handleMainFrameIpc(desktopIpc.readSubagentTranscript, async (_event, transcriptPath: string) =>
     readSubagentTranscriptPreview(transcriptPath),
   );
   handleMainFrameIpc(desktopIpc.addComposerAttachments, async (_event, attachments: readonly ComposerAttachment[]) => {
-    const validated = attachments.flatMap(validateComposerAttachmentPayload);
+    const validated = validateComposerAttachmentsPayload(attachments);
     await store.addComposerAttachments(validated);
   });
   handleMainFrameIpc(desktopIpc.removeComposerAttachment, async (_event, attachmentId: string) => {
@@ -1678,15 +2076,18 @@ void app.whenReady().then(async () => {
       _event,
       target: WorkspaceSessionTarget,
       composerDraft: string,
-      options?: { readonly syncToEditor?: boolean },
+      options?: { readonly syncToEditor?: boolean; readonly baseSyncNonce?: number },
     ) => {
-      await store.updateComposerDraft(target, composerDraft, options);
+      await store.updateComposerDraft(target, validateComposerText(composerDraft), options);
     },
   );
   handleMainFrameIpc(
     desktopIpc.submitComposer,
     async (_event, text: string, options?: { readonly deliverAs?: "steer" | "followUp"; readonly messageMetadata?: unknown }) => {
-      await store.submitComposer(text, options);
+      await store.submitComposer(validateComposerText(text), {
+        ...options,
+        messageMetadata: validateComposerMessageMetadata(options?.messageMetadata),
+      });
     },
   );
   handleMainFrameIpc(
@@ -1701,10 +2102,11 @@ void app.whenReady().then(async () => {
         readonly messageMetadata?: unknown;
       },
     ) => {
-      const attachments = options?.attachments?.flatMap(validateComposerAttachmentPayload) ?? [];
-      const state = await store.submitComposerToSession(target, text, {
-        ...options,
+      const attachments = validateComposerAttachmentsPayload(options?.attachments ?? []);
+      const state = await store.submitComposerToSession(target, validateComposerText(text), {
         attachments,
+        deliverAs: options?.deliverAs,
+        messageMetadata: validateComposerMessageMetadata(options?.messageMetadata),
       });
       return state.lastError
         ? { accepted: false, error: state.lastError }
@@ -1717,7 +2119,7 @@ void app.whenReady().then(async () => {
   handleMainFrameIpc(
     desktopIpc.setSessionComposerAttachments,
     async (_event, target: WorkspaceSessionTarget, attachments: readonly ComposerAttachment[]) => {
-      const validated = attachments.flatMap(validateComposerAttachmentPayload);
+      const validated = validateComposerAttachmentsPayload(attachments);
       await store.setSessionComposerAttachments(target, validated);
     },
   );
@@ -1756,11 +2158,15 @@ void app.whenReady().then(async () => {
     }
     const metadata = await stat(realSourcePath);
     if (!metadata.isFile()) throw new Error("Artifact is not a file.");
+    if (metadata.size > MAX_ARTIFACT_SNAPSHOT_BYTES) {
+      throw new Error("Artifact snapshots must be 100 MB or smaller.");
+    }
     const snapshotDir = path.join(app.getPath("userData"), "artifact-snapshots", encodeURIComponent(workspaceId));
     await mkdir(snapshotDir, { recursive: true });
     const safeName = path.basename(realSourcePath).replace(/[^A-Za-z0-9._-]+/g, "-") || "artifact";
     const snapshotPath = path.join(snapshotDir, `${Date.now()}-${randomUUID()}-${safeName}`);
     await copyFile(realSourcePath, snapshotPath, fsConstants.COPYFILE_FICLONE);
+    await pruneArtifactSnapshots(snapshotDir, snapshotPath);
     return {
       fsPath: snapshotPath,
       sizeBytes: metadata.size,
@@ -1841,10 +2247,12 @@ void app.whenReady().then(async () => {
         publishSubagentRunsChanged(target.workspaceId, target.sessionId);
       }
     });
-    await subagentRuns.reconcileInterruptedRuns(
-      workspaceId,
-      (target) => store.sessionFromState(target)?.status === "running",
-    );
+    if (process.env.PI_APP_TEST_DEFER_SUBAGENT_WORKFLOW !== "1") {
+      await subagentRuns.reconcileInterruptedRuns(
+        workspaceId,
+        (target) => store.sessionFromState(target)?.status === "running",
+      );
+    }
     return subagentRuns.listRuns(workspaceId, store.getWorkspacePath(workspaceId));
   });
   handleMainFrameIpc(desktopIpc.runSubagentWorkflow, async (_event, workspaceId: string, input: RunSubagentWorkflowInput) => {
@@ -1896,11 +2304,169 @@ void app.whenReady().then(async () => {
     await pushBranch(workspacePath, options);
   });
   handleMainFrameIpc(desktopIpc.createPullRequest, async (_event, workspaceId: string, input: { readonly title: string; readonly body: string; readonly base: string }) => {
+    if (!sourceControlService) throw new Error("Source control service is unavailable.");
+    const result = await sourceControlService.runMutation(workspaceId, { kind: "create", ...input });
+    return result.url ? { url: result.url } : {};
+  });
+  handleMainFrameIpc(desktopIpc.getSourceControlSnapshot, async (_event, workspaceId: string, forceRefresh?: boolean) => {
+    if (!sourceControlService) throw new Error("Source control service is unavailable.");
+    return sourceControlService.getSnapshot(workspaceId, forceRefresh === true);
+  });
+  handleMainFrameIpc(desktopIpc.getPullRequestDetail, async (_event, workspaceId: string, pullRequestNumber: number) => {
+    if (!sourceControlService) throw new Error("Source control service is unavailable.");
+    return sourceControlService.getPullRequestDetail(workspaceId, pullRequestNumber);
+  });
+  handleMainFrameIpc(desktopIpc.previewSourceControlMutation, async (_event, mutation: SourceControlMutation) => {
+    if (!sourceControlService) throw new Error("Source control service is unavailable.");
+    return sourceControlService.previewMutation(mutation);
+  });
+  handleMainFrameIpc(desktopIpc.runSourceControlMutation, async (_event, workspaceId: string, mutation: SourceControlMutation) => {
+    if (!sourceControlService) throw new Error("Source control service is unavailable.");
+    return sourceControlService.runMutation(workspaceId, mutation);
+  });
+  handleMainFrameIpc(desktopIpc.getTaskPullRequestLink, async (_event, workspaceId: string, sessionId: string) => {
+    if (!sourceControlService) throw new Error("Source control service is unavailable.");
+    return sourceControlService.getTaskPullRequestLink(workspaceId, sessionId);
+  });
+  handleMainFrameIpc(desktopIpc.linkTaskPullRequest, async (_event, workspaceId: string, sessionId: string, pullRequestNumber: number) => {
+    if (!sourceControlService) throw new Error("Source control service is unavailable.");
+    return sourceControlService.linkTaskPullRequest(workspaceId, sessionId, pullRequestNumber);
+  });
+  handleMainFrameIpc(desktopIpc.unlinkTaskPullRequest, async (_event, workspaceId: string, sessionId: string) => {
+    if (!sourceControlService) throw new Error("Source control service is unavailable.");
+    await sourceControlService.unlinkTaskPullRequest(workspaceId, sessionId);
+  });
+  handleMainFrameIpc(desktopIpc.getUsageDashboard, async (_event, query: UsageQuery, forceRefresh?: boolean) => {
+    if (!usageIndexService) throw new Error("Usage index is unavailable.");
+    return usageIndexService.getDashboard(query, forceRefresh === true);
+  });
+  handleMainFrameIpc(desktopIpc.listProjectActions, async (_event, workspaceId: string) => {
+    if (!projectActionStore) throw new Error("Project action store is unavailable.");
+    return projectActionStore.list(workspaceId);
+  });
+  handleMainFrameIpc(desktopIpc.saveProjectAction, async (_event, input: SaveProjectActionInput) => {
+    if (!projectActionStore) throw new Error("Project action store is unavailable.");
+    return projectActionStore.save(input);
+  });
+  handleMainFrameIpc(desktopIpc.deleteProjectAction, async (_event, workspaceId: string, actionId: string) => {
+    if (!projectActionStore) throw new Error("Project action store is unavailable.");
+    return projectActionStore.remove(workspaceId, actionId);
+  });
+  handleMainFrameIpc(desktopIpc.reorderProjectActions, async (_event, workspaceId: string, orderedIds: readonly string[]) => {
+    if (!projectActionStore) throw new Error("Project action store is unavailable.");
+    return projectActionStore.reorder(workspaceId, orderedIds);
+  });
+  handleMainFrameIpc(desktopIpc.migrateLegacyProjectActions, async (_event, input: Readonly<Record<string, readonly LegacyProjectAction[]>>) => {
+    if (!projectActionStore) throw new Error("Project action store is unavailable.");
+    return projectActionStore.migrateLegacy(input);
+  });
+  handleMainFrameIpc(desktopIpc.discoverProjectActions, async (_event, workspaceId: string) => {
+    if (!projectActionStore) throw new Error("Project action store is unavailable.");
+    return projectActionStore.discover(workspaceId);
+  });
+  handleMainFrameIpc(desktopIpc.previewProjectActionsImport, async (_event, workspaceId: string) => {
+    if (!projectActionStore) throw new Error("Project action store is unavailable.");
+    return projectActionStore.previewImport(workspaceId);
+  });
+  handleMainFrameIpc(desktopIpc.previewProjectActionsExport, async (_event, workspaceId: string) => {
+    if (!projectActionStore) throw new Error("Project action store is unavailable.");
+    return projectActionStore.previewExport(workspaceId);
+  });
+  handleMainFrameIpc(desktopIpc.exportProjectActions, async (_event, workspaceId: string) => {
+    if (!projectActionStore) throw new Error("Project action store is unavailable.");
+    return projectActionStore.export(workspaceId);
+  });
+  handleMainFrameIpc(desktopIpc.listPromptShelf, async () => {
+    if (!promptShelfStore) throw new Error("Prompt Shelf is unavailable.");
+    return promptShelfStore.list();
+  });
+  handleMainFrameIpc(desktopIpc.stashPrompt, async (_event, input: StashPromptInput) => {
+    if (!promptShelfStore) throw new Error("Prompt Shelf is unavailable.");
+    const validated: StashPromptInput = { ...input, text: validateComposerText(input.text), attachments: validateComposerAttachmentsPayload(input.attachments) };
+    return promptShelfStore.stash(validated);
+  });
+  handleMainFrameIpc(desktopIpc.previewPromptShelfRestore, async (_event, entryId: string) => {
+    if (!promptShelfStore) throw new Error("Prompt Shelf is unavailable.");
+    const preview = await promptShelfStore.previewRestore(entryId);
+    return { ...preview, attachments: validateComposerAttachmentsPayload(preview.attachments) };
+  });
+  handleMainFrameIpc(desktopIpc.completePromptShelfRestore, async (_event, entryId: string) => {
+    if (!promptShelfStore) throw new Error("Prompt Shelf is unavailable.");
+    return promptShelfStore.completeRestore(entryId);
+  });
+  handleMainFrameIpc(desktopIpc.renamePromptShelfEntry, async (_event, entryId: string, label: string) => {
+    if (!promptShelfStore) throw new Error("Prompt Shelf is unavailable.");
+    return promptShelfStore.rename(entryId, label);
+  });
+  handleMainFrameIpc(desktopIpc.reorderPromptShelf, async (_event, orderedIds: readonly string[]) => {
+    if (!promptShelfStore) throw new Error("Prompt Shelf is unavailable.");
+    return promptShelfStore.reorder(orderedIds);
+  });
+  handleMainFrameIpc(desktopIpc.deletePromptShelfEntry, async (_event, entryId: string) => {
+    if (!promptShelfStore) throw new Error("Prompt Shelf is unavailable.");
+    return promptShelfStore.remove(entryId);
+  });
+  handleMainFrameIpc(desktopIpc.getThemeGallery, async () => {
+    if (!themeGalleryService) throw new Error("Theme gallery is unavailable.");
+    return themeGalleryService.snapshot();
+  });
+  handleMainFrameIpc(desktopIpc.selectThemePalette, async (_event, themeId: string) => {
+    if (!themeGalleryService) throw new Error("Theme gallery is unavailable.");
+    const snapshot = await themeGalleryService.select(themeId);
+    await syncEmbeddedVSCodePalette(themeId);
+    return snapshot;
+  });
+  handleMainFrameIpc(desktopIpc.previewThemePalette, async (_event, themeId: string) => {
+    if (!themeGalleryService) throw new Error("Theme gallery is unavailable.");
+    await syncEmbeddedVSCodePalette(themeId);
+  });
+  handleMainFrameIpc(desktopIpc.resetThemePalette, async () => {
+    if (!themeGalleryService) throw new Error("Theme gallery is unavailable.");
+    const snapshot = await themeGalleryService.reset();
+    await syncEmbeddedVSCodePalette(snapshot.selectedThemeId);
+    return snapshot;
+  });
+  handleMainFrameIpc(desktopIpc.importVsCodeTheme, async () => {
+    if (!themeGalleryService) throw new Error("Theme gallery is unavailable.");
+    const result = await dialog.showOpenDialog({
+      title: "Import a VS Code color theme",
+      properties: ["openFile"],
+      filters: [{ name: "VS Code themes", extensions: ["json", "jsonc"] }],
+    });
+    const selected = result.filePaths[0];
+    return result.canceled || !selected ? undefined : themeGalleryService.importVsCodeTheme(selected);
+  });
+  handleMainFrameIpc(desktopIpc.removeThemePalette, async (_event, themeId: string) => {
+    if (!themeGalleryService) throw new Error("Theme gallery is unavailable.");
+    const snapshot = await themeGalleryService.remove(themeId);
+    await syncEmbeddedVSCodePalette(snapshot.selectedThemeId);
+    return snapshot;
+  });
+  handleMainFrameIpc(desktopIpc.searchOpenVsxThemes, async (_event, query: string) => {
+    if (!themeGalleryService) throw new Error("Theme gallery is unavailable.");
+    return themeGalleryService.searchOpenVsx(query);
+  });
+  handleMainFrameIpc(desktopIpc.installOpenVsxTheme, async (_event, namespace: string, name: string, version: string) => {
+    if (!themeGalleryService) throw new Error("Theme gallery is unavailable.");
+    return themeGalleryService.installOpenVsx(namespace, name, version);
+  });
+  handleMainFrameIpc(desktopIpc.getLoopbackRemoteSnapshot, async () => {
+    if (!loopbackRemoteService) throw new Error("Loopback remote prototype is unavailable.");
+    return loopbackRemoteService.snapshot();
+  });
+  handleMainFrameIpc(desktopIpc.launchLoopbackRemote, async (_event, workspaceId: string) => {
+    if (!loopbackRemoteService) throw new Error("Loopback remote prototype is unavailable.");
     const workspacePath = store.getWorkspacePath(workspaceId);
-    if (!workspacePath) {
-      throw new Error(`Unknown workspace: ${workspaceId}`);
-    }
-    return createPullRequest(workspacePath, input);
+    if (!workspacePath) throw new Error("Workspace was not found.");
+    return loopbackRemoteService.launch(workspacePath);
+  });
+  handleMainFrameIpc(desktopIpc.probeLoopbackRemote, async (_event, relativePath?: string) => {
+    if (!loopbackRemoteService) throw new Error("Loopback remote prototype is unavailable.");
+    return loopbackRemoteService.probe(typeof relativePath === "string" ? relativePath.slice(0, 1_000) : ".");
+  });
+  handleMainFrameIpc(desktopIpc.shutdownLoopbackRemote, async () => {
+    if (!loopbackRemoteService) throw new Error("Loopback remote prototype is unavailable.");
+    return loopbackRemoteService.shutdown();
   });
   handleMainFrameIpc(desktopIpc.createReviewSnapshot, async (_event, workspaceId: string, options?: CreateReviewSnapshotOptions) => {
     const workspacePath = store.getWorkspacePath(workspaceId);
@@ -1931,11 +2497,18 @@ void app.whenReady().then(async () => {
     window.maximize();
   });
 
+  recordStartupStage("window:create");
   mainWindow = createWindow();
+  recordStartupStage("window:created");
+  resourceInspectorService.start();
   stopMemoryMonitor = startMemoryMonitor({
     userDataDir: configuredUserDataDir,
     getWindow: () => mainWindow,
     getStoreSnapshot: () => store.getMemoryMonitorSnapshot(),
+  });
+  stopMemoryPressureGuard = startMemoryPressureGuard({
+    getWindow: () => mainWindow,
+    onPressure: (level) => store.relieveMemoryPressure(level),
   });
   notificationManager.trackWindow(mainWindow);
   notificationPermissionService.trackWindow(mainWindow);
@@ -1958,6 +2531,7 @@ void app.whenReady().then(async () => {
 });
 
 app.on("window-all-closed", () => {
+  killAllVSCodeServers();
   if (process.platform !== "darwin") {
     stopNotifications?.();
     stopNotifications = undefined;
@@ -1972,6 +2546,18 @@ app.on("window-all-closed", () => {
     stopPruningTerminals = undefined;
     stopMemoryMonitor?.();
     stopMemoryMonitor = undefined;
+    stopMemoryPressureGuard?.();
+    stopMemoryPressureGuard = undefined;
+    resourceInspectorService?.dispose();
+    resourceInspectorService = undefined;
+    sourceControlService?.dispose();
+    sourceControlService = undefined;
+    usageIndexService = undefined;
+    projectActionStore = undefined;
+    promptShelfStore = undefined;
+    themeGalleryService = undefined;
+    loopbackRemoteService?.dispose();
+    loopbackRemoteService = undefined;
     subagentRunsStore?.dispose();
     subagentRunsStore = undefined;
     subagentAuditAdapter?.dispose();
@@ -1997,6 +2583,18 @@ app.on("before-quit", (event) => {
   stopPruningTerminals = undefined;
   stopMemoryMonitor?.();
   stopMemoryMonitor = undefined;
+  stopMemoryPressureGuard?.();
+  stopMemoryPressureGuard = undefined;
+  resourceInspectorService?.dispose();
+  resourceInspectorService = undefined;
+  sourceControlService?.dispose();
+  sourceControlService = undefined;
+  usageIndexService = undefined;
+  projectActionStore = undefined;
+  promptShelfStore = undefined;
+  themeGalleryService = undefined;
+  loopbackRemoteService?.dispose();
+  loopbackRemoteService = undefined;
   subagentRunsStore?.dispose();
   subagentRunsStore = undefined;
   subagentAuditAdapter?.dispose();
@@ -2011,7 +2609,7 @@ app.on("before-quit", (event) => {
 
   event.preventDefault();
   quittingAfterStoreFlush = true;
-  void Promise.all([
+  void flushBeforeQuit([
     store.flushPersistence(),
     taskEvidenceLedger?.flush() ?? Promise.resolve(),
     executionBoundaryStore?.flush() ?? Promise.resolve(),
@@ -2038,6 +2636,35 @@ function resolveInitialWorkspacePaths(): readonly string[] {
   }
 
   return [];
+}
+
+async function pruneArtifactSnapshots(snapshotDir: string, protectedPath: string): Promise<void> {
+  const names = await readdir(snapshotDir).catch(() => []);
+  const entries = (await Promise.all(names.map(async (name) => {
+    const filePath = path.join(snapshotDir, name);
+    const metadata = await stat(filePath).catch(() => undefined);
+    return metadata?.isFile()
+      ? { filePath, size: metadata.size, modifiedAt: metadata.mtimeMs }
+      : undefined;
+  })))
+    .filter((entry): entry is { filePath: string; size: number; modifiedAt: number } => Boolean(entry))
+    .sort((left, right) => right.modifiedAt - left.modifiedAt);
+  let retainedBytes = 0;
+  let retainedCount = 0;
+  for (const entry of entries) {
+    const keep = entry.filePath === protectedPath || (
+      retainedCount < MAX_ARTIFACT_SNAPSHOTS_PER_WORKSPACE
+      && retainedBytes + entry.size <= MAX_ARTIFACT_SNAPSHOT_TOTAL_BYTES
+    );
+    if (keep) {
+      retainedCount += 1;
+      retainedBytes += entry.size;
+      continue;
+    }
+    await unlink(entry.filePath).catch((error) =>
+      logIgnoredError("artifact-snapshot.retention", error),
+    );
+  }
 }
 
 function resolvePathInsideWorkspace(workspacePath: string, filePath: string): string {
@@ -2089,7 +2716,12 @@ async function readComposerAttachment(filePath: string): Promise<ComposerAttachm
 }
 
 async function readComposerImageAttachment(filePath: string, mimeType: string): Promise<ComposerImageAttachment> {
+  const stats = await stat(filePath);
+  if (!stats.isFile() || stats.size > MAX_COMPOSER_IMAGE_BYTES) {
+    throw new Error("Images must be 10 MB or smaller.");
+  }
   const buffer = await readFile(filePath);
+  validateDecodedComposerImage(buffer);
   return {
     id: randomUUID(),
     kind: "image",
@@ -2112,9 +2744,18 @@ function mimeTypeForPath(filePath: string): string {
 
 function validateComposerAttachmentPayload(attachment: ComposerAttachment): ComposerAttachment[] {
   if (attachment.kind === "image") {
-    if (typeof attachment.data !== "string" || typeof attachment.mimeType !== "string" || !SUPPORTED_IMAGE_MIME_TYPES.has(attachment.mimeType)) {
+    const encodedBytes = typeof attachment.data === "string"
+      ? approximateBase64Bytes(attachment.data)
+      : Number.POSITIVE_INFINITY;
+    if (
+      typeof attachment.data !== "string"
+      || typeof attachment.mimeType !== "string"
+      || !SUPPORTED_IMAGE_MIME_TYPES.has(attachment.mimeType)
+      || encodedBytes > MAX_COMPOSER_IMAGE_BYTES
+    ) {
       return [];
     }
+    validateDecodedComposerImage(Buffer.from(attachment.data, "base64"));
     return [
       {
         ...attachment,
@@ -2150,6 +2791,40 @@ function validateComposerAttachmentPayload(attachment: ComposerAttachment): Comp
     return [];
   }
   return [normalized];
+}
+
+function validateDecodedComposerImage(buffer: Buffer): void {
+  const image = nativeImage.createFromBuffer(buffer);
+  if (image.isEmpty()) {
+    throw new Error("The selected image could not be decoded.");
+  }
+  const size = image.getSize();
+  if (size.width > MAX_COMPOSER_IMAGE_DIMENSION || size.height > MAX_COMPOSER_IMAGE_DIMENSION) {
+    throw new Error(`Images must be ${MAX_COMPOSER_IMAGE_DIMENSION.toLocaleString()} pixels or smaller per side.`);
+  }
+}
+
+function validateComposerAttachmentsPayload(
+  attachments: readonly ComposerAttachment[],
+): ComposerAttachment[] {
+  if (!Array.isArray(attachments)) {
+    throw new Error("Attachments must be an array.");
+  }
+  const validated: ComposerAttachment[] = [];
+  for (const attachment of attachments) {
+    const candidate = validateComposerAttachmentPayload(attachment)[0];
+    if (!candidate) {
+      throw new Error("An attachment is invalid or unsupported.");
+    }
+    validated.push(candidate);
+  }
+  validateComposerAttachmentLimits(validated);
+  return validated;
+}
+
+function approximateBase64Bytes(value: string): number {
+  const padding = value.endsWith("==") ? 2 : value.endsWith("=") ? 1 : 0;
+  return Math.max(0, Math.floor((value.length * 3) / 4) - padding);
 }
 
 function createRuntimeLoginCallbacks() {

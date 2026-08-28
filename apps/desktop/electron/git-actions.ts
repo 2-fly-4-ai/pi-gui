@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { redactSourceControlOutput } from "./source-control-service";
 
 const execFileAsync = promisify(execFile);
 
@@ -53,7 +54,9 @@ async function runCommand(command: string, args: readonly string[], cwd: string)
     return await execFileAsync(command, [...args], {
       cwd,
       encoding: "utf8",
-      maxBuffer: 10 * 1024 * 1024,
+      maxBuffer: 4 * 1024 * 1024,
+      timeout: 60_000,
+      killSignal: "SIGTERM",
     });
   } catch (error) {
     const code = typeof error === "object" && error && "code" in error ? String(error.code) : "";
@@ -67,6 +70,6 @@ async function runCommand(command: string, args: readonly string[], cwd: string)
       ? error.stdout.trim()
       : "";
     const message = stderr || stdout || (error instanceof Error ? error.message : String(error));
-    throw new Error(message);
+    throw new Error(redactSourceControlOutput(message));
   }
 }

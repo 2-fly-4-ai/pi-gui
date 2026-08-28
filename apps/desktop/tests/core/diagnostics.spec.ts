@@ -39,6 +39,19 @@ test("persists renderer diagnostics to the desktop log", async () => {
       )
       .toContain("playwright-renderer-diagnostic");
 
+    await expect
+      .poll(
+        async () => {
+          try {
+            return await readFile(logPath, "utf8");
+          } catch {
+            return "";
+          }
+        },
+        { timeout: 10_000 },
+      )
+      .toContain("playwright console diagnostic smoke test");
+
     const log = await readFile(logPath, "utf8");
     expect(log).toContain("renderer diagnostic smoke test");
     expect(log).toContain("playwright.diagnostics-smoke");

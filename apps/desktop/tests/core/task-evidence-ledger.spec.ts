@@ -13,6 +13,8 @@ import {
   waitForWorkspaceByPath,
 } from "../helpers/electron-app";
 
+const evidenceEpoch = Date.now() - 120_000;
+
 test("publishes narrow evidence deltas and rehydrates evidence after relaunch", async () => {
   test.setTimeout(90_000);
   const userDataDir = await makeUserDataDir();
@@ -42,7 +44,7 @@ test("publishes narrow evidence deltas and rehydrates evidence after relaunch", 
       type: "sessionUpdated",
       sessionRef,
       runId: "evidence-run-1",
-      timestamp: "2026-07-24T11:59:59.000Z",
+      timestamp: timestamp(-1_000),
       snapshot: {
         ref: sessionRef,
         workspace: {
@@ -53,7 +55,7 @@ test("publishes narrow evidence deltas and rehydrates evidence after relaunch", 
         title: selectedSession?.title ?? "Evidence persistence",
         status: "running",
         runningRunId: "evidence-run-1",
-        updatedAt: "2026-07-24T11:59:59.000Z",
+        updatedAt: timestamp(-1_000),
       },
     } satisfies Extract<SessionDriverEvent, { type: "sessionUpdated" }>);
 
@@ -67,7 +69,7 @@ test("publishes narrow evidence deltas and rehydrates evidence after relaunch", 
       type: "toolStarted",
       sessionRef,
       runId: "evidence-run-1",
-      timestamp: "2026-07-24T12:00:00.000Z",
+      timestamp: timestamp(0),
       toolName: "exec_command",
       callId: "evidence-call-1",
       input: { cmd: "pnpm exec vitest run src/example.test.ts" },
@@ -108,7 +110,7 @@ test("publishes narrow evidence deltas and rehydrates evidence after relaunch", 
       type: "toolStarted",
       sessionRef,
       runId: "evidence-run-1",
-      timestamp: "2026-07-24T12:00:00.050Z",
+      timestamp: timestamp(50),
       toolName: "read",
       callId: "evidence-read-1",
       input: { file_path: join(workspacePath, "src/example.test.ts") },
@@ -129,7 +131,7 @@ test("publishes narrow evidence deltas and rehydrates evidence after relaunch", 
       type: "toolFinished",
       sessionRef,
       runId: "evidence-run-1",
-      timestamp: "2026-07-24T12:00:00.100Z",
+      timestamp: timestamp(100),
       callId: "evidence-read-1",
       success: true,
     } satisfies Extract<SessionDriverEvent, { type: "toolFinished" }>);
@@ -139,7 +141,7 @@ test("publishes narrow evidence deltas and rehydrates evidence after relaunch", 
       type: "toolFinished",
       sessionRef,
       runId: "evidence-run-1",
-      timestamp: "2026-07-24T12:00:04.000Z",
+      timestamp: timestamp(4_000),
       callId: "evidence-call-1",
       success: true,
       output: { exitCode: 0, stdout: "raw output remains outside evidence" },
@@ -148,7 +150,7 @@ test("publishes narrow evidence deltas and rehydrates evidence after relaunch", 
       type: "toolStarted",
       sessionRef,
       runId: "evidence-run-1",
-      timestamp: "2026-07-24T12:00:04.100Z",
+      timestamp: timestamp(4_100),
       toolName: "edit",
       callId: "evidence-write-1",
       input: { file_path: join(workspacePath, "src/example.test.ts") },
@@ -158,7 +160,7 @@ test("publishes narrow evidence deltas and rehydrates evidence after relaunch", 
       type: "toolFinished",
       sessionRef,
       runId: "evidence-run-1",
-      timestamp: "2026-07-24T12:00:04.500Z",
+      timestamp: timestamp(4_500),
       callId: "evidence-write-1",
       success: true,
     } satisfies Extract<SessionDriverEvent, { type: "toolFinished" }>);
@@ -166,7 +168,7 @@ test("publishes narrow evidence deltas and rehydrates evidence after relaunch", 
       type: "runCompleted",
       sessionRef,
       runId: "evidence-run-1",
-      timestamp: "2026-07-24T12:00:05.000Z",
+      timestamp: timestamp(5_000),
       snapshot: {
         ref: sessionRef,
         workspace: {
@@ -176,16 +178,14 @@ test("publishes narrow evidence deltas and rehydrates evidence after relaunch", 
         },
         title: selectedSession?.title ?? "Evidence persistence",
         status: "idle",
-        updatedAt: "2026-07-24T12:00:05.000Z",
+        updatedAt: timestamp(5_000),
         preview: "Observed completion",
       },
     } satisfies Extract<SessionDriverEvent, { type: "runCompleted" }>);
     await expect(window.getByTestId("completion-card")).toContainText("Run completed");
     await expect(window.getByTestId("task-evidence-surface")).toHaveAttribute("data-product-state", "success");
     await expect(window.getByTestId("task-evidence-surface")).toHaveClass(/task-evidence-surface--success-moment/);
-    await expect.poll(() => window.locator(".product-state-accent img").evaluate(
-      (image) => image instanceof HTMLImageElement ? image.naturalWidth : 0,
-    )).toBeGreaterThan(40);
+    await expect(window.locator(".product-state-accent")).toHaveCount(0);
     await window.getByTestId("completion-card").locator(".completion-card__details > summary").click();
     await expect(window.getByTestId("completion-card")).toContainText("1 verification scopes passed");
     await expect(window.getByTestId("completion-card")).toContainText("6s elapsed");
@@ -242,17 +242,43 @@ test("publishes narrow evidence deltas and rehydrates evidence after relaunch", 
         correlation: { toolCallId: "evidence-call-1", commandId: "evidence-call-1" },
       }),
     ]));
-    const resume = window.getByTestId("resume-card");
-    await expect(resume).toContainText("Observed state since this thread was last active");
-    await expect(resume).toContainText("Current checkout state was rechecked safely");
-    await expect(resume).toContainText("Remaining plan items unavailable");
-    await resume.getByRole("button", { name: "Inspect context" }).click();
-    await expect(window.getByTestId("context-inspector")).toBeVisible();
-    await window.getByRole("button", { name: "Close context inspector" }).click();
-    await resume.getByRole("button", { name: "Dismiss resume card for this session" }).click();
-    await expect(resume).toHaveCount(0);
-    await expect(window.getByTestId("completion-card")).toContainText("Run completed");
+    await expect(window.getByTestId("recovery-strip")).toHaveCount(0);
+    await expect(window.getByText(/currently dirty path/)).toHaveCount(0);
+    await expect(window.locator(".product-state-accent")).toHaveCount(0);
+
+    await emitTestSessionEvent(relaunched, {
+      type: "runFailed",
+      sessionRef: { workspaceId, sessionId },
+      runId: "evidence-recovery-run",
+      timestamp: timestamp(60_000),
+      error: { message: "Observed recovery test failure", code: "COMMAND_FAILED" },
+    } satisfies Extract<SessionDriverEvent, { type: "runFailed" }>);
+    const recovery = window.getByTestId("recovery-strip");
+    await expect(recovery).toContainText("Run failed");
+    await expect(recovery).toContainText("latest run failed before it could finish");
+    await expect(recovery.getByRole("button", { name: "Review task changes" })).toHaveCount(0);
+    await expect.poll(async () => Math.round((await recovery.boundingBox())?.height ?? 0)).toBeLessThanOrEqual(52);
+    await recovery.getByRole("button", { name: "Draft recovery" }).click();
+    await expect(window.getByTestId("composer")).toHaveValue(/Inspect the latest observed failure/);
+    await recovery.getByRole("button", { name: "Dismiss recovery for this run" }).click();
+    await expect(recovery).toHaveCount(0);
   } finally {
     await relaunched.close();
   }
+
+  const dismissedRelaunch = await launchDesktop(userDataDir, {
+    initialWorkspaces: [workspacePath],
+    testMode: "background",
+  });
+  try {
+    const window = await dismissedRelaunch.firstWindow();
+    await waitForWorkspaceByPath(window, workspacePath);
+    await expect(window.getByTestId("recovery-strip")).toHaveCount(0);
+  } finally {
+    await dismissedRelaunch.close();
+  }
 });
+
+function timestamp(offsetMs: number): string {
+  return new Date(evidenceEpoch + offsetMs).toISOString();
+}

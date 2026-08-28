@@ -1,6 +1,6 @@
 import { app, crashReporter, type BrowserWindow, type IpcMainEvent } from "electron";
 import type { Dirent } from "node:fs";
-import { appendFile, mkdir, readdir, stat } from "node:fs/promises";
+import { appendFile, mkdir, readdir, rename, rm, stat } from "node:fs/promises";
 import path from "node:path";
 import type { RendererDiagnosticPayload } from "../src/ipc";
 
@@ -8,10 +8,13 @@ const MAX_LOG_FIELD_LENGTH = 8_000;
 const MAX_LOG_LINE_LENGTH = 32_000;
 const MAX_CRASH_REPORT_ARTIFACTS = 20;
 const MAX_CRASH_REPORT_SCAN_DEPTH = 3;
+const MAX_DESKTOP_LOG_BYTES = 10 * 1024 * 1024;
+const MAX_DESKTOP_LOG_ARCHIVES = 3;
 
 let userDataDir = "";
 let registeredProcessDiagnostics = false;
 let nativeCrashReporterStarted = false;
+let diagnosticWriteQueue: Promise<void> = Promise.resolve();
 
 export interface NativeCrashReportArtifact {
   readonly id: string;
@@ -66,18 +69,32 @@ export function attachWindowDiagnostics(window: BrowserWindow): void {
     void logDesktopDiagnostic("renderer-did-finish-load", base());
   });
 
-  webContents.on("console-message", (_event, level, message, line, sourceId) => {
+  webContents.on("console-message", (details) => {
+    const level = consoleMessageLevel(details.level);
     if (level < 2) {
       return;
     }
     void logDesktopDiagnostic("renderer-console-message", {
       ...base(),
       level,
-      message,
-      line,
-      sourceId,
+      message: details.message,
+      line: details.lineNumber,
+      sourceId: details.sourceId,
     });
   });
+}
+
+function consoleMessageLevel(level: "debug" | "info" | "warning" | "error"): number {
+  switch (level) {
+    case "error":
+      return 3;
+    case "warning":
+      return 2;
+    case "info":
+      return 1;
+    default:
+      return 0;
+  }
 }
 
 export function registerProcessDiagnostics(): void {
@@ -152,12 +169,19 @@ export function reportRendererDiagnostic(event: IpcMainEvent, payload: RendererD
 
 export async function logDesktopDiagnostic(event: string, payload: unknown): Promise<void> {
   const logPath = getDesktopLogPath();
-  try {
-    await mkdir(path.dirname(logPath), { recursive: true });
-    await appendFile(logPath, formatDiagnosticLine(event, payload), "utf8");
-  } catch (error) {
-    console.error("[desktop-diagnostics] failed to write diagnostic log", error);
-  }
+  const line = formatDiagnosticLine(event, payload);
+  const next = diagnosticWriteQueue
+    .catch(() => undefined)
+    .then(async () => {
+      await mkdir(path.dirname(logPath), { recursive: true });
+      await rotateDesktopLogIfNeeded(logPath, Buffer.byteLength(line, "utf8"));
+      await appendFile(logPath, line, "utf8");
+    })
+    .catch((error) => {
+      console.error("[desktop-diagnostics] failed to write diagnostic log", error);
+    });
+  diagnosticWriteQueue = next;
+  await next;
 }
 
 export function logIgnoredError(scope: string, error: unknown): void {
@@ -180,6 +204,18 @@ function formatDiagnosticLine(event: string, payload: unknown): string {
   };
   const line = JSON.stringify(entry);
   return `${line.length > MAX_LOG_LINE_LENGTH ? `${line.slice(0, MAX_LOG_LINE_LENGTH)}…` : line}\n`;
+}
+
+async function rotateDesktopLogIfNeeded(logPath: string, incomingBytes: number): Promise<void> {
+  const current = await stat(logPath).catch(() => undefined);
+  if (!current || current.size + incomingBytes <= MAX_DESKTOP_LOG_BYTES) {
+    return;
+  }
+  await rm(`${logPath}.${MAX_DESKTOP_LOG_ARCHIVES}`, { force: true });
+  for (let index = MAX_DESKTOP_LOG_ARCHIVES - 1; index >= 1; index -= 1) {
+    await rename(`${logPath}.${index}`, `${logPath}.${index + 1}`).catch(() => undefined);
+  }
+  await rename(logPath, `${logPath}.1`).catch(() => undefined);
 }
 
 function sanitizeForLog(value: unknown, depth = 0): unknown {

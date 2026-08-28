@@ -4,6 +4,7 @@ import {
   clickSession,
   createNamedThread,
   emitTestSessionEvent,
+  getRealAuthConfig,
   getDesktopState,
   getSelectedTranscript,
   launchDesktop,
@@ -196,11 +197,15 @@ test("runs two sessions in parallel without sidebar status bleed", async () => {
 
 test("switches threads promptly while sessions are already running", async () => {
   test.setTimeout(180_000);
+  const realAuth = getRealAuthConfig();
+  test.skip(!realAuth.enabled, realAuth.skipReason);
   const userDataDir = await makeUserDataDir();
   const workspacePath = await makeWorkspace("parallel-switch-workspace");
   const harness = await launchDesktop(userDataDir, {
     initialWorkspaces: [workspacePath],
     testMode: "background",
+    realAuthSourceDir: realAuth.sourceDir,
+    scrubProviderEnv: true,
   });
 
   try {
@@ -209,9 +214,9 @@ test("switches threads promptly while sessions are already running", async () =>
     await createNamedThread(window, "Session B");
 
     const promptA =
-      "Use your bash tool and run `python - <<'PY'\nimport time\nprint(\"A start\")\ntime.sleep(12)\nprint(\"A done\")\nPY` then reply with exactly `A complete`.";
+      "Use your bash tool and run `python - <<'PY'\nimport time\nprint(\"A start\")\ntime.sleep(45)\nprint(\"A done\")\nPY` then reply with exactly `A complete`.";
     const promptB =
-      "Use your bash tool and run `python - <<'PY'\nimport time\nprint(\"B start\")\ntime.sleep(12)\nprint(\"B done\")\nPY` then reply with exactly `B complete`.";
+      "Use your bash tool and run `python - <<'PY'\nimport time\nprint(\"B start\")\ntime.sleep(45)\nprint(\"B done\")\nPY` then reply with exactly `B complete`.";
 
     await selectSessionByTitle(window, "Session A");
     await window.getByTestId("composer").fill(promptA);

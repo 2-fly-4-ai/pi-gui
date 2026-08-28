@@ -1,6 +1,8 @@
 import type { SelectedTranscriptRecord, TranscriptMessage } from "../desktop-state";
 import type { TranscriptResetRequest, TranscriptSyncEvent } from "../ipc";
 
+const MATERIALIZED_TRANSCRIPT_MAX_ROWS = 2_501;
+
 export interface TranscriptMaterializerState {
   readonly workspaceId: string;
   readonly sessionId: string;
@@ -36,7 +38,7 @@ export function createTranscriptMaterializerState(
     workspaceId: record.workspaceId,
     sessionId: record.sessionId,
     sequence,
-    transcript: [...record.transcript],
+    transcript: record.transcript,
     resyncing: false,
   };
 }
@@ -52,7 +54,7 @@ export function applyTranscriptSyncEvent(
         workspaceId: event.workspaceId,
         sessionId: event.sessionId,
         sequence: event.sequence,
-        transcript: [...event.transcript],
+        transcript: event.transcript,
         resyncing: false,
       },
     };
@@ -73,7 +75,11 @@ export function applyTranscriptSyncEvent(
   }
 
   if (event.kind === "append") {
-    return applied(state, event.sequence, [...state.transcript, ...event.items]);
+    return applied(
+      state,
+      event.sequence,
+      boundMaterializedTranscript([...state.transcript, ...event.items]),
+    );
   }
 
   if (event.kind === "update-last") {
@@ -117,6 +123,33 @@ function applied(
       resyncing: false,
     },
   };
+}
+
+function boundMaterializedTranscript(
+  transcript: readonly TranscriptMessage[],
+): readonly TranscriptMessage[] {
+  if (transcript.length <= MATERIALIZED_TRANSCRIPT_MAX_ROWS) {
+    return transcript;
+  }
+  const keep = transcript.slice(-(MATERIALIZED_TRANSCRIPT_MAX_ROWS - 1));
+  const existingMarker = transcript.find((item) =>
+    item.kind === "summary" && item.id.startsWith("__pi-gui-omitted-history__"));
+  const newlyOmitted = transcript.length - keep.length - (existingMarker ? 1 : 0);
+  const previousOmitted = existingMarker
+    ? Number.parseInt(existingMarker.id.split(":").at(-1) ?? "0", 10) || 0
+    : 0;
+  const omitted = previousOmitted + newlyOmitted;
+  return [
+    {
+      kind: "summary",
+      id: `__pi-gui-omitted-history__:${omitted}`,
+      createdAt: keep[0]?.createdAt ?? new Date(0).toISOString(),
+      label: `${omitted.toLocaleString()} earlier timeline item${omitted === 1 ? "" : "s"} hidden to keep this task responsive`,
+      metadata: "The complete history remains stored on disk. Recent activity is loaded automatically.",
+      presentation: "inline",
+    },
+    ...keep.filter((item) => item !== existingMarker),
+  ];
 }
 
 function buildResetRequest(event: TranscriptSyncEvent, expectedSequence: number): TranscriptResetRequest {

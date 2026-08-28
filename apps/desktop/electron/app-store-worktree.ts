@@ -136,6 +136,7 @@ export async function startThread(store: AppStoreInternals, input: StartThreadIn
       refreshWorktrees: input.environment === "worktree",
       activeView: "threads",
     });
+    store.pruneFullTranscriptCache(new Set([key]));
 
     // Fire message in background — assistantDelta events flow through
     // handleSessionEvent → emit() and update React while on the thread view.

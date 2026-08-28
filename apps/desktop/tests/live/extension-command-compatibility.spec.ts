@@ -106,6 +106,7 @@ test("fails fast for unsupported handoff-like commands and learns terminal-only 
           (await getSelectedTranscript(window))?.transcript.length ?? 0,
       )
       .toBe(transcriptCountBeforeSecondAttempt);
+    await expect(composer).toHaveValue("/handoff-gui-test local block");
 
     await composer.fill("/prefill-safe ");
     await composer.press("Enter");

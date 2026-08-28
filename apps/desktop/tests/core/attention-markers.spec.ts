@@ -9,6 +9,8 @@ import {
   makeWorkspace,
 } from "../helpers/electron-app";
 
+const evidenceEpoch = Date.now() - 60_000;
+
 test("attention markers navigate structured evidence and survive compaction and relaunch", async () => {
   test.setTimeout(90_000);
   const userDataDir = await makeUserDataDir();
@@ -68,26 +70,31 @@ test("attention markers navigate structured evidence and survive compaction and 
 
     const nav = window.getByTestId("timeline-attention-nav");
     await expect(nav).toBeVisible();
-    await expect(nav).toContainText("Direction");
+    await expect(nav).toContainText("Completed");
     const countText = await nav.locator(".timeline-attention-nav__current span").textContent();
     const markerCount = Number(countText?.match(/of\s+(\d+)/)?.[1] ?? 0);
-    expect(markerCount).toBeGreaterThanOrEqual(7);
+    expect(markerCount).toBe(1);
 
     const group = window.getByTestId("timeline-semantic-group");
     await expect(group).toHaveCount(1);
     const groupRow = group.locator("xpath=ancestor::*[@data-timeline-row-id][1]");
     await expect(groupRow).toHaveAttribute("data-attention-types", /milestone/);
+    const completionRow = window.locator(".timeline-summary")
+      .filter({ hasText: /Worked for|Completed/ })
+      .locator("xpath=ancestor::*[@data-timeline-row-id][1]");
 
-    await nav.getByRole("button", { name: "Next attention marker" }).click();
-    await expect(nav).toContainText("Milestone");
-    await expect(groupRow).toHaveClass(/timeline-attention-target/);
-    await expect(groupRow).toHaveCSS("outline-style", "none");
-    expect(await groupRow.evaluate((element) => getComputedStyle(element).boxShadow)).toContain("inset");
+    await nav.getByRole("button", { name: "Next completed run" }).click();
+    await expect(completionRow).toHaveClass(/timeline-attention-target/);
+    await expect(completionRow).toHaveCSS("outline-style", "none");
+    expect(await completionRow.evaluate((element) => getComputedStyle(element).boxShadow)).toContain("inset");
+    await expect(
+      window.locator(".timeline-item--user").locator("xpath=ancestor::*[@data-timeline-row-id][1]"),
+    ).not.toHaveClass(/timeline-attention-target/);
 
     await window.keyboard.press("Alt+ArrowDown");
-    await expect(nav.locator(".timeline-attention-nav__current span")).toContainText("3 of");
+    await expect(completionRow).toHaveClass(/timeline-attention-target/);
     await window.keyboard.press("Alt+ArrowUp");
-    await expect(nav.locator(".timeline-attention-nav__current span")).toContainText("2 of");
+    await expect(completionRow).toHaveClass(/timeline-attention-target/);
 
     await harness.close();
     harness = await launchDesktop(userDataDir, {
@@ -132,5 +139,5 @@ function testToolEvent(
 }
 
 function timestamp(offsetMs: number): string {
-  return new Date(Date.UTC(2026, 6, 24, 0, 0, 0, offsetMs)).toISOString();
+  return new Date(evidenceEpoch + offsetMs).toISOString();
 }

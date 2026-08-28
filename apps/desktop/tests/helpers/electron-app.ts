@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import type { ChildProcess } from "node:child_process";
 import { copyFile, cp, mkdir, mkdtemp, readFile, readdir, realpath, rename, writeFile } from "node:fs/promises";
 import { basename, delimiter, dirname, extname, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
@@ -14,6 +15,7 @@ import type {
   SessionRecord,
   WorkspaceRecord,
 } from "../../src/desktop-state";
+import { flushBeforeQuit } from "../../electron/quit-persistence";
 
 const desktopDir = resolve(__dirname, "..", "..");
 const packagedReleaseDir = join(desktopDir, "release");
@@ -35,7 +37,7 @@ const PROVIDER_ENV_VARS = [
   "DEEPSEEK_API_KEY",
 ] as const;
 export const TINY_PNG_BASE64 =
-  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO7ZfXQAAAAASUVORK5CYII=";
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
 
 export type PiAppWindow = Window & { piApp?: PiDesktopApi };
 export type DesktopTestMode = "foreground" | "background";
@@ -46,6 +48,27 @@ export interface DesktopHarness {
   firstWindow(): Promise<Page>;
   focusWindow(): Promise<void>;
   close(): Promise<void>;
+}
+
+interface ElectronStartupDiagnostics {
+  readonly appReady: boolean;
+  readonly windowCount: number;
+  readonly processUptimeSeconds: number;
+  readonly startup?: {
+    readonly stage?: string;
+    readonly stageStartedAt?: number;
+    readonly stageHistory?: readonly { readonly stage: string; readonly at: number }[];
+    readonly hasSingleInstanceLock?: boolean;
+  };
+}
+
+class ElectronWindowStartupError extends Error {
+  constructor(
+    readonly diagnostics: ElectronStartupDiagnostics | { readonly diagnosticError: string },
+    cause: unknown,
+  ) {
+    super(`Electron did not create its first window. Startup diagnostics: ${JSON.stringify(diagnostics)}`, { cause });
+  }
 }
 
 export async function toggleTopbarPanel(
@@ -94,6 +117,21 @@ export interface AppDiagnosticsSnapshot {
   readonly displayModeLegacyProjectionBuilds: number;
   readonly fullTranscriptCacheEntries: number;
   readonly fullTranscriptCacheBytes: number;
+  readonly activeTranscriptTailEntries: number;
+  readonly activeTranscriptTailBytes: number;
+  readonly sessionSubscriptionCount: number;
+  readonly residentSessionRuntimeCount: number;
+  readonly managedSessionCount: number;
+  readonly runningSessionRuntimeCount: number;
+  readonly residentWorkspaceRuntimeCount: number;
+  readonly dormantSessionEvictions: number;
+  readonly memoryPressureWarningCount: number;
+  readonly memoryPressureCriticalCount: number;
+  readonly driverEventsReceived: number;
+  readonly driverEventsEmitted: number;
+  readonly driverEventsCoalesced: number;
+  readonly maxDriverEventsPending: number;
+  readonly currentDriverEventsPending: number;
 }
 
 export interface DisplayModeScaleFixture {
@@ -156,13 +194,11 @@ export async function launchDesktop(
   const normalized = Array.isArray(options) ? { initialWorkspaces: options } : options;
   const agentDir = await prepareAgentDir(userDataDir, normalized);
   const env = buildDesktopLaunchEnv(userDataDir, agentDir, normalized);
-  const electronApp = await electron.launch({
+  return launchDesktopHarnessWithReadyRetry(() => electron.launch({
     args: [desktopDir],
     cwd: desktopDir,
     env,
-  });
-
-  return createDesktopHarness(electronApp);
+  }));
 }
 
 export async function launchPackagedDesktop(
@@ -192,14 +228,40 @@ async function launchDesktopExecutable(
   executablePath: string,
   env: NodeJS.ProcessEnv,
 ): Promise<DesktopHarness> {
-  const electronApp = await electron.launch({
+  return launchDesktopHarnessWithReadyRetry(() => electron.launch({
     executablePath,
     args: [],
     cwd: dirname(executablePath),
     env,
-  });
+  }));
+}
 
-  return createDesktopHarness(electronApp);
+async function launchDesktopHarnessWithReadyRetry(
+  launch: () => Promise<ElectronApplication>,
+): Promise<DesktopHarness> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const harness = createDesktopHarness(await launch());
+    try {
+      await harness.firstWindow();
+      return harness;
+    } catch (error) {
+      lastError = error;
+      const runtimeStalledBeforeAppReady = error instanceof ElectronWindowStartupError
+        && "appReady" in error.diagnostics
+        && !error.diagnostics.appReady
+        && error.diagnostics.windowCount === 0;
+      if (runtimeStalledBeforeAppReady) {
+        const process = harness.electronApp.process();
+        if (!hasChildExited(process)) process.kill("SIGKILL");
+        await waitForChildExit(process, 5_000).catch(() => undefined);
+      } else {
+        await harness.close().catch(() => undefined);
+      }
+      if (!runtimeStalledBeforeAppReady || attempt > 0) throw error;
+    }
+  }
+  throw lastError;
 }
 
 function createDesktopHarness(electronApp: ElectronApplication): DesktopHarness {
@@ -207,7 +269,27 @@ function createDesktopHarness(electronApp: ElectronApplication): DesktopHarness 
 
   async function getWindow(): Promise<Page> {
     if (!page) {
-      page = await electronApp.firstWindow();
+      try {
+        page = await electronApp.firstWindow();
+      } catch (error) {
+        const diagnostics = await electronApp.evaluate(({ app, BrowserWindow }) => {
+          const startup = (globalThis as {
+            __PI_APP_STARTUP_DIAGNOSTICS?: {
+              readonly stage?: string;
+              readonly stageStartedAt?: number;
+              readonly stageHistory?: readonly { readonly stage: string; readonly at: number }[];
+              readonly hasSingleInstanceLock?: boolean;
+            };
+          }).__PI_APP_STARTUP_DIAGNOSTICS;
+          return {
+            appReady: app.isReady(),
+            windowCount: BrowserWindow.getAllWindows().length,
+            processUptimeSeconds: Math.round(process.uptime()),
+            startup,
+          };
+        }).catch((diagnosticError) => ({ diagnosticError: String(diagnosticError) }));
+        throw new ElectronWindowStartupError(diagnostics, error);
+      }
       await page.waitForLoadState("domcontentloaded");
       await page.waitForFunction(() => Boolean((window as PiAppWindow).piApp), undefined, {
         timeout: 15_000,
@@ -240,15 +322,49 @@ function createDesktopHarness(electronApp: ElectronApplication): DesktopHarness 
         .toBe(true);
     },
     close: async () => {
-      await electronApp.evaluate(async () => {
+      const process = electronApp.process();
+      const testFlush = electronApp.evaluate(async () => {
         const hooks = (globalThis as {
           __PI_APP_TEST_HOOKS?: { flushPersistence?: () => Promise<void> };
         }).__PI_APP_TEST_HOOKS;
         await hooks?.flushPersistence?.();
       });
-      await electronApp.close();
+      // A deliberately adversarial test event can strand the store's event
+      // chain. Give it a bounded best-effort flush, then exercise the same
+      // bounded application shutdown used in production.
+      await flushBeforeQuit([testFlush], 5_000).catch(() => undefined);
+      const close = electronApp.close();
+      await flushBeforeQuit([close], 15_000).catch(() => {
+        if (!hasChildExited(process)) process.kill("SIGKILL");
+      });
+      // `ElectronApplication.close()` can reject or time out before the OS has
+      // reaped the child. Returning while that process still owns the
+      // single-instance lock makes an immediate relaunch exit without ever
+      // creating a BrowserWindow. Always observe the real child exit before
+      // handing control back to restart-heavy specs.
+      await waitForChildExit(process, 5_000);
     },
   };
+}
+
+function hasChildExited(process: ChildProcess): boolean {
+  return process.exitCode !== null || process.signalCode !== null;
+}
+
+async function waitForChildExit(process: ChildProcess, timeoutMs: number): Promise<void> {
+  if (hasChildExited(process)) return;
+
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      new Promise<void>((resolve) => process.once("exit", () => resolve())),
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => reject(new Error(`Electron process did not exit within ${timeoutMs}ms.`)), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
 
 function buildDesktopLaunchEnv(
@@ -582,6 +698,45 @@ export async function seedBranchedTreeSessionFixture(
   });
 }
 
+export async function seedLargeHistorySessionFixture(
+  agentDir: string,
+  workspacePath: string,
+  messageCount = 1_000,
+): Promise<{
+  readonly sessionId: string;
+  readonly title: "Large live history";
+}> {
+  const { SessionManager } = (await import(
+    "../../../../node_modules/@earendil-works/pi-coding-agent/dist/core/session-manager.js"
+  )) as {
+    SessionManager: {
+      create(cwd: string): {
+        appendMessage(message: { role: "user" | "assistant"; content: string; timestamp: number }): string;
+        appendSessionInfo(name: string): string;
+        getSessionId(): string;
+      };
+    };
+  };
+
+  return withAgentDirEnv(agentDir, async () => {
+    const sessionManager = SessionManager.create(workspacePath);
+    const normalizedCount = Math.max(2, Math.floor(messageCount / 2) * 2);
+    const startedAt = Date.now() - normalizedCount * 1_000;
+    for (let index = 0; index < normalizedCount; index += 1) {
+      sessionManager.appendMessage({
+        role: index % 2 === 0 ? "user" : "assistant",
+        content: `Historical context row ${index}.`,
+        timestamp: startedAt + index * 1_000,
+      });
+    }
+    sessionManager.appendSessionInfo("Large live history");
+    return {
+      sessionId: sessionManager.getSessionId(),
+      title: "Large live history",
+    };
+  });
+}
+
 export async function seedCompactedSessionFixture(
   agentDir: string,
   workspacePath: string,
@@ -742,6 +897,48 @@ export async function seedToolResultTreeSessionFixture(
   });
 }
 
+export async function seedUsageSessionFixture(
+  agentDir: string,
+  workspacePath: string,
+): Promise<{ readonly sessionId: string; readonly title: string }> {
+  const { SessionManager } = (await import(
+    "@earendil-works/pi-coding-agent"
+  )) as unknown as {
+    SessionManager: {
+      create(path: string): {
+        appendMessage(message: unknown): string;
+        appendSessionInfo(name: string): string;
+        getSessionId(): string;
+      };
+    };
+  };
+  return withAgentDirEnv(agentDir, async () => {
+    const manager = SessionManager.create(workspacePath);
+    manager.appendMessage({ role: "user", content: "Measure this turn", timestamp: Date.now() - 1_000 });
+    manager.appendMessage({
+      role: "assistant",
+      content: [{ type: "text", text: "Usage recorded." }],
+      api: "anthropic-messages",
+      provider: "anthropic",
+      model: "claude-sonnet-test",
+      usage: {
+        input: 100,
+        output: 40,
+        reasoning: 12,
+        cacheRead: 80,
+        cacheWrite: 5,
+        totalTokens: 225,
+        cost: { input: 0.001, output: 0.002, cacheRead: 0.0001, cacheWrite: 0.0002, total: 0.0033 },
+      },
+      stopReason: "stop",
+      timestamp: Date.now(),
+    });
+    const title = "Usage dashboard fixture";
+    manager.appendSessionInfo(title);
+    return { sessionId: manager.getSessionId(), title };
+  });
+}
+
 async function withAgentDirEnv<T>(agentDir: string, action: () => Promise<T>): Promise<T> {
   const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
   process.env.PI_CODING_AGENT_DIR = agentDir;
@@ -854,6 +1051,23 @@ export async function dropFilesOnComposer(
 ): Promise<void> {
   const files = await Promise.all(filePaths.map(loadComposerDragFile));
   await dispatchComposerDragEvent(window, "drop", files, composerSurfaceTestId);
+}
+
+export async function leaveComposerDrag(
+  window: Page,
+  composerSurfaceTestId = "composer-surface",
+): Promise<void> {
+  await window.evaluate((surfaceTestId) => {
+    const surface = document.querySelector<HTMLElement>(`[data-testid='${surfaceTestId}']`);
+    if (!surface) {
+      throw new Error(`Composer surface was unavailable for test id: ${surfaceTestId}`);
+    }
+    surface.dispatchEvent(new DragEvent("dragleave", {
+      bubbles: true,
+      cancelable: true,
+      relatedTarget: null,
+    }));
+  }, composerSurfaceTestId);
 }
 
 async function dispatchTinyPngPaste(
@@ -1719,6 +1933,7 @@ export async function startThreadViaIpc(
         throw new Error("piApp IPC bridge is unavailable");
       }
       await app.startThread({
+        requestId: crypto.randomUUID(),
         rootWorkspaceId,
         environment: nextEnvironment,
         prompt: nextPrompt,

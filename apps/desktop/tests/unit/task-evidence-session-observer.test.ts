@@ -144,7 +144,95 @@ describe("TaskEvidenceSessionObserver", () => {
     });
   });
 
-  it("records provider waiting, retry activity, and correlated failure attempts", async () => {
+  it("records one running transition instead of one evidence row per session update", async () => {
+    const { observer, ledger } = await setup();
+    const event = {
+      type: "sessionUpdated",
+      sessionRef,
+      runId: "run-stream",
+      timestamp: "2026-07-30T01:00:00.000Z",
+      snapshot: {
+        ref: sessionRef,
+        workspace: { workspaceId: "workspace-1", path: "/workspace", displayName: "Workspace" },
+        title: "Thread",
+        status: "running",
+        updatedAt: "2026-07-30T01:00:00.000Z",
+        runningRunId: "run-stream",
+      },
+    } satisfies Extract<SessionDriverEvent, { type: "sessionUpdated" }>;
+
+    observer.observe(event);
+    observer.observe({
+      ...event,
+      timestamp: "2026-07-30T01:00:00.100Z",
+    });
+    observer.observe({
+      ...event,
+      timestamp: "2026-07-30T01:00:00.200Z",
+    });
+    observer.observe({
+      type: "assistantThinkingStarted",
+      sessionRef,
+      runId: "run-stream",
+      timestamp: "2026-07-30T01:00:00.300Z",
+    });
+    observer.observe({
+      type: "assistantDelta",
+      sessionRef,
+      runId: "run-stream",
+      timestamp: "2026-07-30T01:00:00.400Z",
+      text: "visible response",
+    });
+    await observer.flush();
+
+    const records = await ledger.query({
+      workspaceId: event.sessionRef.workspaceId,
+      sessionId: event.sessionRef.sessionId,
+      runId: "run-stream",
+      limit: 100,
+    });
+    expect(records.records.filter((record) => record.kind === "activity")).toHaveLength(1);
+    expect(records.records.find((record) => record.kind === "activity")).toMatchObject({
+      summary: "Responding",
+      activity: { type: "working" },
+    });
+  });
+
+  it("rate-limits tool progress and upserts the latest stable progress row", async () => {
+    const { observer, ledger } = await setup();
+    observer.observe({
+      type: "toolStarted",
+      sessionRef,
+      runId: "run-progress",
+      timestamp: "2026-07-30T01:00:00.000Z",
+      toolName: "exec_command",
+      callId: "call-progress",
+      input: { cmd: "pnpm test" },
+    });
+    for (let index = 0; index < 100; index += 1) {
+      observer.observe({
+        type: "toolUpdated",
+        sessionRef,
+        runId: "run-progress",
+        timestamp: new Date(Date.parse("2026-07-30T01:00:00.100Z") + index * 10).toISOString(),
+        callId: "call-progress",
+        text: `progress ${index}`,
+        progress: index / 100,
+      });
+    }
+    await observer.flush();
+
+    const page = await ledger.query({
+      workspaceId: "workspace-1",
+      runId: "run-progress",
+      limit: 100,
+    });
+    const progress = page.records.filter((record) => record.id.includes("progress:tool"));
+    expect(progress).toHaveLength(1);
+    expect(progress[0]?.summary).toBe("progress 50");
+  });
+
+  it("records generic work, retry activity, and correlated failure attempts", async () => {
     const { ledger, observer } = await setup();
     const runningSnapshot = {
       ref: sessionRef,
@@ -187,7 +275,7 @@ describe("TaskEvidenceSessionObserver", () => {
     const activity = await ledger.query({ workspaceId: "workspace-1", kinds: ["activity"] });
     expect(activity.records.map((record) => record.activity?.type)).toEqual([
       "retrying",
-      "waiting-provider",
+      "working",
     ]);
     const errors = await ledger.query({ workspaceId: "workspace-1", kinds: ["error"] });
     expect(errors.records[0]?.error).toMatchObject({
@@ -246,5 +334,35 @@ describe("TaskEvidenceSessionObserver", () => {
       "blocked",
     ]);
     expect(completions.records[0]?.completion?.changedPaths).toEqual(["src/partial.ts"]);
+  });
+});
+
+describe("TaskEvidenceLedger residency", () => {
+  it("evicts persisted idle workspaces by access order", async () => {
+    const userDataDir = await mkdtemp(join(tmpdir(), "pi-gui-ledger-lru-"));
+    tempDirectories.push(userDataDir);
+    const ledger = new TaskEvidenceLedger(userDataDir, {
+      maxResidentWorkspaces: 2,
+      now: () => new Date("2026-07-30T01:00:00.000Z"),
+    });
+    for (let index = 0; index < 3; index += 1) {
+      await ledger.appendMany([{
+        schemaVersion: 1,
+        id: `evidence-${index}`,
+        workspaceId: `workspace-${index}`,
+        sessionId: `session-${index}`,
+        timestamp: "2026-07-30T01:00:00.000Z",
+        kind: "completion",
+        source: "runtime",
+        authority: "runtime-observed",
+        status: "passed",
+        summary: "Done",
+      }]);
+    }
+    await ledger.flush();
+    expect(ledger.getResidentWorkspaceCount()).toBe(2);
+    const restored = await ledger.query({ workspaceId: "workspace-0" });
+    expect(restored.records).toHaveLength(1);
+    expect(ledger.getResidentWorkspaceCount()).toBe(2);
   });
 });

@@ -13,6 +13,9 @@
 @import "./styles/main.css";
 @import "./styles/syntax-highlight.css";
 @import "./styles/review.css";
+@import "./styles/pull-requests.css";
+@import "./styles/usage.css";
+@import "./styles/productivity.css";
 
 :root {
   --focus-ring: color-mix(in srgb, var(--accent) 68%, transparent);

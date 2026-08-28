@@ -1,5 +1,6 @@
 import type { TranscriptMessage } from "./timeline-types";
 import type { DisplayModeSubagentActivity } from "./display-mode-subagent-activity";
+import { projectLatestThinkingPerRun } from "./thinking-trace-projection";
 
 export const DISPLAY_MODE_PROJECTION_MAX_ROWS = 8;
 export const DISPLAY_MODE_PROJECTION_MAX_BYTES = 96 * 1024;
@@ -42,7 +43,10 @@ export function buildDisplayModeThreadProjection(input: {
   readonly showThinking: boolean;
   readonly subagentActivity?: DisplayModeSubagentActivity;
 }): DisplayModeThreadProjection {
-  const eligibleRows = input.transcript.filter((row) =>
+  const visibleTranscript = input.showThinking
+    ? projectLatestThinkingPerRun(input.transcript)
+    : input.transcript;
+  const eligibleRows = visibleTranscript.filter((row) =>
     row.kind !== "runtime-job" && (input.showThinking || row.kind !== "thinking"),
   );
   const sourceRows = eligibleRows.slice(-DISPLAY_MODE_PROJECTION_MAX_ROWS);

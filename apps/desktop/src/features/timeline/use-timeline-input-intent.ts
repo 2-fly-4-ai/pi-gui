@@ -1,5 +1,6 @@
 import { useLayoutEffect, type RefObject } from "react";
 import type { AppView } from "../../desktop-state";
+import { BoundedTimelineScheduler } from "./bounded-timeline-scheduler";
 
 interface UseTimelineInputIntentOptions {
   readonly activeView: AppView | undefined;
@@ -10,6 +11,7 @@ interface UseTimelineInputIntentOptions {
   readonly lastTimelineScrollbarDragAtRef: RefObject<number>;
   readonly lastUserTimelineScrollIntentAtRef: RefObject<number>;
   readonly onExplicitTimelineScrollIntent: () => void;
+  readonly onScrollbarDragEnd: () => void;
   readonly onScrollbarDragStart: () => void;
   readonly preserveBottomOnNextPaneResizeRef: RefObject<boolean>;
   readonly sessionsWithExplicitTimelineScrollRef: RefObject<Set<string>>;
@@ -31,6 +33,7 @@ export function useTimelineInputIntent({
   lastTimelineScrollbarDragAtRef,
   lastUserTimelineScrollIntentAtRef,
   onExplicitTimelineScrollIntent,
+  onScrollbarDragEnd,
   onScrollbarDragStart,
   preserveBottomOnNextPaneResizeRef,
   sessionsWithExplicitTimelineScrollRef,
@@ -47,12 +50,12 @@ export function useTimelineInputIntent({
     if (!pane || activeView !== "threads" || !hasSelectedSession) {
       return undefined;
     }
+    const scheduler = new BoundedTimelineScheduler();
     let scrollbarDragState: {
       readonly startScrollTop: number;
       readonly startY: number;
       readonly trackHeight: number;
     } | null = null;
-
     const markUserScrollIntent = () => {
       userTimelineScrollIntentRef.current = true;
       lastUserTimelineScrollIntentAtRef.current = performance.now();
@@ -82,23 +85,18 @@ export function useTimelineInputIntent({
     };
 
     const dragScrollbar = (clientY: number) => {
-      if (!scrollbarDragState || !timelineScrollbarDragActiveRef.current) {
-        return;
-      }
+      if (!scrollbarDragState || !timelineScrollbarDragActiveRef.current) return;
       const now = performance.now();
       userTimelineScrollIntentRef.current = true;
       lastUserTimelineScrollIntentAtRef.current = now;
       lastExplicitTimelineScrollIntentAtRef.current = now;
-      if (selectedSessionKey) {
-        sessionsWithExplicitTimelineScrollRef.current.add(selectedSessionKey);
-      }
+      if (selectedSessionKey) sessionsWithExplicitTimelineScrollRef.current.add(selectedSessionKey);
       const maxScrollTop = Math.max(0, pane.scrollHeight - pane.clientHeight);
       const deltaY = clientY - scrollbarDragState.startY;
-      const nextScrollTop = Math.min(
+      pane.scrollTop = Math.min(
         maxScrollTop,
         Math.max(0, scrollbarDragState.startScrollTop + deltaY * (maxScrollTop / scrollbarDragState.trackHeight)),
       );
-      pane.scrollTop = nextScrollTop;
       timelineScrollHandlerRef.current();
     };
 
@@ -126,12 +124,12 @@ export function useTimelineInputIntent({
           pane.scrollTop = nextScrollTop;
           timelineScrollHandlerRef.current();
         }
-        window.requestAnimationFrame(stabilize);
+        scheduler.scheduleAnimationFrame("scrollbar-stabilization-frame", stabilize);
       };
-      window.requestAnimationFrame(stabilize);
-      window.setTimeout(stabilize, 100);
-      window.setTimeout(stabilize, 250);
-      window.setTimeout(stabilize, 500);
+      scheduler.scheduleAnimationFrame("scrollbar-stabilization-frame", stabilize);
+      for (const delay of [100, 250, 500]) {
+        scheduler.scheduleTimeout(`scrollbar-stabilization:${delay}`, stabilize, delay);
+      }
     };
 
     const markPointerScrollIntent = (event: PointerEvent) => {
@@ -149,6 +147,7 @@ export function useTimelineInputIntent({
 
       markUserScrollIntent();
       if (isOnScrollbarEdge) {
+        if (event.cancelable) event.preventDefault();
         startScrollbarDrag(event.clientY);
       }
     };
@@ -167,26 +166,24 @@ export function useTimelineInputIntent({
 
       markUserScrollIntent();
       if (isOnScrollbarEdge) {
+        if (event.cancelable) event.preventDefault();
         startScrollbarDrag(event.clientY);
       }
     };
 
     const clearScrollbarDragIntent = () => {
-      if (timelineScrollbarDragActiveRef.current) {
+      const wasDragging = timelineScrollbarDragActiveRef.current;
+      if (wasDragging) {
         lastTimelineScrollbarDragAtRef.current = performance.now();
         stabilizeScrollbarDragPosition(pane.scrollTop);
       }
       timelineScrollbarDragActiveRef.current = false;
       scrollbarDragState = null;
+      if (wasDragging) onScrollbarDragEnd();
     };
 
-    const handlePointerMove = (event: PointerEvent) => {
-      dragScrollbar(event.clientY);
-    };
-
-    const handleMouseMove = (event: MouseEvent) => {
-      dragScrollbar(event.clientY);
-    };
+    const handlePointerMove = (event: PointerEvent) => dragScrollbar(event.clientY);
+    const handleMouseMove = (event: MouseEvent) => dragScrollbar(event.clientY);
 
     const handleNativeScroll = () => {
       timelineScrollHandlerRef.current();
@@ -194,10 +191,10 @@ export function useTimelineInputIntent({
 
     pane.addEventListener("wheel", markWheelScrollIntent, { passive: true });
     pane.addEventListener("touchstart", markUserScrollIntent, { passive: true });
-    pane.addEventListener("pointerdown", markPointerScrollIntent, { passive: true });
+    pane.addEventListener("pointerdown", markPointerScrollIntent);
     pane.addEventListener("scroll", handleNativeScroll, { passive: true });
-    window.addEventListener("pointerdown", markPointerScrollIntent, { capture: true, passive: true });
-    window.addEventListener("mousedown", markMouseScrollIntent, { capture: true, passive: true });
+    window.addEventListener("pointerdown", markPointerScrollIntent, { capture: true });
+    window.addEventListener("mousedown", markMouseScrollIntent, { capture: true });
     window.addEventListener("pointermove", handlePointerMove, { passive: true });
     window.addEventListener("mousemove", handleMouseMove, { passive: true });
     window.addEventListener("pointerup", clearScrollbarDragIntent, { passive: true });
@@ -218,7 +215,9 @@ export function useTimelineInputIntent({
       window.removeEventListener("pointercancel", clearScrollbarDragIntent);
       window.removeEventListener("mouseup", clearScrollbarDragIntent);
       window.removeEventListener("blur", clearScrollbarDragIntent);
-      clearScrollbarDragIntent();
+      scheduler.cancelAll();
+      timelineScrollbarDragActiveRef.current = false;
+      scrollbarDragState = null;
     };
   }, [
     activeView,
@@ -229,6 +228,7 @@ export function useTimelineInputIntent({
     lastTimelineScrollbarDragAtRef,
     lastUserTimelineScrollIntentAtRef,
     onExplicitTimelineScrollIntent,
+    onScrollbarDragEnd,
     onScrollbarDragStart,
     preserveBottomOnNextPaneResizeRef,
     sessionsWithExplicitTimelineScrollRef,

@@ -1,10 +1,13 @@
 import { app, type BrowserWindow, type ProcessMemoryInfo } from "electron";
-import { appendFile, mkdir } from "node:fs/promises";
+import { appendFile, mkdir, readdir, rename, rm, stat } from "node:fs/promises";
 import path from "node:path";
+import { getHeapStatistics } from "node:v8";
 import { logIgnoredError } from "./diagnostics";
 
 const MEMORY_MONITOR_ENV = "PI_APP_MEMORY_MONITOR";
 const DEFAULT_INTERVAL_MS = 1_000;
+const MAX_MEMORY_LOG_BYTES = 20 * 1024 * 1024;
+const MAX_MEMORY_LOG_FILES = 8;
 
 type AppMetric = ReturnType<typeof app.getAppMetrics>[number];
 
@@ -40,6 +43,7 @@ export function startMemoryMonitor(options: MemoryMonitorOptions): (() => void) 
 
   const intervalMs = options.intervalMs ?? DEFAULT_INTERVAL_MS;
   const logPath = path.join(options.userDataDir, "logs", `memory-monitor-${process.pid}.jsonl`);
+  void pruneMemoryMonitorLogs(path.dirname(logPath), logPath);
   let stopped = false;
   let writeChain: Promise<void> = Promise.resolve();
 
@@ -53,7 +57,13 @@ export function startMemoryMonitor(options: MemoryMonitorOptions): (() => void) 
       .catch((error) => logIgnoredError("memory-monitor.previous-write", error))
       .then(async () => {
         await mkdir(path.dirname(logPath), { recursive: true });
-        await appendFile(logPath, `${JSON.stringify({ ...entry, logPath })}\n`, "utf8");
+        const line = `${JSON.stringify({ ...entry, logPath })}\n`;
+        const current = await stat(logPath).catch(() => undefined);
+        if (current && current.size + Buffer.byteLength(line, "utf8") > MAX_MEMORY_LOG_BYTES) {
+          await rm(`${logPath}.previous`, { force: true });
+          await rename(logPath, `${logPath}.previous`);
+        }
+        await appendFile(logPath, line, "utf8");
       })
       .catch((error) => {
         console.error("[memory-monitor] failed to write memory sample", error);
@@ -72,6 +82,26 @@ export function startMemoryMonitor(options: MemoryMonitorOptions): (() => void) 
   };
 }
 
+async function pruneMemoryMonitorLogs(logDirectory: string, activeLogPath: string): Promise<void> {
+  const names = await readdir(logDirectory).catch(() => []);
+  const entries = (await Promise.all(names
+    .filter((name) => name.startsWith("memory-monitor-"))
+    .map(async (name) => {
+      const filePath = path.join(logDirectory, name);
+      const metadata = await stat(filePath).catch(() => undefined);
+      return metadata?.isFile() ? { filePath, modifiedAt: metadata.mtimeMs } : undefined;
+    })))
+    .filter((entry): entry is { filePath: string; modifiedAt: number } => Boolean(entry))
+    .sort((left, right) => right.modifiedAt - left.modifiedAt);
+  const retained = new Set([
+    activeLogPath,
+    ...entries.slice(0, MAX_MEMORY_LOG_FILES).map((entry) => entry.filePath),
+  ]);
+  await Promise.all(entries
+    .filter((entry) => !retained.has(entry.filePath))
+    .map((entry) => rm(entry.filePath, { force: true })));
+}
+
 async function buildMemorySample(options: MemoryMonitorOptions) {
   const window = options.getWindow();
   const mainProcessMemory = await process
@@ -82,16 +112,67 @@ async function buildMemorySample(options: MemoryMonitorOptions) {
     });
   const metrics = app.getAppMetrics().map(formatMetric);
   const focusedMetric = window ? metrics.find((metric) => metric.pid === window.webContents.getOSProcessId()) : undefined;
+  const rendererHeap = window ? await readRendererHeap(window) : undefined;
 
   return {
     timestamp: new Date().toISOString(),
     pid: process.pid,
     mainProcessMemory: mainProcessMemory ? formatProcessMemory(mainProcessMemory) : undefined,
+    mainHeap: formatMainHeap(),
     window: window ? describeWindow(window) : null,
     selectedProcess: focusedMetric,
+    rendererHeap,
     metrics,
     store: safeStoreSnapshot(options.getStoreSnapshot),
   };
+}
+
+function formatMainHeap() {
+  const usage = process.memoryUsage();
+  const heap = getHeapStatistics();
+  return {
+    heapUsedMB: bytesToMb(usage.heapUsed),
+    heapTotalMB: bytesToMb(usage.heapTotal),
+    externalMB: bytesToMb(usage.external),
+    arrayBuffersMB: bytesToMb(usage.arrayBuffers),
+    rssMB: bytesToMb(usage.rss),
+    heapSizeLimitMB: bytesToMb(heap.heap_size_limit),
+  };
+}
+
+async function readRendererHeap(window: BrowserWindow): Promise<{
+  readonly usedJSHeapSizeMB: number;
+  readonly totalJSHeapSizeMB: number;
+  readonly jsHeapSizeLimitMB: number;
+} | undefined> {
+  if (window.isDestroyed() || window.webContents.isDestroyed()) {
+    return undefined;
+  }
+  try {
+    const memory = await window.webContents.executeJavaScript(`
+      (() => {
+        const memory = performance.memory;
+        return memory ? {
+          usedJSHeapSize: memory.usedJSHeapSize,
+          totalJSHeapSize: memory.totalJSHeapSize,
+          jsHeapSizeLimit: memory.jsHeapSizeLimit,
+        } : null;
+      })()
+    `) as {
+      readonly usedJSHeapSize: number;
+      readonly totalJSHeapSize: number;
+      readonly jsHeapSizeLimit: number;
+    } | null;
+    if (!memory) return undefined;
+    return {
+      usedJSHeapSizeMB: bytesToMb(memory.usedJSHeapSize),
+      totalJSHeapSizeMB: bytesToMb(memory.totalJSHeapSize),
+      jsHeapSizeLimitMB: bytesToMb(memory.jsHeapSizeLimit),
+    };
+  } catch (error) {
+    logIgnoredError("memory-monitor.renderer-heap", error);
+    return undefined;
+  }
 }
 
 function describeWindow(window: BrowserWindow) {
@@ -144,6 +225,10 @@ function safeStoreSnapshot(getSnapshot: () => MemoryMonitorStoreSnapshot): Memor
 
 function kbToMb(value: number): number {
   return Math.round((value / 1024) * 100) / 100;
+}
+
+function bytesToMb(value: number): number {
+  return Math.round((value / (1024 * 1024)) * 100) / 100;
 }
 
 function safeString(callback: () => string): string {

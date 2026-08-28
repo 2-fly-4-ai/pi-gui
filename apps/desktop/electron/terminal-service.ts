@@ -10,6 +10,7 @@ import type {
 } from "../src/ipc";
 import { desktopIpc } from "../src/ipc";
 import { appendTerminalReplay } from "../src/terminal-model";
+import type { ResourceRuntimeRoot } from "../src/resource-inspector-types";
 
 type NodePty = typeof import("node-pty");
 type IPty = import("node-pty").IPty;
@@ -23,6 +24,7 @@ let nodePty: NodePty | undefined;
 const DEFAULT_TERMINAL_SIZE: TerminalSize = { cols: 80, rows: 24 };
 const MAX_WRITE_LENGTH = 128 * 1024;
 const MAX_TERMINAL_SESSIONS_PER_ROOT = 8;
+const MAX_TERMINAL_SESSIONS_TOTAL = 24;
 const DUPLICATE_PASTE_WRITE_WINDOW_MS = 120;
 
 interface TerminalRoot {
@@ -53,6 +55,7 @@ interface TerminalSession {
   pty: IPty | undefined;
   dataSubscription: IDisposable | undefined;
   exitSubscription: IDisposable | undefined;
+  lastAccessAt: number;
 }
 
 export interface TerminalServiceOptions {
@@ -80,6 +83,9 @@ export class TerminalService {
       const session = this.createSessionForRoot(webContents, root, size);
       root.sessionIds.push(session.id);
       root.activeSessionId = session.id;
+    } else {
+      const active = this.sessionsById.get(root.activeSessionId);
+      if (active) active.lastAccessAt = Date.now();
     }
     return this.snapshotRoot(root);
   }
@@ -115,6 +121,7 @@ export class TerminalService {
       throw new Error(`Unknown terminal session: ${terminalId}`);
     }
     root.activeSessionId = terminalId;
+    session.lastAccessAt = Date.now();
     return this.snapshotRoot(root);
   }
 
@@ -130,6 +137,7 @@ export class TerminalService {
       return;
     }
     this.lastWriteBySession.set(session.id, { data: normalizedData, timestamp: now });
+    session.lastAccessAt = now;
     session.pty?.write(normalizedData);
   }
 
@@ -137,6 +145,7 @@ export class TerminalService {
     const session = this.requireOwnedSession(webContents, terminalId);
     const normalizedSize = normalizeSize(size);
     session.size = normalizedSize;
+    session.lastAccessAt = Date.now();
     session.pty?.resize(normalizedSize.cols, normalizedSize.rows);
   }
 
@@ -151,38 +160,21 @@ export class TerminalService {
     session.exitCode = undefined;
     session.signal = undefined;
     session.size = normalizeSize(size ?? session.size);
+    session.lastAccessAt = Date.now();
     this.spawnPty(webContents, session);
     return this.snapshotRoot(this.requireRoot(session.rootKey));
   }
 
   close(webContents: WebContents, terminalId: string): TerminalPanelSnapshot | null {
     const session = this.requireOwnedSession(webContents, terminalId);
-    const root = this.requireRoot(session.rootKey);
-    this.disposeSession(session);
-    this.sessionsById.delete(session.id);
-    this.lastWriteBySession.delete(session.id);
-
-    const index = root.sessionIds.indexOf(session.id);
-    if (index >= 0) {
-      root.sessionIds.splice(index, 1);
-    }
-
-    if (root.sessionIds.length === 0) {
-      this.rootsByKey.delete(root.rootKey);
-      return null;
-    }
-
-    if (root.activeSessionId === session.id) {
-      const nextIndex = Math.min(index, root.sessionIds.length - 1);
-      root.activeSessionId = root.sessionIds[nextIndex];
-    }
-    return this.snapshotRoot(root);
+    return this.removeSession(session);
   }
 
   setTitle(webContents: WebContents, terminalId: string, title: string): void {
     const session = this.requireOwnedSession(webContents, terminalId);
     const normalizedTitle = title.trim();
     session.title = normalizedTitle.length > 0 ? normalizedTitle.slice(0, 80) : this.defaultTitle(session);
+    session.lastAccessAt = Date.now();
   }
 
   retainWorkspacePaths(workspacePaths: readonly string[]): void {
@@ -209,6 +201,23 @@ export class TerminalService {
     this.sessionsById.clear();
     this.rootsByKey.clear();
     this.lastWriteBySession.clear();
+  }
+
+  getResourceRoots(): readonly ResourceRuntimeRoot[] {
+    return [...this.sessionsById.values()].flatMap((session) => {
+      const pid = session.pty?.pid;
+      if (!pid || session.status !== "running") return [];
+      return [{
+        ownerKind: "terminal" as const,
+        ownerId: session.id,
+        label: session.title || "Integrated terminal",
+        pid,
+        workspaceId: session.workspaceId,
+        sessionId: session.terminalScopeId,
+        stoppable: true,
+        confidence: "verified" as const,
+      }];
+    });
   }
 
   private ensureRoot(workspaceId: string, terminalScopeId: string): TerminalRoot {
@@ -245,6 +254,7 @@ export class TerminalService {
     root: TerminalRoot,
     size?: Partial<TerminalSize>,
   ): TerminalSession {
+    this.ensureGlobalCapacity();
     const session: TerminalSession = {
       id: `terminal-${Date.now().toString(36)}-${this.nextSessionNumber++}`,
       workspaceId: root.workspaceId,
@@ -263,11 +273,48 @@ export class TerminalService {
       pty: undefined,
       dataSubscription: undefined,
       exitSubscription: undefined,
+      lastAccessAt: Date.now(),
     };
     session.title = this.defaultTitle(session);
     this.sessionsById.set(session.id, session);
     this.spawnPty(webContents, session);
     return session;
+  }
+
+  private ensureGlobalCapacity(): void {
+    if (this.sessionsById.size < MAX_TERMINAL_SESSIONS_TOTAL) {
+      return;
+    }
+    const dormant = [...this.sessionsById.values()]
+      .filter((session) => session.status === "exited" || session.status === "error")
+      .sort((left, right) => left.lastAccessAt - right.lastAccessAt)[0];
+    if (!dormant) {
+      throw new Error(
+        `Pi can keep up to ${MAX_TERMINAL_SESSIONS_TOTAL} live terminal tabs. Close one before opening another.`,
+      );
+    }
+    this.removeSession(dormant);
+  }
+
+  private removeSession(session: TerminalSession): TerminalPanelSnapshot | null {
+    const root = this.requireRoot(session.rootKey);
+    this.disposeSession(session);
+    this.sessionsById.delete(session.id);
+    this.lastWriteBySession.delete(session.id);
+
+    const index = root.sessionIds.indexOf(session.id);
+    if (index >= 0) {
+      root.sessionIds.splice(index, 1);
+    }
+    if (root.sessionIds.length === 0) {
+      this.rootsByKey.delete(root.rootKey);
+      return null;
+    }
+    if (root.activeSessionId === session.id) {
+      const nextIndex = Math.min(Math.max(index, 0), root.sessionIds.length - 1);
+      root.activeSessionId = root.sessionIds[nextIndex];
+    }
+    return this.snapshotRoot(root);
   }
 
   private spawnPty(webContents: WebContents, session: TerminalSession): void {

@@ -31,6 +31,7 @@ async function setup() {
     createId: () => `checkpoint-${++checkpointId}`,
   });
   const evidence = new TaskEvidenceLedger(userData, {
+    now: () => new Date("2026-07-24T12:05:00.000Z"),
     workspacePath: () => checkout,
   });
   const observer = new CheckpointSessionObserver(

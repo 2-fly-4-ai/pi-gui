@@ -2,7 +2,7 @@
   display: grid;
   gap: var(--timeline-item-gap, 14px);
   min-width: 0;
-  width: min(920px, 100%);
+  width: min(var(--thread-content-width, 920px), 100%);
   margin: 0 auto;
 }
 
@@ -26,7 +26,7 @@
 .timeline__legend-row {
   margin: 0 auto 14px;
   min-width: 0;
-  width: min(920px, 100%);
+  width: min(var(--thread-content-width, 920px), 100%);
 }
 
 .timeline__virtual-gap-fallback {
@@ -60,6 +60,20 @@
   max-height: none;
   padding: 0 28px;
   scroll-padding-inline: 28px;
+  scrollbar-gutter: stable both-edges;
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+.timeline-pane--thread button,
+.timeline-pane--thread [role="button"] {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.timeline-pane--thread ::selection {
+  background: color-mix(in srgb, var(--accent) 42%, transparent);
+  color: var(--text-strong);
 }
 
 .timeline-pane--legend {
@@ -269,6 +283,12 @@
   border-radius: var(--radius-full);
   background: var(--accent);
   cursor: pointer;
+}
+
+.timeline-minimap__segment--active {
+  transform: translate(-2px, -50%) scale(1.45);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--surface) 86%, transparent),
+    0 0 10px color-mix(in srgb, var(--accent) 72%, transparent);
 }
 
 .timeline-minimap__segment[data-signal-types~="user"] {
@@ -485,7 +505,8 @@
 }
 
 :root.dark .timeline-item__user-icon-frame,
-:root.dark .subagent-timeline-card__role-chip img {
+:root.dark .subagent-timeline-card__role-chip img,
+:root.dark .timeline-tool__agent-avatar {
   background: #f7f7f2;
   border-radius: var(--radius-full);
   box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.18);
@@ -862,6 +883,22 @@
 
 .timeline-tool__waiting span {
   font-style: italic;
+}
+
+.timeline-tool__truncation-note {
+  display: grid;
+  gap: 2px;
+  padding: 8px 12px;
+  border-top: 1px solid var(--border);
+  background: color-mix(in srgb, var(--warning) 9%, var(--surface-muted));
+  color: var(--muted);
+  font-size: var(--font-size-sm);
+  line-height: 1.45;
+}
+
+.timeline-tool__truncation-note strong {
+  color: var(--muted-strong);
+  font-weight: 650;
 }
 
 .timeline-tool__details {

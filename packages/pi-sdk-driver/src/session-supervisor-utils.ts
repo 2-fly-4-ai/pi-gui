@@ -16,6 +16,102 @@ import type { SessionTranscriptAttachment, SessionTranscriptEntry } from "./tran
 const FILE_ATTACHMENT_BLOCK_START = "<pi-gui-file-attachments>";
 const FILE_ATTACHMENT_BLOCK_END = "</pi-gui-file-attachments>";
 
+export interface LegacyAssistantMessageFallback {
+  readonly api?: string;
+  readonly provider?: string;
+  readonly model?: string;
+}
+
+/**
+ * Pi's current runtime treats assistant usage as required, but older/imported
+ * JSONL sessions can legitimately omit it or contain the pre-block string
+ * content shape. Normalize those records in memory before handing them to Pi.
+ * Session files remain append-only and are not rewritten.
+ */
+export function normalizeLegacyAssistantMessage(
+  value: unknown,
+  fallback: LegacyAssistantMessageFallback = {},
+): boolean {
+  if (!isRecord(value) || value.role !== "assistant") {
+    return false;
+  }
+
+  let changed = false;
+  if (typeof value.content === "string") {
+    value.content = [{ type: "text", text: value.content }];
+    changed = true;
+  } else if (!Array.isArray(value.content)) {
+    value.content = [];
+    changed = true;
+  }
+
+  if (typeof value.api !== "string" && fallback.api) {
+    value.api = fallback.api;
+    changed = true;
+  }
+  if (typeof value.provider !== "string" && fallback.provider) {
+    value.provider = fallback.provider;
+    changed = true;
+  }
+  if (typeof value.model !== "string" && fallback.model) {
+    value.model = fallback.model;
+    changed = true;
+  }
+  if (typeof value.stopReason !== "string") {
+    value.stopReason = "stop";
+    changed = true;
+  }
+  if (!Number.isFinite(value.timestamp)) {
+    value.timestamp = Date.now();
+    changed = true;
+  }
+
+  const existingUsage = isRecord(value.usage) ? value.usage : {};
+  const existingCost = isRecord(existingUsage.cost) ? existingUsage.cost : {};
+  const input = finiteNumber(existingUsage.input);
+  const output = finiteNumber(existingUsage.output);
+  const cacheRead = finiteNumber(existingUsage.cacheRead);
+  const cacheWrite = finiteNumber(existingUsage.cacheWrite);
+  const totalTokens = Number.isFinite(existingUsage.totalTokens)
+    ? Number(existingUsage.totalTokens)
+    : input + output + cacheRead + cacheWrite;
+  const normalizedUsage = {
+    ...existingUsage,
+    input,
+    output,
+    cacheRead,
+    cacheWrite,
+    totalTokens,
+    cost: {
+      ...existingCost,
+      input: finiteNumber(existingCost.input),
+      output: finiteNumber(existingCost.output),
+      cacheRead: finiteNumber(existingCost.cacheRead),
+      cacheWrite: finiteNumber(existingCost.cacheWrite),
+      total: finiteNumber(existingCost.total),
+    },
+  };
+  if (
+    !isRecord(value.usage)
+    || existingUsage.input !== normalizedUsage.input
+    || existingUsage.output !== normalizedUsage.output
+    || existingUsage.cacheRead !== normalizedUsage.cacheRead
+    || existingUsage.cacheWrite !== normalizedUsage.cacheWrite
+    || existingUsage.totalTokens !== normalizedUsage.totalTokens
+    || !isRecord(existingUsage.cost)
+    || existingCost.input !== normalizedUsage.cost.input
+    || existingCost.output !== normalizedUsage.cost.output
+    || existingCost.cacheRead !== normalizedUsage.cost.cacheRead
+    || existingCost.cacheWrite !== normalizedUsage.cost.cacheWrite
+    || existingCost.total !== normalizedUsage.cost.total
+  ) {
+    value.usage = normalizedUsage;
+    changed = true;
+  }
+
+  return changed;
+}
+
 export interface SnapshotSource {
   readonly ref: SessionRef;
   readonly workspace: WorkspaceRef;
@@ -28,6 +124,10 @@ export interface SnapshotSource {
   readonly runningRunId: string | undefined;
   readonly queuedMessages: readonly SessionQueuedMessage[];
   readonly runtimeSummary: RuntimeSummarySnapshot | undefined;
+}
+
+function finiteNumber(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
 }
 
 export function buildSnapshot(source: SnapshotSource): SessionSnapshot {
@@ -82,8 +182,19 @@ export function mergeSessionConfigWithToolAccess(
 }
 
 export function forcePersistSession(sessionManager: object): void {
-  const maybeRewrite = (sessionManager as { _rewriteFile?: () => void })._rewriteFile;
-  maybeRewrite?.call(sessionManager);
+  const persistable = sessionManager as {
+    _rewriteFile?: () => void;
+    flushed?: boolean;
+  };
+  if (!persistable._rewriteFile) {
+    return;
+  }
+  persistable._rewriteFile.call(sessionManager);
+  // Pi 0.82 defers its first flush until an assistant message and creates the
+  // file with `wx`. Because the desktop intentionally persists new threads
+  // before that first response, keep Pi's internal flush state in sync with
+  // the file we just wrote so its next append does not try to recreate it.
+  persistable.flushed = true;
 }
 
 export function sessionKey(sessionRef: SessionRef): string {
@@ -290,32 +401,15 @@ function appendAssistantContentTranscriptItems(
   createdAt: string,
 ): void {
   let textBuffer = "";
-  let textIndex = 0;
   let thinkingIndex = 0;
 
-  const flushText = () => {
-    const text = textBuffer.replace(/\s+/g, " ").trim();
-    if (!text) {
-      textBuffer = "";
-      return;
-    }
-    transcript.push({
-      kind: "message",
-      id: textIndex === 0 ? messageId : `${messageId}:text-${textIndex}`,
-      role: "assistant",
-      text,
-      createdAt,
-    });
-    textIndex += 1;
-    textBuffer = "";
-  };
-
+  // Providers do not all serialize reasoning and visible text in the same
+  // order. Completed thinking always precedes the final answer in our UI.
   for (const part of content) {
     if (!isRecord(part)) {
       continue;
     }
     if (part.type === "thinking" && typeof part.thinking === "string") {
-      flushText();
       const text = part.thinking.trim();
       if (text) {
         transcript.push({
@@ -334,7 +428,16 @@ function appendAssistantContentTranscriptItems(
     }
   }
 
-  flushText();
+  const text = textBuffer.replace(/\s+/g, " ").trim();
+  if (text) {
+    transcript.push({
+      kind: "message",
+      id: messageId,
+      role: "assistant",
+      text,
+      createdAt,
+    });
+  }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

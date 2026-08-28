@@ -1,5 +1,5 @@
 declare module "@pi-gui/catalogs" {
-  import type { SessionRef, WorkspaceId } from "@pi-gui/session-driver";
+  import type { SessionConfig, SessionRef, WorkspaceId } from "@pi-gui/session-driver";
 
   export type { SessionRef, WorkspaceId };
 
@@ -44,6 +44,7 @@ declare module "@pi-gui/catalogs" {
     archivedAt?: string;
     previewSnippet?: string;
     sessionFilePath?: string;
+    config?: SessionConfig;
     status: SessionStatus;
   }
 

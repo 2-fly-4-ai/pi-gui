@@ -79,6 +79,8 @@ export interface DisplayModeTileProps {
   readonly onToggleExpand: () => void;
   readonly onRequestProjection: (workspaceId: string, sessionId: string) => void;
   readonly onInteractionResidencyChange: (key: string, active: boolean) => void;
+  readonly keyboardDragging: boolean;
+  readonly onKeyboardDragKeyDown: (id: string, event: KeyboardEvent<HTMLElement>) => void;
 }
 
 function displayModeTilePropsEqual(previous: DisplayModeTileProps, next: DisplayModeTileProps): boolean {
@@ -107,7 +109,9 @@ function displayModeTilePropsEqual(previous: DisplayModeTileProps, next: Display
     previous.openSettings === next.openSettings &&
     previous.openSkillProfiles === next.openSkillProfiles &&
     previous.onRequestProjection === next.onRequestProjection &&
-    previous.onInteractionResidencyChange === next.onInteractionResidencyChange;
+    previous.onInteractionResidencyChange === next.onInteractionResidencyChange &&
+    previous.keyboardDragging === next.keyboardDragging &&
+    previous.onKeyboardDragKeyDown === next.onKeyboardDragKeyDown;
 }
 
 function DisplayModeTileComponent(props: DisplayModeTileProps) {
@@ -204,6 +208,8 @@ function DisplayModeCardShell({
   onToggleTerminal,
   onToggleExpand,
   onInteractionResidencyChange,
+  keyboardDragging,
+  onKeyboardDragKeyDown,
 }: DisplayModeTileProps) {
   const [renaming, setRenaming] = useState(false);
   const [renameDraft, setRenameDraft] = useState("");
@@ -270,7 +276,9 @@ function DisplayModeCardShell({
             {...listeners}
             {...attributes}
             aria-label="Drag to reorder"
+            aria-pressed={keyboardDragging}
             title="Drag to reorder"
+            onKeyDown={(event) => onKeyboardDragKeyDown(id, event)}
           >⠿</div>
           <button
             className="display-mode-tile__expand-btn"
@@ -395,7 +403,7 @@ function DisplayModeDetailedCard({
   fastMode, fastModeAvailable, showThinking, codexUsageStatus,
   runtime, sessionCommands, commandCompatibility, setSnapshot, openSettings, openSkillProfiles,
   onOpenThread, onOpenVSCode, onPinPreview, onToggleTerminal, onToggleExpand, onRequestProjection,
-  onInteractionResidencyChange,
+  onInteractionResidencyChange, keyboardDragging, onKeyboardDragKeyDown,
 }: DisplayModeTileProps) {
   const [renaming, setRenaming] = useState(false);
   const [renameDraft, setRenameDraft] = useState("");
@@ -569,11 +577,11 @@ function DisplayModeDetailedCard({
     if (!el) return;
     const ro = new ResizeObserver(() => {
       const h = el.clientHeight;
-      if (h > 0) setTerminalHeight(h);
+      if (h > 0) setTerminalHeight((current) => current === h ? current : h);
     });
     ro.observe(el);
     const h = el.clientHeight;
-    if (h > 0) setTerminalHeight(h);
+    if (h > 0) setTerminalHeight((current) => current === h ? current : h);
     return () => ro.disconnect();
   }, [terminalOpen]);
 
@@ -771,7 +779,9 @@ function DisplayModeDetailedCard({
             {...(isExpanded ? {} : listeners)}
             {...attributes}
             aria-label="Drag to reorder"
+            aria-pressed={keyboardDragging}
             title="Drag to reorder"
+            onKeyDown={(event) => onKeyboardDragKeyDown(id, event)}
             style={isExpanded ? { opacity: 0.3, pointerEvents: "none" } : undefined}
           >⠿</div>
           <button

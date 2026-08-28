@@ -1,5 +1,6 @@
-import { useLayoutEffect, type RefObject } from "react";
+import { useLayoutEffect, useRef, type RefObject } from "react";
 import { isNearBottom } from "./timeline-viewport-utils";
+import { BoundedTimelineScheduler } from "./bounded-timeline-scheduler";
 
 interface UseComposerTimelineResizeOptions {
   readonly composerDraft: string;
@@ -36,6 +37,14 @@ export function useComposerTimelineResize({
   suppressNativeTimelineScrollIntentUntilRef,
   timelinePaneRef,
 }: UseComposerTimelineResizeOptions): void {
+  const schedulerRef = useRef<BoundedTimelineScheduler | null>(null);
+  schedulerRef.current ??= new BoundedTimelineScheduler();
+  const scheduler = schedulerRef.current;
+
+  useLayoutEffect(() => () => {
+    scheduler.cancelAll();
+  }, [scheduler, selectedSessionKey]);
+
   useLayoutEffect(() => {
     const composer = composerRef.current;
     if (!composer) {
@@ -66,7 +75,7 @@ export function useComposerTimelineResize({
         pane.scrollTop += nextHeight - previousHeight;
       }
       requestPinnedBottomAlignment("auto");
-      window.setTimeout(() => {
+      scheduler.scheduleTimeout("composer-resize-bottom-settle", () => {
         if (composerResizeBottomLockUntilRef.current !== lockUntil) {
           return;
         }
@@ -87,7 +96,7 @@ export function useComposerTimelineResize({
       manualTimelineScrollTopRef.current = targetScrollTop;
       lastTimelineScrollTopBySessionRef.current.set(selectedSessionKey, targetScrollTop);
       const restoreAcrossFrames = (remainingFrames: number) => {
-        window.requestAnimationFrame(() => {
+        scheduler.scheduleAnimationFrame("composer-manual-position-restore", () => {
           if (timelinePaneRef.current !== pane) {
             manualTimelineScrollRestoreRef.current = false;
             return;
@@ -121,6 +130,7 @@ export function useComposerTimelineResize({
     pinnedToBottomRef,
     preserveBottomOnNextPaneResizeRef,
     requestPinnedBottomAlignment,
+    scheduler,
     selectedSessionKey,
     suppressNativeTimelineScrollIntentUntilRef,
     timelinePaneRef,

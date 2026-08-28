@@ -19,14 +19,21 @@ default agent loop.
 | 2 | [phase-2-quality-infrastructure.md](phase-2-quality-infrastructure.md) | Lint + unit tests must exist BEFORE the big refactors in phases 3–4 so they act as a safety net | complete; full GitHub CI, Linux unit, macOS Electron core, and Linux AppImage proof green |
 | 3 | [phase-3-renderer-decomposition.md](phase-3-renderer-decomposition.md) | App.tsx breakup; prerequisite for state-sync rework touching the same surfaces | complete; core, real-provider live, and native Electron proof green |
 | 4 | [phase-4-state-sync-rearchitecture.md](phase-4-state-sync-rearchitecture.md) | Delta-based IPC state/transcript sync; fixes chat perf at the root | complete; full core/real-provider live/native green and long-transcript perf recorded |
+| RS0–RS8 | [runtime-resource-safety-and-regression-closeout.md](../runtime-resource-safety-and-regression-closeout.md) | End-to-end driver backpressure, true session dormancy, durable bounded storage, child-process ownership, and July regression closeout | complete; archived 2026-07-30 with unit/core/live/native/packaged proof |
 | 5 | [phase-5-product.md](phase-5-product.md) | Auto-update, crash reporting, onboarding, Windows — best built on the cleaned foundation | in progress; 5a local updater integration, 5b crash/error reporting including packaged forced-crash proof, 5c first-run onboarding, 5d platform decision, and 5e website/docs implemented |
 | — | [agents-and-subagents.md](agents-and-subagents.md) | Typed subagent lifecycle, durable runs, structured results; W1/W4 coordinate with phase 4's event protocol, W2 output cap + parser + full-output affordance and W3 persistence can start now | complete; W1–W7 and every built-in workflow verified against a real provider on Electron |
+| — | [subagent-runtime-reliability.md](../subagent-runtime-reliability.md) | Close the newly reproduced unbounded join, unenforced detached limits, process-lifecycle, lifecycle-identity, and hidden memory-amplification gaps below the typed lifecycle surface | complete; extension, unit, core Electron, and real-provider Electron proof green |
 | PX0–PX8 | [product-experience-roadmap.md](product-experience-roadmap.md) | Evidence and safety foundations must precede checkpoints, provenance, branch comparison, and advanced review UX | complete; all 367 checklist items and unit/core/live/native/packaged/accessibility/performance/visual proof green |
 | DM0–DM7 | [display-mode-performance.md](display-mode-performance.md) | Bounded projections, durable interaction state, and viewport residency are required before Display Mode can scale safely | complete; 200-session Electron proof and full core audit passed |
+| T3-0–T3-7 | [2026-08-28-t3-inspired-product-and-platform-improvements.md](../2026-08-28-t3-inspired-product-and-platform-improvements.md) | Consolidate resource diagnosis, source-control collaboration, usage, reusable work, themes, and a proven remote boundary without replacing Pi GUI's current architecture | complete; 291 unit, 209 core Electron, 42 real-provider, native picker, and packaged proof green |
 
 ## Current Health Snapshot
 
 - Phase 1 is complete, including the real Electron native paste/focus proof. Phases 3 and 4 are complete: after OpenAI re-authentication on 2026-07-21, all six provider-gated Electron cases passed, and the final real-auth live lane passed 39/39.
+- The Phase 4 IPC transport remains complete. The 2026-07-30 RS0–RS8 closeout fixed the
+  driver/evidence/persistence/session-lifetime amplification outside that transport boundary
+  without reverting the delta IPC architecture. Final proof covers 232 unit tests, all 192 core
+  Electron behaviors, all 41 real-provider live cases, 9/9 native cases, and packaged app smoke.
 - Phase 2 is complete. Lint, unit, typecheck, 155/155 macOS Electron core tests, and Linux AppImage packaging passed in GitHub Actions on 2026-07-21; the Ubuntu `node-pty` unit coupling is removed. `@legendapp/list` is upgraded to 3.3.3 with timeline, packaged-app, runtime-dependency, and release-zip proof. `parse5`/`yargs` remain compatibility versions required by the bundled upstream runtime, not independent local upgrade TODOs.
 - Phase 0 is complete. Local secret files, leaked local history refs, stale worktrees/branches, and `agentlog.txt` are cleaned up; GitHub secret scanning/push protection are enabled; the unrelated product's historical external credential rotation was explicitly waived on 2026-07-21.
 - Phase 5 is mostly implementation-complete, but not fully closeable until the auto-update signed staging round-trip is run with real N/N+1 release artifacts. Local updater integration and Homebrew guidance are implemented; first-run onboarding has packaged proof; platform expansion now has a decision; crash/error reporting has zero-infra issue-draft, local native crash artifact, first-run reporting opt-in UX, and packaged forced-crash proof; website/docs are implemented.
@@ -36,6 +43,13 @@ default agent loop.
 - 2026-07-26 product-experience implementation and verification are complete across PX0–PX8. Final proof includes lint, typecheck, 199/199 unit tests, production builds, 179/179 core Electron tests on final source, 40/40 real-provider Electron tests in one lane, 9/9 foreground native Electron tests, repeated timeline pinning (10/10), the focused timeline/change-review lane (11/11), packaged macOS app smoke on final source, and the expanded real-Electron screenshot lane in light, dark, forced-colors, compact, and narrow layouts. The completion audit added a 20,000-action palette regression, direct reduced-motion proof, and a durable evidence/checkpoint/context/export safety contract.
 - 2026-07-21 closeout verification is green: lint, typecheck, build, 75 unit tests, 155/155 core Electron tests, 39/39 real-auth live Electron tests, 8/8 native Electron tests, packaged-app smoke, packaged-runtime dependency verification, and extracted release-zip smoke. GitHub Actions also passed gitleaks, lint, typecheck, unit, 155/155 macOS Electron core tests, and Linux AppImage packaging. Only the signed N/N+1 updater staging lane remains external.
 - The repo-requested `simplify` closeout command was not available in the local environment on 2026-07-20; manual diff review and `git diff --check` were used instead.
+- The T3-inspired product/platform program completed on 2026-08-28. Resource diagnosis, typed PR
+  workbench, incremental usage, Project Actions v2, Prompt Shelf, theme gallery, and the executable
+  loopback remote spike are implemented. Final proof is 291 unit tests, 209/209 core Electron,
+  42/42 authenticated live Electron including every built-in subagent workflow, native theme import,
+  packaged smoke/VS Code, and packaged runtime dependency verification. Only Apple signing assets,
+  the separate signed N/N+1 updater staging round trip, and an explicitly authorized disposable
+  GitHub write target remain external.
 
 ## Rules for executing this roadmap
 

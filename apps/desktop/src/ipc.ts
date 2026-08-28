@@ -63,6 +63,30 @@ import type {
   RejectCheckpointHunksRequest,
   RejectCheckpointHunksResult,
 } from "./product-experience/hunk-restoration";
+import type { DiagnosticBundle, ResourceInspectorSnapshot } from "./resource-inspector-types";
+import type {
+  PullRequestDetail,
+  SourceControlMutation,
+  SourceControlMutationPreview,
+  SourceControlMutationResult,
+  SourceControlSnapshot,
+  TaskPullRequestLink,
+} from "./source-control-types";
+import type { UsageDashboardSnapshot, UsageQuery } from "./usage-types";
+import type {
+  LegacyProjectAction,
+  ProjectActionExportPreview,
+  ProjectActionImportPreview,
+  ProjectActionRecord,
+  SaveProjectActionInput,
+} from "./project-actions";
+import type {
+  PromptShelfEntrySummary,
+  PromptShelfRestorePreview,
+  StashPromptInput,
+} from "./prompt-shelf-types";
+import type { OpenVsxThemeSearchResult, ThemeDefinition, ThemeGallerySnapshot } from "./theme-types";
+import type { LoopbackRemoteProbe, LoopbackRemoteSnapshot } from "./execution-environment-types";
 
 export type DesktopNotificationPermissionStatus =
   | "granted"
@@ -81,6 +105,10 @@ export const desktopIpc = {
   displayModeProjectionRequest: "pi-gui:display-mode-projection-request",
   displayModeProjectionChanged: "pi-gui:display-mode-projection-changed",
   listObservabilityEvents: "pi-gui:list-observability-events",
+  getResourceInspectorSnapshot: "pi-gui:get-resource-inspector-snapshot",
+  setResourceInspectorVisible: "pi-gui:set-resource-inspector-visible",
+  getDiagnosticBundle: "pi-gui:get-diagnostic-bundle",
+  openDiagnosticLogsFolder: "pi-gui:open-diagnostic-logs-folder",
   listTaskEvidence: "pi-gui:list-task-evidence",
   recordProjectActionEvidence: "pi-gui:record-project-action-evidence",
   taskEvidenceDelta: "pi-gui:task-evidence-delta",
@@ -219,6 +247,42 @@ export const desktopIpc = {
   commitChanges: "pi-gui:commit-changes",
   pushBranch: "pi-gui:push-branch",
   createPullRequest: "pi-gui:create-pull-request",
+  getSourceControlSnapshot: "pi-gui:get-source-control-snapshot",
+  getPullRequestDetail: "pi-gui:get-pull-request-detail",
+  previewSourceControlMutation: "pi-gui:preview-source-control-mutation",
+  runSourceControlMutation: "pi-gui:run-source-control-mutation",
+  getTaskPullRequestLink: "pi-gui:get-task-pull-request-link",
+  linkTaskPullRequest: "pi-gui:link-task-pull-request",
+  unlinkTaskPullRequest: "pi-gui:unlink-task-pull-request",
+  getUsageDashboard: "pi-gui:get-usage-dashboard",
+  listProjectActions: "pi-gui:list-project-actions",
+  saveProjectAction: "pi-gui:save-project-action",
+  deleteProjectAction: "pi-gui:delete-project-action",
+  reorderProjectActions: "pi-gui:reorder-project-actions",
+  migrateLegacyProjectActions: "pi-gui:migrate-legacy-project-actions",
+  discoverProjectActions: "pi-gui:discover-project-actions",
+  previewProjectActionsImport: "pi-gui:preview-project-actions-import",
+  previewProjectActionsExport: "pi-gui:preview-project-actions-export",
+  exportProjectActions: "pi-gui:export-project-actions",
+  listPromptShelf: "pi-gui:list-prompt-shelf",
+  stashPrompt: "pi-gui:stash-prompt",
+  previewPromptShelfRestore: "pi-gui:preview-prompt-shelf-restore",
+  completePromptShelfRestore: "pi-gui:complete-prompt-shelf-restore",
+  renamePromptShelfEntry: "pi-gui:rename-prompt-shelf-entry",
+  reorderPromptShelf: "pi-gui:reorder-prompt-shelf",
+  deletePromptShelfEntry: "pi-gui:delete-prompt-shelf-entry",
+  getThemeGallery: "pi-gui:get-theme-gallery",
+  previewThemePalette: "pi-gui:preview-theme-palette",
+  selectThemePalette: "pi-gui:select-theme-palette",
+  resetThemePalette: "pi-gui:reset-theme-palette",
+  importVsCodeTheme: "pi-gui:import-vscode-theme",
+  removeThemePalette: "pi-gui:remove-theme-palette",
+  searchOpenVsxThemes: "pi-gui:search-open-vsx-themes",
+  installOpenVsxTheme: "pi-gui:install-open-vsx-theme",
+  getLoopbackRemoteSnapshot: "pi-gui:get-loopback-remote-snapshot",
+  launchLoopbackRemote: "pi-gui:launch-loopback-remote",
+  probeLoopbackRemote: "pi-gui:probe-loopback-remote",
+  shutdownLoopbackRemote: "pi-gui:shutdown-loopback-remote",
   createReviewSnapshot: "pi-gui:create-review-snapshot",
   runReviewAgentPreReview: "pi-gui:run-review-agent-pre-review",
   getThemeMode: "pi-gui:get-theme-mode",
@@ -477,7 +541,7 @@ export interface PiDesktopApi {
   ping(): Promise<string>;
   getState(): Promise<DesktopAppState>;
   onStatePatchChanged(listener: PiDesktopStatePatchListener): () => void;
-  getSelectedTranscript(): Promise<SelectedTranscriptRecord | null>;
+  getSelectedTranscript(options?: SelectedTranscriptRequestOptions): Promise<SelectedTranscriptRecord | null>;
   onTranscriptEvent(listener: PiDesktopTranscriptEventListener): () => void;
   requestTranscriptReset(input: TranscriptResetRequest): Promise<SelectedTranscriptRecord | null>;
   getDisplayModeThreadProjection(
@@ -486,6 +550,10 @@ export interface PiDesktopApi {
   ): Promise<DisplayModeProjectionResponse>;
   onDisplayModeProjectionChanged(listener: PiDesktopDisplayModeProjectionListener): () => void;
   listObservabilityEvents(input?: ObservabilityQuery): Promise<ObservabilityEventPage>;
+  getResourceInspectorSnapshot(): Promise<ResourceInspectorSnapshot>;
+  setResourceInspectorVisible(visible: boolean): Promise<void>;
+  getDiagnosticBundle(): Promise<DiagnosticBundle>;
+  openDiagnosticLogsFolder(): Promise<void>;
   listTaskEvidence(input: TaskEvidenceQuery): Promise<TaskEvidencePage>;
   recordProjectActionEvidence(input: RecordProjectActionEvidenceInput): Promise<void>;
   onTaskEvidenceDelta(listener: PiDesktopTaskEvidenceListener): () => void;
@@ -552,7 +620,7 @@ export interface PiDesktopApi {
   openSkillInFinder(workspaceId: string, filePath: string): Promise<void>;
   openExtensionInFinder(workspaceId: string, filePath: string): Promise<void>;
   syncCurrentWorkspace(): Promise<void>;
-  selectSession(target: WorkspaceSessionTarget): Promise<void>;
+  selectSession(target: WorkspaceSessionTarget): Promise<SelectedTranscriptRecord | null>;
   renameSession(target: WorkspaceSessionTarget, title: string): Promise<void>;
   ensureVSCodeServer(workspaceId: string): Promise<number>;
   killVSCodeServer(workspaceId: string): Promise<void>;
@@ -675,7 +743,7 @@ export interface PiDesktopApi {
   updateComposerDraft(
     target: WorkspaceSessionTarget,
     composerDraft: string,
-    options?: { readonly syncToEditor?: boolean },
+    options?: { readonly syncToEditor?: boolean; readonly baseSyncNonce?: number },
   ): Promise<void>;
   submitComposer(text: string, options?: { readonly deliverAs?: "steer" | "followUp"; readonly messageMetadata?: unknown }): Promise<void>;
   submitComposerToSession(
@@ -721,6 +789,42 @@ export interface PiDesktopApi {
     workspaceId: string,
     input: { readonly title: string; readonly body: string; readonly base: string },
   ): Promise<{ readonly url?: string }>;
+  getSourceControlSnapshot(workspaceId: string, forceRefresh?: boolean): Promise<SourceControlSnapshot>;
+  getPullRequestDetail(workspaceId: string, pullRequestNumber: number): Promise<PullRequestDetail>;
+  previewSourceControlMutation(mutation: SourceControlMutation): Promise<SourceControlMutationPreview>;
+  runSourceControlMutation(workspaceId: string, mutation: SourceControlMutation): Promise<SourceControlMutationResult>;
+  getTaskPullRequestLink(workspaceId: string, sessionId: string): Promise<TaskPullRequestLink | undefined>;
+  linkTaskPullRequest(workspaceId: string, sessionId: string, pullRequestNumber: number): Promise<TaskPullRequestLink>;
+  unlinkTaskPullRequest(workspaceId: string, sessionId: string): Promise<void>;
+  getUsageDashboard(query: UsageQuery, forceRefresh?: boolean): Promise<UsageDashboardSnapshot>;
+  listProjectActions(workspaceId: string): Promise<readonly ProjectActionRecord[]>;
+  saveProjectAction(input: SaveProjectActionInput): Promise<readonly ProjectActionRecord[]>;
+  deleteProjectAction(workspaceId: string, actionId: string): Promise<readonly ProjectActionRecord[]>;
+  reorderProjectActions(workspaceId: string, orderedIds: readonly string[]): Promise<readonly ProjectActionRecord[]>;
+  migrateLegacyProjectActions(input: Readonly<Record<string, readonly LegacyProjectAction[]>>): Promise<number>;
+  discoverProjectActions(workspaceId: string): Promise<readonly ProjectActionRecord[]>;
+  previewProjectActionsImport(workspaceId: string): Promise<ProjectActionImportPreview>;
+  previewProjectActionsExport(workspaceId: string): Promise<ProjectActionExportPreview>;
+  exportProjectActions(workspaceId: string): Promise<string>;
+  listPromptShelf(): Promise<readonly PromptShelfEntrySummary[]>;
+  stashPrompt(input: StashPromptInput): Promise<readonly PromptShelfEntrySummary[]>;
+  previewPromptShelfRestore(entryId: string): Promise<PromptShelfRestorePreview>;
+  completePromptShelfRestore(entryId: string): Promise<readonly PromptShelfEntrySummary[]>;
+  renamePromptShelfEntry(entryId: string, label: string): Promise<readonly PromptShelfEntrySummary[]>;
+  reorderPromptShelf(orderedIds: readonly string[]): Promise<readonly PromptShelfEntrySummary[]>;
+  deletePromptShelfEntry(entryId: string): Promise<readonly PromptShelfEntrySummary[]>;
+  getThemeGallery(): Promise<ThemeGallerySnapshot>;
+  previewThemePalette(themeId: string): Promise<void>;
+  selectThemePalette(themeId: string): Promise<ThemeGallerySnapshot>;
+  resetThemePalette(): Promise<ThemeGallerySnapshot>;
+  importVsCodeTheme(): Promise<ThemeDefinition | undefined>;
+  removeThemePalette(themeId: string): Promise<ThemeGallerySnapshot>;
+  searchOpenVsxThemes(query: string): Promise<readonly OpenVsxThemeSearchResult[]>;
+  installOpenVsxTheme(namespace: string, name: string, version: string): Promise<ThemeDefinition>;
+  getLoopbackRemoteSnapshot(): Promise<LoopbackRemoteSnapshot>;
+  launchLoopbackRemote(workspaceId: string): Promise<LoopbackRemoteSnapshot>;
+  probeLoopbackRemote(relativePath?: string): Promise<LoopbackRemoteProbe>;
+  shutdownLoopbackRemote(): Promise<LoopbackRemoteSnapshot>;
   createReviewSnapshot(workspaceId: string, options?: CreateReviewSnapshotOptions): Promise<ReviewSnapshot>;
   runReviewAgentPreReview(workspaceId: string, sessionId: string, snapshot: ReviewSnapshot): Promise<readonly import("./review/review-types").ReviewDraftComment[]>;
   toggleWindowMaximize(): Promise<void>;
@@ -729,4 +833,9 @@ export interface PiDesktopApi {
   getResolvedTheme(): Promise<"light" | "dark">;
   setThemeMode(mode: "system" | "light" | "dark"): Promise<string>;
   onThemeChanged(callback: (theme: "light" | "dark") => void): () => void;
+}
+
+export interface SelectedTranscriptRequestOptions {
+  readonly recoveryMode?: boolean;
+  readonly target?: WorkspaceSessionTarget;
 }

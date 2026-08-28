@@ -274,12 +274,17 @@ test("supports pointer and keyboard reordering through an accessible virtual-car
     await window.mouse.up();
     await expect.poll(async () => (await titles.allTextContents()).join("|")).not.toBe(originalOrder.join("|"));
 
+    const keyboardTargetId = await tiles.nth(1).getAttribute("data-thread-key");
+    expect(keyboardTargetId).toBeTruthy();
     await handles.nth(0).focus();
     await window.keyboard.press("Space");
     await expect.poll(async () => (await window.locator('[role="status"]').allTextContents()).join(" ")).toMatch(
       /picked up|moved over/i,
     );
     await window.keyboard.press("ArrowRight");
+    await expect.poll(async () => (await window.locator('[role="status"]').allTextContents()).join(" ")).toContain(
+      keyboardTargetId!,
+    );
     await window.keyboard.press("Space");
     await expect.poll(async () => (await window.locator('[role="status"]').allTextContents()).join(" ")).toMatch(/dropped/i);
     await expect.poll(async () => (await titles.allTextContents()).join("|")).toBe(originalOrder.join("|"));

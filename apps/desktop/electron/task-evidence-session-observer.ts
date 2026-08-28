@@ -38,6 +38,8 @@ export class TaskEvidenceSessionObserver {
     readonly count: number;
     readonly originalEvidenceId: string;
   }>();
+  private readonly lastProgressEvidenceAt = new Map<string, number>();
+  private readonly runtimeProgressSignatures = new Map<string, string>();
   private pending = Promise.resolve();
 
   constructor(
@@ -49,6 +51,9 @@ export class TaskEvidenceSessionObserver {
   ) {}
 
   observe(event: SessionDriverEvent): void {
+    if (!this.shouldObserve(event)) {
+      return;
+    }
     this.pending = this.pending
       .catch(() => undefined)
       .then(async () => {
@@ -57,8 +62,75 @@ export class TaskEvidenceSessionObserver {
         if (event.type === "runCompleted" || event.type === "runFailed") {
           records = await this.enrichTerminalRecords(event, records);
         }
-        if (records.length > 0) await this.ledger.appendMany(records);
+        if (records.length > 0) {
+          await this.ledger.appendMany(records, {
+            deferPersistence: event.type !== "runCompleted" && event.type !== "runFailed",
+          });
+        }
+        if (event.type === "runCompleted" || event.type === "runFailed") {
+          this.releaseRunProgressState(event);
+        }
       });
+  }
+
+  private shouldObserve(event: SessionDriverEvent): boolean {
+    if (event.type === "assistantThinkingDelta") {
+      return false;
+    }
+    if (event.type === "assistantThinkingStarted" || event.type === "assistantDelta") {
+      return this.progressSignatureChanged(
+        `assistant:${runObservationKey(event)}`,
+        event.type === "assistantThinkingStarted" ? "thinking" : "responding",
+      );
+    }
+    if (event.type === "toolUpdated") {
+      const key = `tool:${toolKey(event)}`;
+      const timestamp = Date.parse(event.timestamp);
+      const previous = this.lastProgressEvidenceAt.get(key);
+      if (previous !== undefined && Number.isFinite(timestamp) && timestamp - previous < 500) {
+        return false;
+      }
+      if (Number.isFinite(timestamp)) {
+        this.lastProgressEvidenceAt.set(key, timestamp);
+      }
+      return true;
+    }
+    if (event.type === "subagentRunUpdated") {
+      return this.progressSignatureChanged(
+        `subagent:${event.sessionRef.workspaceId}:${event.sessionRef.sessionId}:${event.subagentRunId}`,
+        `${event.status}:${event.progress ?? ""}:${event.summary ?? ""}`,
+      );
+    }
+    if (event.type === "runtimeJobUpdated") {
+      return this.progressSignatureChanged(
+        `runtime:${event.sessionRef.workspaceId}:${event.sessionRef.sessionId}:${event.job.id}`,
+        `${event.job.status}:${event.job.title ?? ""}`,
+      );
+    }
+    return true;
+  }
+
+  private progressSignatureChanged(key: string, signature: string): boolean {
+    if (this.runtimeProgressSignatures.get(key) === signature) {
+      return false;
+    }
+    this.runtimeProgressSignatures.set(key, signature);
+    return true;
+  }
+
+  private releaseRunProgressState(event: SessionDriverEvent): void {
+    const sessionPrefix = `${event.sessionRef.workspaceId}:${event.sessionRef.sessionId}:`;
+    for (const key of this.tools.keys()) {
+      if (key.startsWith(sessionPrefix)) {
+        this.tools.delete(key);
+        this.lastProgressEvidenceAt.delete(`tool:${key}`);
+      }
+    }
+    for (const key of this.runtimeProgressSignatures.keys()) {
+      if (key.includes(`:${sessionPrefix}`)) {
+        this.runtimeProgressSignatures.delete(key);
+      }
+    }
   }
 
   async flush(): Promise<void> {
@@ -165,7 +237,8 @@ export class TaskEvidenceSessionObserver {
       case "sessionUpdated":
         if (event.snapshot.status === "running") {
           const key = runObservationKey(event);
-          if (!this.runStartedAt.has(key)) this.runStartedAt.set(key, event.timestamp);
+          if (this.runStartedAt.has(key)) return [];
+          this.runStartedAt.set(key, event.timestamp);
           this.runWorkspacePaths.set(key, event.snapshot.workspace.path);
           const retry = this.failureAttempts.get(sessionObservationKey(event));
           return [this.record(event, {
@@ -173,14 +246,18 @@ export class TaskEvidenceSessionObserver {
               source: "runtime",
               authority: "runtime-observed",
               status: "running",
-              summary: retry ? `Retrying after attempt ${retry.count}` : "Waiting for provider",
+              summary: retry ? `Retrying after attempt ${retry.count}` : "Working",
               activity: {
-                type: retry ? "retrying" : "waiting-provider",
+                type: retry ? "retrying" : "working",
                 startedAt: event.timestamp,
               },
-            })];
+            }, `activity:${runKey(event)}`)];
         }
         return [];
+      case "assistantThinkingStarted":
+        return [this.runActivity(event, "Thinking")];
+      case "assistantDelta":
+        return [this.runActivity(event, "Responding")];
       case "toolStarted":
         return [await this.toolStarted(event)];
       case "toolUpdated":
@@ -195,9 +272,9 @@ export class TaskEvidenceSessionObserver {
             type: activityTypeForKind(this.tools.get(toolKey(event))?.kind ?? "activity"),
             ...(typeof event.progress === "number" ? { progress: event.progress } : {}),
           },
-        })];
+        }, `progress:tool:${event.callId}`)];
       case "toolFinished":
-        return [this.toolFinished(event)];
+        return [this.toolFinished(event), this.runActivity(event, "Working")];
       case "subagentRunUpdated":
         return [this.record(event, {
           kind: event.status === "failed" ? "error" : "activity",
@@ -214,7 +291,7 @@ export class TaskEvidenceSessionObserver {
             type: event.status === "failed" ? "blocked" : "waiting-subagent",
             ...(typeof event.progress === "number" ? { progress: event.progress } : {}),
           },
-        })];
+        }, `progress:subagent:${event.subagentRunId}`)];
       case "runtimeJobUpdated":
         return [this.record(event, {
           kind: "activity",
@@ -230,7 +307,7 @@ export class TaskEvidenceSessionObserver {
             type: event.job.status === "unknown" ? "blocked" : "running-command",
             startedAt: event.job.startedAt,
           },
-        })];
+        }, `progress:runtime-job:${event.job.id}`)];
       case "hostUiRequest":
         return approvalRecordForEvent(event, this.record.bind(this));
       case "runCompleted":
@@ -362,12 +439,27 @@ export class TaskEvidenceSessionObserver {
     });
   }
 
+  private runActivity(event: SessionDriverEvent, summary: string): TaskEvidenceRecord {
+    return this.record(event, {
+      kind: "activity",
+      source: "runtime",
+      authority: "runtime-observed",
+      status: "running",
+      summary,
+      activity: {
+        type: "working",
+        startedAt: this.runStartedAt.get(runObservationKey(event)) ?? event.timestamp,
+      },
+    }, `activity:${runKey(event)}`);
+  }
+
   private toolFinished(
     event: Extract<SessionDriverEvent, { type: "toolFinished" }>,
   ): TaskEvidenceRecord {
     const key = toolKey(event);
     const observed = this.tools.get(key);
     this.tools.delete(key);
+    this.lastProgressEvidenceAt.delete(`tool:${key}`);
     const kind = observed?.kind ?? "activity";
     const durationMs = observed
       ? Math.max(0, Date.parse(event.timestamp) - Date.parse(observed.startedAt))

@@ -40,6 +40,7 @@ import { useSettingsRouting } from "../settings/use-settings-routing";
 import { useReviewSurface } from "../review/use-review-surface";
 import { usePlanPanel } from "../plans/use-plan-panel";
 import { useProjectActions } from "../project-actions/use-project-actions";
+import { usePromptShelf } from "../prompt-shelf/use-prompt-shelf";
 import { usePrimarySidebarToggle } from "../sidebar/use-primary-sidebar-toggle";
 import { useSessionActions } from "../session/use-session-actions";
 import { useRunningLabel } from "../session/use-running-label";
@@ -58,6 +59,7 @@ import {
 } from "../../product-experience/workspace-productivity";
 import { SETTINGS_SEARCH_ENTRIES } from "../../product-experience/settings-search";
 import type { AgentDefinitionRecord } from "../../agent-definitions";
+import { logIgnoredError } from "../../renderer-diagnostics";
 
 interface AppReadyProps {
   readonly api: NonNullable<typeof window.piApp>;
@@ -85,6 +87,7 @@ export function AppReady({
   const [paletteAgents, setPaletteAgents] = useState<readonly AgentDefinitionRecord[]>([]);
   const [paletteArtifacts, setPaletteArtifacts] = useState<readonly WorkspaceArtifactReference[]>([]);
   const [workspaceShortcutRevision, setWorkspaceShortcutRevision] = useState(0);
+  const newThreadRuntimeLoadsRef = useRef(new Set<string>());
 
   const selectedWorkspace = snapshot ? (getSelectedWorkspace(snapshot) ?? snapshot.workspaces[0]) : undefined;
   const selectedSession = snapshot ? (getSelectedSession(snapshot) ?? selectedWorkspace?.sessions[0]) : undefined;
@@ -205,6 +208,35 @@ export function AppReady({
 
   const newThreadWorkspace =
     rootWorkspaceOptions.find((entry) => entry.id === newThreadState.newThreadRootWorkspaceId) ?? rootWorkspaceOptions[0];
+  const newThreadWorkspaceId = newThreadWorkspace?.id;
+  const newThreadRuntimePresent = Boolean(newThreadWorkspaceId && snapshot.runtimeByWorkspace[newThreadWorkspaceId]);
+  useEffect(() => {
+    if (
+      snapshot.activeView !== "new-thread"
+      || !newThreadWorkspaceId
+      || newThreadRuntimePresent
+      || newThreadRuntimeLoadsRef.current.has(newThreadWorkspaceId)
+    ) {
+      return;
+    }
+
+    let active = true;
+    newThreadRuntimeLoadsRef.current.add(newThreadWorkspaceId);
+    void api.refreshRuntime(newThreadWorkspaceId)
+      .then(() => api.getState())
+      .then((state) => {
+        if (active) setSnapshot(state);
+      })
+      .catch((error) => {
+        logIgnoredError("new-thread.refresh-runtime", error);
+      })
+      .finally(() => {
+        newThreadRuntimeLoadsRef.current.delete(newThreadWorkspaceId);
+      });
+    return () => {
+      active = false;
+    };
+  }, [api, newThreadRuntimePresent, newThreadWorkspaceId, setSnapshot, snapshot.activeView]);
   const runtimeSelections = useRuntimeSelections({
     snapshot,
     selectedWorkspace,
@@ -279,6 +311,11 @@ export function AppReady({
     vsCodeOpen: panelLayout.vsCodeOpen,
     workspaces: snapshot?.workspaces ?? [],
   });
+  useEffect(() => {
+    const openUsage = () => setActiveView("usage");
+    window.addEventListener("pi-gui:open-usage", openUsage);
+    return () => window.removeEventListener("pi-gui:open-usage", openUsage);
+  }, [setActiveView]);
   onLeaveDisplayModeSurfaceRef.current = handleLeaveDisplayModeSurface;
   const visibleTerminal = useVisibleTerminal({
     activeTerminalSessionKey: panelLayout.activeTerminalSessionKey,
@@ -429,6 +466,16 @@ export function AppReady({
     setSnapshot,
   });
   openTreeModalRef.current = openTreeModal;
+  const projectActions = useProjectActions({
+    activeView: snapshot?.activeView,
+    api,
+    newThreadWorkspace,
+    onOpenPreviewUrl: panelLayout.openSideBrowserUrl,
+    onOpenTerminalForSession: panelLayout.openTerminalForSession,
+    selectedSession,
+    selectedSessionKey,
+    selectedWorkspace,
+  });
   const {
     addActionDialogOpen,
     closeAddActionDialog,
@@ -440,14 +487,16 @@ export function AppReady({
     runProjectAction,
     saveProjectAction,
     topbarProjectActions,
-  } = useProjectActions({
-    activeView: snapshot?.activeView,
+  } = projectActions;
+  const promptShelf = usePromptShelf({
     api,
-    newThreadWorkspace,
-    onOpenTerminalForSession: panelLayout.openTerminalForSession,
-    selectedSession,
-    selectedSessionKey,
-    selectedWorkspace,
+    attachments: sessionComposer.composerAttachments,
+    draft: sessionComposer.composerDraft,
+    selectedTarget: selectedWorkspace && selectedSession
+      ? { workspaceId: selectedWorkspace.id, sessionId: selectedSession.id }
+      : undefined,
+    setComposerDraft: (value) => sessionComposer.setComposerDraft(value),
+    setSnapshot,
   });
   const selectedRootWorkspaceId = selectedWorkspace?.rootWorkspaceId ?? selectedWorkspace?.id;
   const wsMenu = useWorkspaceMenu({
@@ -461,8 +510,50 @@ export function AppReady({
     },
     [selectedWorkspace, workspaceShortcutRevision],
   );
+  const setLogsPanelOpen = panelLayout.setLogsPanelOpen;
   const indexedPaletteActions = useMemo<readonly CommandPaletteAction[]>(() => {
     const actions: CommandPaletteAction[] = [];
+    actions.push({
+      id: "source-control:pull-requests",
+      title: "Pull requests",
+      subtitle: "Open the GitHub pull request workbench",
+      category: "Source control",
+      keywords: ["github", "pull request", "checks", "reviews", "files", "commits"],
+      run: () => setActiveView("pull-requests"),
+    });
+    actions.push({
+      id: "usage:dashboard",
+      title: "Usage dashboard",
+      subtitle: "Tokens, cache, provider/model share, and reported cost",
+      category: "Usage",
+      keywords: ["usage", "tokens", "cost", "cache", "provider", "model"],
+      run: () => setActiveView("usage"),
+    });
+    actions.push({
+      id: "project-actions:manage",
+      title: "Manage project actions",
+      subtitle: "Create, discover, import, export, and order trusted workspace commands",
+      category: "Project actions",
+      keywords: ["action", "command", "script", "package", "preview"],
+      run: () => setActiveView("project-actions"),
+    });
+    actions.push({
+      id: "prompt-shelf:open",
+      title: "Open Prompt Shelf",
+      subtitle: `${promptShelf.entries.length} of 20 prompts stashed`,
+      category: "Prompt Shelf",
+      keywords: ["prompt", "shelf", "stash", "restore", "draft"],
+      run: () => setActiveView("prompt-shelf"),
+    });
+    actions.push({
+      id: "prompt-shelf:stash-current",
+      title: "Stash current prompt",
+      subtitle: "Persist this draft and its attachments before clearing the composer",
+      category: "Prompt Shelf",
+      disabled: !selectedSession || (!sessionComposer.composerDraft.trim() && sessionComposer.composerAttachments.length === 0),
+      keywords: ["prompt", "shelf", "stash", "draft", "later"],
+      run: () => { void promptShelf.stashCurrentPrompt(); },
+    });
     for (const workspace of snapshot.workspaces) {
       actions.push({
         id: `workspace:${workspace.id}`,
@@ -607,6 +698,22 @@ export function AppReady({
       });
     }
     actions.push({
+      id: "diagnose-pi",
+      title: "Diagnose Pi",
+      subtitle: "Inspect Pi-owned resources and create a redacted diagnostic snapshot",
+      category: "Diagnostics",
+      keywords: ["diagnose", "resources", "memory", "cpu", "logs", "performance"],
+      run: () => {
+        try {
+          localStorage.setItem("logs:tab", "resources");
+        } catch (error) {
+          logIgnoredError("diagnose-pi.writeTabPreference", error);
+        }
+        setLogsPanelOpen(true);
+        window.setTimeout(() => window.dispatchEvent(new Event("pi-gui:open-resource-inspector")), 0);
+      },
+    });
+    actions.push({
       id: "workspace-hub",
       title: "Workspace hub",
       subtitle: "Artifacts, worktree lifecycle, handoff, and shortcuts",
@@ -623,12 +730,17 @@ export function AppReady({
     openSkills,
     paletteAgents,
     paletteArtifacts,
+    promptShelf,
     reviewSnapshot,
     runProjectAction,
     runtimeSelections.selectedRuntime?.models,
     runtimeSelections.selectedRuntime?.skills,
     selectedRootWorkspaceId,
+    selectedSession,
     selectedWorkspace,
+    sessionComposer.composerAttachments,
+    sessionComposer.composerDraft,
+    setLogsPanelOpen,
     setActiveView,
     snapshot.workspaces,
     topbarProjectActions,
@@ -880,6 +992,7 @@ export function AppReady({
     onAddClipboardImage: newThreadState.addNewThreadClipboardImage,
     onStartThread: handleStartThread,
     slashMenu: newThreadSlashMenu,
+    submitting: newThreadState.newThreadStarting,
   });
 
   const commandPalette = commandPaletteOpen ? (
@@ -916,7 +1029,16 @@ export function AppReady({
       },
     };
     setSnapshot((current) => current ? appendComposerAttachments(current, [attachment]) : current);
-    void api.addComposerAttachments([attachment]);
+    void api.addComposerAttachments([attachment])
+      .then(() => api.getState())
+      .then(setSnapshot)
+      .catch(async (error: unknown) => {
+        const current = await api.getState().catch(() => null);
+        setSnapshot(current ? {
+          ...current,
+          lastError: error instanceof Error ? error.message : String(error),
+        } : current);
+      });
     setWorkspaceHubOpen(false);
     window.requestAnimationFrame(() => composerRef.current?.focus());
   }, [api, selectedWorkspace, setSnapshot]);
@@ -945,6 +1067,7 @@ export function AppReady({
 
   const secondarySurface = (
     <AppSecondarySurface
+      api={api}
       activeView={snapshot.activeView}
       agents={agents}
       commandPalette={<>{commandPalette}{workspaceHub}</>}
@@ -973,6 +1096,8 @@ export function AppReady({
       reviewSnapshot={reviewSnapshot}
       refreshReviewSurface={refreshReviewSurface}
       rootWorkspaceOptions={rootWorkspaceOptions}
+      projectActions={projectActions}
+      promptShelf={promptShelf}
       runtimeSelections={runtimeSelections}
       selectedSession={selectedSession}
       selectedWorkspace={selectedWorkspace}
@@ -1026,6 +1151,16 @@ export function AppReady({
       newThreadState={newThreadState}
       newThreadWorkspace={newThreadWorkspace}
       onOpenNewThread={openNewThreadSurface}
+      onStashNewThreadPrompt={() => {
+        void promptShelf.stashPrompt({
+          text: newThreadState.newThreadPrompt,
+          attachments: newThreadState.newThreadAttachments,
+        }, () => {
+          newThreadState.setNewThreadPrompt("");
+          newThreadState.setNewThreadAttachments([]);
+        });
+      }}
+      onStashPrompt={() => { void promptShelf.stashCurrentPrompt(); }}
       openSettings={openSettings}
       openSkillProfiles={settingsActions.openSkillProfiles}
       openUrl={openUrl}

@@ -77,6 +77,12 @@ import {
   writePersistedUiState,
 } from "./app-store-persistence";
 import { JsonFileStore } from "./json-file-store";
+import { withStartupTimeout } from "./startup-guard";
+import {
+  boundComposerAttachments,
+  validateComposerAttachmentLimits,
+  validateComposerText,
+} from "../src/composer-attachments";
 import {
   type PendingRuntimeCommandExecution,
   getLearnedCommandCompatibility,
@@ -108,7 +114,12 @@ import {
   summarizeDisplayModeSubagents,
 } from "../src/display-mode-subagent-activity";
 import type { SubagentRunRecord } from "../src/subagent-workflows";
-import { SessionStateMap, type QueuedComposerEditState } from "./session-state-map";
+import {
+  FULL_TRANSCRIPT_CACHE_MAX_BYTES,
+  FULL_TRANSCRIPT_CACHE_MAX_ENTRIES,
+  SessionStateMap,
+  type QueuedComposerEditState,
+} from "./session-state-map";
 import { createEmptyExtensionUiState, serializeExtensionUiState } from "./session-state-map";
 import { GitWorktreeManager } from "./worktree-manager";
 import * as workspace from "./app-store-workspace";
@@ -118,9 +129,18 @@ import { isSessionActivelyViewed } from "./session-visibility";
 import { AssistantDeltaBatcher } from "./assistant-delta-batcher";
 import { readFastModeState, writeFastModeEnabled } from "./fast-mode-config";
 import type { MemoryMonitorStoreSnapshot } from "./memory-monitor";
-import type { TranscriptResetRequest, TranscriptSyncEvent } from "../src/ipc";
+import type { SelectedTranscriptRequestOptions, StatePatchEvent, TranscriptResetRequest, TranscriptSyncEvent } from "../src/ipc";
+import { buildDesktopStatePatchEvents } from "../src/state/state-patch-domains";
+import {
+  projectTranscriptForRenderer,
+  projectTranscriptMessageForRenderer,
+  RECOVERY_MESSAGE_IMAGE_BYTES,
+  RECOVERY_TRANSCRIPT_MAX_BYTES,
+  RECOVERY_TRANSCRIPT_MAX_ROWS,
+} from "./selected-transcript-projection";
 
 type StateListener = (state: DesktopAppState) => void;
+type StatePatchListener = (event: StatePatchEvent) => void;
 type SelectedTranscriptListener = (payload: SelectedTranscriptRecord | null) => void;
 type TranscriptEventListener = (event: TranscriptSyncEvent) => void;
 type DisplayModeProjectionListener = (event: DisplayModeProjectionChangedEvent) => void;
@@ -128,6 +148,9 @@ type SessionEventListener = (event: SessionDriverEvent, state: DesktopAppState) 
 type TranscriptMessageRow = Extract<TranscriptMessage, { kind: "message" }>;
 
 const LEGACY_TRANSCRIPT_HISTORY_LIMIT = 180;
+const TRANSCRIPT_PERSIST_DEBOUNCE_MS = 2_000;
+const MAX_RESIDENT_SESSION_RUNTIMES = 8;
+const MAX_RESIDENT_WORKSPACE_RUNTIMES = 4;
 
 interface PersistedTranscriptRecord {
   readonly version: 1;
@@ -305,11 +328,13 @@ export interface DesktopAppStoreOptions {
     workspace: WorkspaceRef,
     options: GenerateThreadTitleOptions,
   ) => Promise<string | null | undefined>;
+  readonly onInitializationStage?: (stage: string) => void;
 }
 
 export class DesktopAppStore implements AppStoreInternals {
   state = createEmptyDesktopAppState();
   private readonly listeners = new Set<StateListener>();
+  private readonly statePatchListeners = new Set<(state: DesktopAppState) => void>();
   private readonly selectedTranscriptListeners = new Set<SelectedTranscriptListener>();
   private readonly transcriptEventListeners = new Set<TranscriptEventListener>();
   private readonly displayModeProjectionListeners = new Set<DisplayModeProjectionListener>();
@@ -342,6 +367,9 @@ export class DesktopAppStore implements AppStoreInternals {
     displayModeChangedFilesRequests: 0,
     displayModeProjectionMisses: 0,
     displayModeLegacyProjectionBuilds: 0,
+    dormantSessionEvictions: 0,
+    memoryPressureWarningCount: 0,
+    memoryPressureCriticalCount: 0,
   };
   private sessionEventChain: Promise<void> = Promise.resolve();
   private readonly assistantDeltaBatcher = new AssistantDeltaBatcher(32, () => {
@@ -373,9 +401,12 @@ export class DesktopAppStore implements AppStoreInternals {
   private readonly initialWorkspacePaths: readonly string[];
   private readonly getWindow: () => BrowserWindow | null;
   private readonly listSubagentRunsForDisplayMode: (workspaceId: string) => Promise<readonly SubagentRunRecord[]>;
+  private readonly onInitializationStage: (stage: string) => void;
   private persistUiStateTimer: NodeJS.Timeout | undefined;
   private readonly transcriptPersistTimers = new Map<string, NodeJS.Timeout>();
+  private readonly transcriptLoadsBySession = new Map<string, Promise<void>>();
   private readonly displayModeProjectionPersistTimers = new Map<string, NodeJS.Timeout>();
+  private dormantRuntimePruneTimer: NodeJS.Timeout | undefined;
   private initPromise: Promise<void> | undefined;
   private selectionEpoch = 0;
   private refreshStateDepth = 0;
@@ -410,6 +441,7 @@ export class DesktopAppStore implements AppStoreInternals {
     this.initialWorkspacePaths = options.initialWorkspacePaths;
     this.getWindow = options.getWindow ?? (() => null);
     this.listSubagentRunsForDisplayMode = options.listSubagentRunsForDisplayMode ?? (async () => []);
+    this.onInitializationStage = options.onInitializationStage ?? (() => undefined);
   }
 
   /* ── Lifecycle ──────────────────────────────────────────── */
@@ -426,14 +458,17 @@ export class DesktopAppStore implements AppStoreInternals {
     return structuredClone(this.state);
   }
 
-  async getSelectedTranscript(): Promise<SelectedTranscriptRecord | null> {
+  async getSelectedTranscript(options?: SelectedTranscriptRequestOptions): Promise<SelectedTranscriptRecord | null> {
     await this.initialize();
-    const sessionRef = this.selectedSessionRef();
+    const sessionRef = options?.target ? toSessionRef(options.target) : this.selectedSessionRef();
     if (!sessionRef) {
       return null;
     }
+    if (!this.sessionFromState(sessionRef)) {
+      return null;
+    }
     await this.ensureTranscriptLoaded(sessionRef);
-    return this.buildSelectedTranscriptRecord(sessionRef);
+    return this.buildSelectedTranscriptRecord(sessionRef, options);
   }
 
   async getDisplayModeThreadProjection(
@@ -556,6 +591,10 @@ export class DesktopAppStore implements AppStoreInternals {
   async flushPersistence(): Promise<void> {
     await this.initialize();
     await this.flushQueuedAssistantDeltas();
+    if (this.dormantRuntimePruneTimer) {
+      clearTimeout(this.dormantRuntimePruneTimer);
+      this.dormantRuntimePruneTimer = undefined;
+    }
     if (this.persistUiStateTimer) {
       clearTimeout(this.persistUiStateTimer);
       this.persistUiStateTimer = undefined;
@@ -586,6 +625,10 @@ export class DesktopAppStore implements AppStoreInternals {
   }
 
   async emitTestSessionEvent(event: SessionDriverEvent): Promise<void> {
+    await this.emitExternalSessionEvent(event);
+  }
+
+  async emitExternalSessionEvent(event: SessionDriverEvent): Promise<void> {
     await this.initialize();
     await this.handleSessionEvent(event);
   }
@@ -740,6 +783,58 @@ export class DesktopAppStore implements AppStoreInternals {
     return { count, sidecarCount, legacyCount, draftTarget, attachmentTarget };
   }
 
+  async seedSessionDormancyFixtureForTest(count = 100): Promise<{
+    readonly count: number;
+    readonly firstTarget: WorkspaceSessionTarget;
+    readonly lastTarget: WorkspaceSessionTarget;
+    readonly diagnostics: ReturnType<DesktopAppStore["getDiagnostics"]>;
+    readonly residentTargets: readonly SessionRef[];
+    readonly subscribedTargets: readonly SessionRef[];
+    readonly selectedTarget?: SessionRef;
+  }> {
+    await this.initialize();
+    const workspaceId = this.state.selectedWorkspaceId || this.state.workspaces[0]?.id;
+    const workspaceRef = workspaceId ? this.workspaceRefFromState(workspaceId) : undefined;
+    if (!workspaceRef) {
+      throw new Error("Session dormancy fixture requires a workspace.");
+    }
+    const normalizedCount = Math.max(10, Math.min(100, Math.floor(count)));
+    const createOptions = await this.buildCreateSessionOptions(workspaceRef.workspaceId);
+    const targets: WorkspaceSessionTarget[] = [];
+    for (let index = 0; index < normalizedCount; index += 1) {
+      const snapshot = await this.driver.createSession(workspaceRef, {
+        ...createOptions,
+        initialToolAccess: createOptions?.initialToolAccess ?? { mode: "full", tools: [] },
+        title: `Dormancy fixture ${String(index).padStart(3, "0")}`,
+      });
+      targets.push(snapshot.ref);
+      this.updateSessionConfig(snapshot.ref, snapshot.config);
+      await this.ensureSessionSubscribed(snapshot.ref);
+      await this.pruneDormantSessionRuntimes();
+    }
+    const firstTarget = targets[0];
+    const lastTarget = targets.at(-1);
+    if (!firstTarget || !lastTarget) {
+      throw new Error("Session dormancy fixture did not create sessions.");
+    }
+    await this.refreshState({
+      selectedWorkspaceId: lastTarget.workspaceId,
+      selectedSessionId: lastTarget.sessionId,
+      clearLastError: true,
+      activeView: "threads",
+    });
+    await this.pruneDormantSessionRuntimes();
+    return {
+      count: normalizedCount,
+      firstTarget,
+      lastTarget,
+      diagnostics: this.getDiagnostics(),
+      residentTargets: this.driver.getResidentSessionRefs(),
+      subscribedTargets: [...this.sessionState.sessionRefsByKey.values()].map((ref) => ({ ...ref })),
+      ...(this.selectedSessionRef() ? { selectedTarget: this.selectedSessionRef() } : {}),
+    };
+  }
+
   async updateDisplayModeFixtureSessionForTest(
     target: WorkspaceSessionTarget,
     patch: { readonly status?: "idle" | "running" | "failed"; readonly preview?: string },
@@ -800,12 +895,38 @@ export class DesktopAppStore implements AppStoreInternals {
     readonly displayModeLegacyProjectionBuilds: number;
     readonly fullTranscriptCacheEntries: number;
     readonly fullTranscriptCacheBytes: number;
+    readonly activeTranscriptTailEntries: number;
+    readonly activeTranscriptTailBytes: number;
+    readonly sessionSubscriptionCount: number;
+    readonly residentSessionRuntimeCount: number;
+    readonly managedSessionCount: number;
+    readonly runningSessionRuntimeCount: number;
+    readonly residentWorkspaceRuntimeCount: number;
+    readonly dormantSessionEvictions: number;
+    readonly memoryPressureWarningCount: number;
+    readonly memoryPressureCriticalCount: number;
+    readonly driverEventsReceived: number;
+    readonly driverEventsEmitted: number;
+    readonly driverEventsCoalesced: number;
+    readonly maxDriverEventsPending: number;
+    readonly currentDriverEventsPending: number;
   } {
+    const runtimeDiagnostics = this.driver.getRuntimeDiagnostics();
+    const fullTranscriptEntries = [...this.sessionState.transcriptCache].filter(([key]) =>
+      this.sessionState.loadedTranscriptKeys.has(key));
+    const activeTranscriptTailEntries = [...this.sessionState.transcriptCache].filter(([key]) =>
+      !this.sessionState.loadedTranscriptKeys.has(key));
     return {
       ...this.diagnostics,
-      fullTranscriptCacheEntries: this.sessionState.transcriptCache.size,
-      fullTranscriptCacheBytes: [...this.sessionState.transcriptCache.values()]
-        .reduce((total, transcript) => total + approximateObjectBytes(transcript), 0),
+      fullTranscriptCacheEntries: fullTranscriptEntries.length,
+      fullTranscriptCacheBytes: fullTranscriptEntries
+        .reduce((total, [, transcript]) => total + approximateObjectBytes(transcript), 0),
+      activeTranscriptTailEntries: activeTranscriptTailEntries.length,
+      activeTranscriptTailBytes: activeTranscriptTailEntries
+        .reduce((total, [, transcript]) => total + approximateObjectBytes(transcript), 0),
+      sessionSubscriptionCount: this.sessionState.sessionSubscriptions.size,
+      residentWorkspaceRuntimeCount: this.driver.runtimeSupervisor.getResidentContextCount(),
+      ...runtimeDiagnostics,
     };
   }
 
@@ -866,11 +987,50 @@ export class DesktopAppStore implements AppStoreInternals {
     };
   }
 
+  async relieveMemoryPressure(level: "warning" | "critical"): Promise<void> {
+    if (level === "critical") {
+      this.diagnostics.memoryPressureCriticalCount += 1;
+    } else {
+      this.diagnostics.memoryPressureWarningCount += 1;
+    }
+    const targetSessionRuntimes = level === "critical" ? 2 : 4;
+    const targetWorkspaceRuntimes = level === "critical" ? 1 : 2;
+    const targetTranscriptEntries = level === "critical" ? 1 : 3;
+    const targetTranscriptBytes = level === "critical" ? 24 * 1024 * 1024 : 48 * 1024 * 1024;
+    this.pruneFullTranscriptCache(new Set(), targetTranscriptEntries, targetTranscriptBytes);
+    this.pruneWorkspaceRuntimes(targetWorkspaceRuntimes);
+    await this.pruneDormantSessionRuntimes(targetSessionRuntimes);
+  }
+
   subscribe(listener: StateListener): () => void {
     this.listeners.add(listener);
     void this.getState().then(listener).catch((error) => logIgnoredError("app-store.subscribe.initial-state", error));
     return () => {
       this.listeners.delete(listener);
+    };
+  }
+
+  subscribeToStatePatches(listener: StatePatchListener): () => void {
+    let active = true;
+    let previous: DesktopAppState | null = null;
+    const publish = (state: DesktopAppState) => {
+      if (!active) return;
+      for (const event of buildDesktopStatePatchEvents(previous, state)) {
+        listener(event);
+      }
+      previous = state;
+    };
+    this.statePatchListeners.add(publish);
+    void this.initialize()
+      .then(() => {
+        if (active && previous === null) {
+          publish(this.state);
+        }
+      })
+      .catch((error) => logIgnoredError("app-store.subscribe.initial-state-patches", error));
+    return () => {
+      active = false;
+      this.statePatchListeners.delete(publish);
     };
   }
 
@@ -1019,7 +1179,7 @@ export class DesktopAppStore implements AppStoreInternals {
   async updateComposerDraft(
     target: WorkspaceSessionTarget,
     composerDraft: string,
-    options?: { readonly syncToEditor?: boolean },
+    options?: { readonly syncToEditor?: boolean; readonly baseSyncNonce?: number },
   ): Promise<DesktopAppState> {
     return composer.updateComposerDraft(this, target, composerDraft, options);
   }
@@ -1036,7 +1196,7 @@ export class DesktopAppStore implements AppStoreInternals {
     textInput: string,
     options?: { readonly deliverAs?: "steer" | "followUp"; readonly messageMetadata?: unknown },
   ): Promise<DesktopAppState> {
-    return composer.submitComposer(this, textInput, options);
+    return composer.submitComposer(this, validateComposerText(textInput), options);
   }
 
   async submitComposerToSession(
@@ -1046,9 +1206,15 @@ export class DesktopAppStore implements AppStoreInternals {
       readonly attachments?: readonly ComposerAttachment[];
       readonly deliverAs?: "steer" | "followUp";
       readonly messageMetadata?: unknown;
+      readonly deferProviderForTest?: boolean;
     },
   ): Promise<DesktopAppState> {
-    return composer.submitComposerToSession(this, target, textInput, options);
+    return composer.submitComposerToSession(
+      this,
+      target,
+      validateComposerText(textInput),
+      options,
+    );
   }
 
   async getSessionComposerState(target: WorkspaceSessionTarget): Promise<SessionComposerState> {
@@ -1075,7 +1241,8 @@ export class DesktopAppStore implements AppStoreInternals {
       return this.withError("Select an existing thread before updating attachments.");
     }
     const key = sessionKey(sessionRef);
-    const next = cloneComposerAttachments(attachments);
+    validateComposerAttachmentLimits(attachments);
+    const next = cloneComposerAttachments(boundComposerAttachments(attachments));
     if (next.length > 0) {
       this.sessionState.composerAttachmentsBySession.set(key, next);
     } else {
@@ -1377,7 +1544,9 @@ export class DesktopAppStore implements AppStoreInternals {
 
     return this.withErrorHandling(async () => {
       const snapshot = await this.driver.runtimeSupervisor.refreshRuntime(ws);
+      this.runtimeByWorkspace.delete(ws.workspaceId);
       this.runtimeByWorkspace.set(ws.workspaceId, snapshot);
+      this.pruneWorkspaceRuntimes();
       this.clearExtensionUiForWorkspace(ws.workspaceId);
       await this.reloadSessionsForWorkspace(ws.workspaceId);
       await this.refreshSessionCommandsForWorkspace(ws.workspaceId);
@@ -1618,7 +1787,8 @@ export class DesktopAppStore implements AppStoreInternals {
 
   private async initializeInternal(): Promise<void> {
     try {
-      const persisted = await this.readUiState();
+      this.onInitializationStage("store:read-ui-state");
+      const persisted = await withStartupTimeout(this.readUiState(), "read UI state");
       this.state = {
         ...this.state,
         activeView: persisted.activeView ?? this.state.activeView,
@@ -1639,7 +1809,8 @@ export class DesktopAppStore implements AppStoreInternals {
         showThinking: persisted.showThinking ?? this.state.showThinking,
         desktopCustomInstructions: persisted.desktopCustomInstructions ?? this.state.desktopCustomInstructions,
       };
-      await this.migrateLegacyPersistence(persisted);
+      this.onInitializationStage("store:migrate-legacy-persistence");
+      await withStartupTimeout(this.migrateLegacyPersistence(persisted), "migrate legacy persistence");
       this.sessionState.lastViewedAtBySession.clear();
       for (const [key, viewedAt] of Object.entries(persisted.lastViewedAtBySession ?? {})) {
         if (viewedAt) {
@@ -1659,7 +1830,8 @@ export class DesktopAppStore implements AppStoreInternals {
         this.extensionCommandCompatibilityByWorkspace.set(workspaceId, records);
       }
       const initialWorkspacePaths = this.initialWorkspacePaths.map((path) => path.trim()).filter(Boolean);
-      const knownWorkspaces = await this.driver.listWorkspaces();
+      this.onInitializationStage("store:list-workspaces");
+      const knownWorkspaces = await withStartupTimeout(this.driver.listWorkspaces(), "list workspaces");
       const workspacesToSync = new Map<string, string | undefined>();
 
       for (const workspacePath of initialWorkspacePaths) {
@@ -1670,22 +1842,33 @@ export class DesktopAppStore implements AppStoreInternals {
         workspacesToSync.set(ws.path, ws.displayName);
       }
 
-      await Promise.all(
-        [...workspacesToSync.entries()].map(([workspacePath, displayName]) =>
-          this.driver.syncWorkspace(workspacePath, displayName),
+      this.onInitializationStage("store:sync-workspaces");
+      await withStartupTimeout(
+        Promise.all(
+          [...workspacesToSync.entries()].map(([workspacePath, displayName]) =>
+            this.driver.syncWorkspace(workspacePath, displayName),
+          ),
         ),
+        "synchronize workspaces",
       );
 
-      await this.refreshState({
-        selectedWorkspaceId: persisted.selectedWorkspaceId,
-        selectedSessionId: persisted.selectedSessionId,
-        composerDraft: persisted.composerDraft,
-        clearLastError: true,
-        refreshWorktrees: true,
-        hydrateSelectedSession: false,
-      });
+      this.onInitializationStage("store:refresh-state");
+      await withStartupTimeout(
+        this.refreshState({
+          selectedWorkspaceId: persisted.selectedWorkspaceId,
+          selectedSessionId: persisted.selectedSessionId,
+          composerDraft: persisted.composerDraft,
+          clearLastError: true,
+          refreshWorktrees: true,
+          hydrateSelectedSession: false,
+        }),
+        "refresh desktop state",
+      );
+      this.onInitializationStage("store:start-selected-session-hydration");
       this.startSelectedSessionHydration(this.selectedSessionRef());
+      this.onInitializationStage("store:ready");
     } catch (error) {
+      this.onInitializationStage("store:recovery");
       this.state = {
         ...createEmptyDesktopAppState(),
         lastError: error instanceof Error ? error.message : String(error),
@@ -1785,23 +1968,6 @@ export class DesktopAppStore implements AppStoreInternals {
       if (selectedWorkspaceId && !this.runtimeByWorkspace.has(selectedWorkspaceId)) {
         await this.ensureRuntimeLoaded(selectedWorkspaceId, workspacesSnapshot.workspaces);
       }
-      const secondaryWorkspacesToLoad = workspacesSnapshot.workspaces
-        .filter((workspace) => workspace.workspaceId !== selectedWorkspaceId)
-        .filter((workspace) => !this.runtimeByWorkspace.has(workspace.workspaceId));
-      const secondaryRuntimeLoads = await Promise.allSettled(
-        secondaryWorkspacesToLoad.map((workspace) => this.ensureRuntimeLoaded(workspace.workspaceId, workspacesSnapshot.workspaces)),
-      );
-      secondaryRuntimeLoads.forEach((result, index) => {
-        if (result.status === "fulfilled") {
-          return;
-        }
-        const failedWorkspace = secondaryWorkspacesToLoad[index];
-        console.warn(
-          `[pi-gui] Failed to preload runtime for ${failedWorkspace?.path ?? "unknown workspace"}: ${
-            result.reason instanceof Error ? result.reason.message : String(result.reason)
-          }`,
-        );
-      });
       for (const runtime of this.runtimeByWorkspace.values()) {
         pruneCompatibilityForRuntimeSnapshot(this.extensionCommandCompatibilityByWorkspace, runtime);
       }
@@ -1908,6 +2074,22 @@ export class DesktopAppStore implements AppStoreInternals {
 
   private async ensureTranscriptLoaded(sessionRef: SessionRef): Promise<void> {
     const key = sessionKey(sessionRef);
+    const pending = this.transcriptLoadsBySession.get(key);
+    if (pending) {
+      return pending;
+    }
+    const load = this.loadTranscript(sessionRef, key);
+    this.transcriptLoadsBySession.set(key, load);
+    try {
+      await load;
+    } finally {
+      if (this.transcriptLoadsBySession.get(key) === load) {
+        this.transcriptLoadsBySession.delete(key);
+      }
+    }
+  }
+
+  private async loadTranscript(sessionRef: SessionRef, key: string): Promise<void> {
     if (this.sessionState.loadedTranscriptKeys.has(key)) {
       const cachedTranscript = this.sessionState.transcriptCache.get(key) ?? [];
       if (cachedTranscript.length > 0 || !this.shouldReloadEmptyCachedTranscript(sessionRef)) {
@@ -1917,6 +2099,7 @@ export class DesktopAppStore implements AppStoreInternals {
       const transcript = await this.driver.getTranscript(sessionRef);
       this.sessionState.transcriptCache.set(key, transcript);
       void this.writePersistedTranscript(key, transcript);
+      this.pruneFullTranscriptCache(new Set([key]));
       return;
     }
 
@@ -1931,6 +2114,7 @@ export class DesktopAppStore implements AppStoreInternals {
 
     this.sessionState.loadedTranscriptKeys.add(key);
     this.sessionState.transcriptCache.set(key, transcript);
+    this.pruneFullTranscriptCache(new Set([key]));
   }
 
   private isCurrentDisplayModeProjection(
@@ -2032,7 +2216,11 @@ export class DesktopAppStore implements AppStoreInternals {
 
   private shouldReloadEmptyCachedTranscript(sessionRef: SessionRef): boolean {
     const session = this.sessionFromState(sessionRef);
-    return Boolean(session && (session.preview.trim() || session.status === "running"));
+    // An idle session's loaded empty transcript is authoritative. Sidebar
+    // preview text is catalog metadata and must not force the complete Pi
+    // runtime to reopen just to render a task. Running sessions are the only
+    // case where the live driver can be ahead of the resident projection.
+    return session?.status === "running";
   }
 
   async reloadTranscriptFromDriver(sessionRef: SessionRef): Promise<void> {
@@ -2041,6 +2229,7 @@ export class DesktopAppStore implements AppStoreInternals {
     this.sessionState.loadedTranscriptKeys.add(key);
     this.sessionState.transcriptCache.set(key, transcript);
     void this.writePersistedTranscript(key, transcript);
+    this.pruneFullTranscriptCache(new Set([key]));
     this.publishSelectedTranscriptFor(sessionRef);
   }
 
@@ -2095,7 +2284,10 @@ export class DesktopAppStore implements AppStoreInternals {
     workspaceId: string,
     workspaces?: readonly { workspaceId: string; path: string; displayName: string }[],
   ): Promise<void> {
-    if (this.runtimeByWorkspace.has(workspaceId)) {
+    const existing = this.runtimeByWorkspace.get(workspaceId);
+    if (existing) {
+      this.runtimeByWorkspace.delete(workspaceId);
+      this.runtimeByWorkspace.set(workspaceId, existing);
       return;
     }
 
@@ -2112,21 +2304,172 @@ export class DesktopAppStore implements AppStoreInternals {
       displayName: ws.displayName,
     });
     this.runtimeByWorkspace.set(workspaceId, snapshot);
+    this.pruneWorkspaceRuntimes();
+  }
+
+  private pruneWorkspaceRuntimes(maxResident = MAX_RESIDENT_WORKSPACE_RUNTIMES): void {
+    if (this.runtimeByWorkspace.size <= maxResident) {
+      return;
+    }
+    const protectedWorkspaceIds = new Set<string>();
+    if (this.state.selectedWorkspaceId) {
+      protectedWorkspaceIds.add(this.state.selectedWorkspaceId);
+    }
+    for (const workspace of this.state.workspaces) {
+      if (workspace.sessions.some((session) => session.status === "running")) {
+        protectedWorkspaceIds.add(workspace.id);
+      }
+    }
+    for (const workspaceId of [...this.runtimeByWorkspace.keys()]) {
+      if (this.runtimeByWorkspace.size <= maxResident) {
+        break;
+      }
+      if (protectedWorkspaceIds.has(workspaceId)) {
+        continue;
+      }
+      this.runtimeByWorkspace.delete(workspaceId);
+      this.driver.runtimeSupervisor.releaseRuntime(workspaceId);
+    }
   }
 
   async ensureSessionSubscribed(sessionRef: SessionRef): Promise<void> {
     const key = sessionKey(sessionRef);
-    if (this.sessionState.sessionSubscriptions.has(key)) {
+    const existing = this.sessionState.sessionSubscriptions.get(key);
+    if (existing) {
+      // Map insertion order is the runtime LRU. Reinsert on access so the
+      // least recently used idle runtime is the first dormancy candidate.
+      this.sessionState.sessionSubscriptions.delete(key);
+      this.sessionState.sessionSubscriptions.set(key, existing);
       return;
     }
 
-    const unsubscribe = this.driver.subscribe(sessionRef, (event) => {
-      void this.handleSessionEvent(event, key);
-    });
+    const unsubscribe = this.driver.subscribe(
+      sessionRef,
+      (event) => this.handleSessionEvent(event, key),
+    );
     this.sessionState.sessionSubscriptions.set(key, unsubscribe);
+    this.sessionState.sessionRefsByKey.set(key, { ...sessionRef });
   }
 
-  private migrateSessionSubscriptionKey(sourceKey: string, targetKey: string): void {
+  private scheduleDormantRuntimePrune(): void {
+    if (this.dormantRuntimePruneTimer) {
+      return;
+    }
+    this.dormantRuntimePruneTimer = setTimeout(() => {
+      this.dormantRuntimePruneTimer = undefined;
+      void this.pruneDormantSessionRuntimes().catch((error: unknown) => {
+        logIgnoredError("app-store.prune-dormant-session-runtimes", error);
+      });
+    }, 0);
+  }
+
+  private async pruneDormantSessionRuntimes(maxResident = MAX_RESIDENT_SESSION_RUNTIMES): Promise<void> {
+    if (
+      this.sessionState.sessionSubscriptions.size <= maxResident
+      && this.driver.getRuntimeDiagnostics().residentSessionRuntimeCount <= maxResident
+    ) {
+      return;
+    }
+
+    const protectedKeys = new Set<string>();
+    const selectedKey = this.currentSelectedSessionKey();
+    if (selectedKey) {
+      protectedKeys.add(selectedKey);
+    }
+    for (const key of this.transcriptPersistTimers.keys()) {
+      protectedKeys.add(key);
+    }
+    for (const workspace of this.state.workspaces) {
+      for (const session of workspace.sessions) {
+        const key = sessionKey({ workspaceId: workspace.id, sessionId: session.id });
+        if (session.status === "running") {
+          protectedKeys.add(key);
+        }
+        const extensionUi = this.sessionState.extensionUiBySession.get(key);
+        if (extensionUi && extensionUi.pendingDialogs.length > 0) {
+          protectedKeys.add(key);
+        }
+      }
+    }
+
+    const refsByKey = new Map<string, SessionRef>(this.sessionState.sessionRefsByKey);
+    for (const workspace of this.state.workspaces) {
+      for (const session of workspace.sessions) {
+        const ref = { workspaceId: workspace.id, sessionId: session.id };
+        refsByKey.set(sessionKey(ref), ref);
+      }
+    }
+
+    for (const [key, unsubscribe] of [...this.sessionState.sessionSubscriptions]) {
+      if (this.sessionState.sessionSubscriptions.size <= maxResident) {
+        break;
+      }
+      if (protectedKeys.has(key)) {
+        continue;
+      }
+      const sessionRef = refsByKey.get(key);
+      if (!sessionRef) {
+        continue;
+      }
+
+      // Stop downstream delivery before releasing the SDK runtime. If the
+      // supervisor rejects dormancy because live work appeared, immediately
+      // restore the subscription.
+      unsubscribe();
+      this.sessionState.sessionSubscriptions.delete(key);
+      this.sessionState.sessionRefsByKey.delete(key);
+      const suspended = await this.driver.suspendSessionRuntime(sessionRef);
+      if (!suspended) {
+        await this.ensureSessionSubscribed(sessionRef);
+        protectedKeys.add(key);
+        continue;
+      }
+
+      this.sessionState.sessionCommandsBySession.delete(key);
+      this.sessionState.extensionUiBySession.delete(key);
+      this.sessionState.runtimeJobsBySession.delete(key);
+      this.sessionState.activeAssistantMessageBySession.delete(key);
+      this.sessionState.activeThinkingItemBySession.delete(key);
+      this.sessionState.activeWorkingActivityBySession.delete(key);
+      this.sessionState.runningSinceBySession.delete(key);
+      this.sessionState.runMetricsBySession.delete(key);
+      this.diagnostics.dormantSessionEvictions += 1;
+    }
+
+    // A runtime can be opened immediately before its subscription is
+    // registered (for example during hydration). Reconcile against the
+    // supervisor's actual resident set so those short races cannot leave
+    // unowned idle runtimes above the ceiling.
+    for (const sessionRef of this.driver.getResidentSessionRefs()) {
+      if (this.driver.getRuntimeDiagnostics().residentSessionRuntimeCount <= maxResident) {
+        break;
+      }
+      const key = sessionKey(sessionRef);
+      if (protectedKeys.has(key) || this.sessionState.sessionSubscriptions.has(key)) {
+        continue;
+      }
+      const suspended = await this.driver.suspendSessionRuntime(sessionRef);
+      if (!suspended) {
+        protectedKeys.add(key);
+        continue;
+      }
+      this.sessionState.sessionCommandsBySession.delete(key);
+      this.sessionState.extensionUiBySession.delete(key);
+      this.sessionState.runtimeJobsBySession.delete(key);
+      this.sessionState.activeAssistantMessageBySession.delete(key);
+      this.sessionState.activeThinkingItemBySession.delete(key);
+      this.sessionState.activeWorkingActivityBySession.delete(key);
+      this.sessionState.runningSinceBySession.delete(key);
+      this.sessionState.runMetricsBySession.delete(key);
+      this.diagnostics.dormantSessionEvictions += 1;
+    }
+  }
+
+  private migrateSessionSubscriptionKey(
+    sourceKey: string,
+    targetKey: string,
+    targetRef?: SessionRef,
+  ): void {
     if (sourceKey === targetKey) {
       return;
     }
@@ -2144,6 +2487,11 @@ export class DesktopAppStore implements AppStoreInternals {
 
     this.sessionState.sessionSubscriptions.delete(sourceKey);
     this.sessionState.sessionSubscriptions.set(targetKey, unsubscribe);
+    const sessionRef = targetRef ?? this.sessionState.sessionRefsByKey.get(sourceKey);
+    this.sessionState.sessionRefsByKey.delete(sourceKey);
+    if (sessionRef) {
+      this.sessionState.sessionRefsByKey.set(targetKey, { ...sessionRef });
+    }
   }
 
   async cancelPendingDialogsForSession(sessionRef: SessionRef): Promise<void> {
@@ -2391,7 +2739,7 @@ export class DesktopAppStore implements AppStoreInternals {
   private async handleSessionEvent(event: SessionDriverEvent, subscriptionKey = sessionKey(event.sessionRef)): Promise<void> {
     const key = sessionKey(event.sessionRef);
     if (subscriptionKey !== key) {
-      this.migrateSessionSubscriptionKey(subscriptionKey, key);
+      this.migrateSessionSubscriptionKey(subscriptionKey, key, event.sessionRef);
     }
 
     await this.enqueueSessionEventWork(async () => {
@@ -2554,8 +2902,19 @@ export class DesktopAppStore implements AppStoreInternals {
         this.startSelectedSessionHydration(event.sessionRef);
       }
     }
+    const transcriptAfter = this.sessionState.transcriptCache.get(key) ?? [];
+    const transcriptChanged = transcriptMarkerBefore !== transcriptPublishMarker(transcriptAfter);
     if (event.type !== "hostUiRequest") {
-      this.persistTranscriptCacheForSession(event.sessionRef);
+      if (transcriptChanged) {
+        await this.persistTranscriptCacheForSession(event.sessionRef, {
+          immediate:
+            event.type === "runCompleted"
+            || event.type === "runFailed"
+            || event.type === "sessionClosed",
+        });
+      } else {
+        this.refreshDisplayModeProjectionFromResidentTranscript(event.sessionRef, transcriptAfter);
+      }
     }
     if (event.type === "runCompleted" || event.type === "runFailed" || event.type === "sessionClosed") {
       await this.persistUiState();
@@ -2563,12 +2922,13 @@ export class DesktopAppStore implements AppStoreInternals {
       this.schedulePersistUiState();
     }
     const snapshot = this.emit();
-    const transcriptAfter = this.sessionState.transcriptCache.get(key) ?? [];
-    if (transcriptMarkerBefore !== transcriptPublishMarker(transcriptAfter)) {
-      this.publishSelectedTranscriptFor(event.sessionRef);
+    if (transcriptChanged) {
       this.publishTranscriptDeltaFor(event.sessionRef, transcriptBefore, transcriptAfter);
     }
     await this.emitSessionEvent(event, snapshot);
+    if (event.type === "runCompleted" || event.type === "runFailed" || event.type === "sessionClosed") {
+      this.scheduleDormantRuntimePrune();
+    }
   }
 
   workspaceRefFromState(workspaceId: string): WorkspaceRef | undefined {
@@ -2861,7 +3221,10 @@ export class DesktopAppStore implements AppStoreInternals {
     await this.queueStore.write(sessionKey(sessionRef), messages);
   }
 
-  persistTranscriptCacheForSession(sessionRef: SessionRef): void {
+  async persistTranscriptCacheForSession(
+    sessionRef: SessionRef,
+    options: { readonly immediate?: boolean } = {},
+  ): Promise<void> {
     const key = sessionKey(sessionRef);
     const residentTranscript = this.sessionState.transcriptCache.get(key);
     if (!residentTranscript) {
@@ -2871,13 +3234,26 @@ export class DesktopAppStore implements AppStoreInternals {
     const existing = this.transcriptPersistTimers.get(key);
     if (existing) {
       clearTimeout(existing);
+      this.transcriptPersistTimers.delete(key);
+    }
+
+    if (options.immediate) {
+      const transcript = residentTranscript.map(cloneTranscriptMessage);
+      try {
+        await this.writePersistedTranscript(key, transcript);
+      } finally {
+        this.pruneFullTranscriptCache();
+      }
+      return;
     }
 
     const timer = setTimeout(() => {
       this.transcriptPersistTimers.delete(key);
       const transcript = (this.sessionState.transcriptCache.get(key) ?? []).map(cloneTranscriptMessage);
-      void this.writePersistedTranscript(key, transcript);
-    }, 250);
+      void this.writePersistedTranscript(key, transcript)
+        .catch((error) => logIgnoredError("app-store.transcript-persist", error))
+        .finally(() => this.pruneFullTranscriptCache());
+    }, TRANSCRIPT_PERSIST_DEBOUNCE_MS);
 
     this.transcriptPersistTimers.set(key, timer);
   }
@@ -2959,6 +3335,29 @@ export class DesktopAppStore implements AppStoreInternals {
       : "";
   }
 
+  pruneFullTranscriptCache(
+    additionalProtectedKeys: ReadonlySet<string> = new Set(),
+    maxEntries = FULL_TRANSCRIPT_CACHE_MAX_ENTRIES,
+    maxBytes = FULL_TRANSCRIPT_CACHE_MAX_BYTES,
+  ): void {
+    const protectedKeys = new Set(additionalProtectedKeys);
+    const selectedKey = this.currentSelectedSessionKey();
+    if (selectedKey) {
+      protectedKeys.add(selectedKey);
+    }
+    for (const key of this.transcriptPersistTimers.keys()) {
+      protectedKeys.add(key);
+    }
+    for (const workspace of this.state.workspaces) {
+      for (const session of workspace.sessions) {
+        if (session.status === "running") {
+          protectedKeys.add(sessionKey({ workspaceId: workspace.id, sessionId: session.id }));
+        }
+      }
+    }
+    this.sessionState.pruneTranscriptCache(protectedKeys, maxEntries, maxBytes);
+  }
+
   private isSelectedSession(sessionRef: SessionRef): boolean {
     const selected = this.selectedSessionRef();
     return Boolean(
@@ -2968,11 +3367,23 @@ export class DesktopAppStore implements AppStoreInternals {
     );
   }
 
-  private buildSelectedTranscriptRecord(sessionRef: SessionRef): SelectedTranscriptRecord {
+  private buildSelectedTranscriptRecord(
+    sessionRef: SessionRef,
+    options?: SelectedTranscriptRequestOptions,
+  ): SelectedTranscriptRecord {
     return {
       workspaceId: sessionRef.workspaceId,
       sessionId: sessionRef.sessionId,
-      transcript: (this.sessionState.transcriptCache.get(sessionKey(sessionRef)) ?? []).map(cloneTranscriptMessage),
+      transcript: projectTranscriptForRenderer(
+        this.sessionState.transcriptCache.get(sessionKey(sessionRef)) ?? [],
+        options?.recoveryMode
+          ? {
+              maxRows: RECOVERY_TRANSCRIPT_MAX_ROWS,
+              maxBytes: RECOVERY_TRANSCRIPT_MAX_BYTES,
+              maxImageBytes: RECOVERY_MESSAGE_IMAGE_BYTES,
+            }
+          : undefined,
+      ),
     };
   }
 
@@ -2989,7 +3400,7 @@ export class DesktopAppStore implements AppStoreInternals {
       workspaceId: payload.workspaceId,
       sessionId: payload.sessionId,
       sequence: this.nextTranscriptSequenceFor(payload),
-      transcript: payload.transcript.map(cloneTranscriptMessage),
+      transcript: payload.transcript,
     };
   }
 
@@ -2999,7 +3410,7 @@ export class DesktopAppStore implements AppStoreInternals {
     }
   }
 
-  private publishTranscriptDeltaFor(
+  publishTranscriptDeltaFor(
     sessionRef: SessionRef,
     before: readonly TranscriptMessage[],
     after: readonly TranscriptMessage[],
@@ -3025,7 +3436,7 @@ export class DesktopAppStore implements AppStoreInternals {
       return {
         kind: "append",
         ...base,
-        items: after.slice(before.length).map(cloneTranscriptMessage),
+        items: after.slice(before.length).map((message) => projectTranscriptMessageForRenderer(message)),
       };
     }
 
@@ -3037,7 +3448,7 @@ export class DesktopAppStore implements AppStoreInternals {
       return {
         kind: "update-last",
         ...base,
-        item: cloneTranscriptMessage(after[after.length - 1] as TranscriptMessage),
+        item: projectTranscriptMessageForRenderer(after[after.length - 1] as TranscriptMessage),
       };
     }
 
@@ -3059,11 +3470,14 @@ export class DesktopAppStore implements AppStoreInternals {
     return {
       kind: "reset",
       ...base,
-      transcript: after.map(cloneTranscriptMessage),
+      transcript: projectTranscriptForRenderer(after),
     };
   }
 
   emit(): DesktopAppState {
+    for (const listener of this.statePatchListeners) {
+      listener(this.state);
+    }
     const snapshot = structuredClone(this.state);
     this.diagnostics.statePublishCount += 1;
     for (const listener of this.listeners) {
@@ -3153,6 +3567,9 @@ export class DesktopAppStore implements AppStoreInternals {
 
   private async hydrateSelectedSessionAfterSelection(sessionRef: SessionRef, selectionEpoch: number): Promise<void> {
     const runtimeMissing = !this.runtimeByWorkspace.has(sessionRef.workspaceId);
+    const key = sessionKey(sessionRef);
+    const transcriptWasPublishedFromCache = this.sessionState.loadedTranscriptKeys.has(key);
+    const transcriptMarkerBefore = transcriptPublishMarker(this.sessionState.transcriptCache.get(key) ?? []);
     const [snapshot] = await Promise.all([
       this.ensureSessionReady(sessionRef),
       this.ensureComposerAttachmentsLoaded(sessionRef),
@@ -3173,7 +3590,11 @@ export class DesktopAppStore implements AppStoreInternals {
     this.markSessionViewed(sessionRef);
     this.schedulePersistUiState();
     this.emit();
-    this.publishSelectedTranscriptFor(sessionRef);
+    const transcriptMarkerAfter = transcriptPublishMarker(this.sessionState.transcriptCache.get(key) ?? []);
+    if (!transcriptWasPublishedFromCache || transcriptMarkerBefore !== transcriptMarkerAfter) {
+      this.publishSelectedTranscriptFor(sessionRef);
+    }
+    this.scheduleDormantRuntimePrune();
   }
 
   private startSelectedSessionHydration(sessionRef: SessionRef | undefined): void {

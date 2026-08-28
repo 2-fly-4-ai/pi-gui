@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { CloseIcon, PlusIcon } from "./icons";
-import type { ProjectActionRecord } from "./project-actions";
+import type { ProjectActionIcon, ProjectActionRecord } from "./project-actions";
 
 interface AddActionDialogProps {
   readonly initialAction?: ProjectActionRecord;
@@ -10,6 +10,10 @@ interface AddActionDialogProps {
     readonly command: string;
     readonly keybinding?: string;
     readonly runOnWorktreeCreation: boolean;
+    readonly icon: ProjectActionIcon;
+    readonly previewUrl?: string;
+    readonly autoOpenPreview: boolean;
+    readonly primary: boolean;
   }) => void;
 }
 
@@ -18,6 +22,10 @@ export function AddActionDialog({ initialAction, onClose, onSave }: AddActionDia
   const [keybinding, setKeybinding] = useState(initialAction?.keybinding ?? "");
   const [command, setCommand] = useState(initialAction?.command ?? "");
   const [runOnWorktreeCreation, setRunOnWorktreeCreation] = useState(initialAction?.runOnWorktreeCreation ?? false);
+  const [icon, setIcon] = useState<ProjectActionIcon>(initialAction?.icon ?? "play");
+  const [previewUrl, setPreviewUrl] = useState(initialAction?.previewUrl ?? "");
+  const [autoOpenPreview, setAutoOpenPreview] = useState(initialAction?.autoOpenPreview ?? false);
+  const [primary, setPrimary] = useState(initialAction?.primary ?? false);
   const nameRef = useRef<HTMLInputElement | null>(null);
   const canSave = name.trim().length > 0 && command.trim().length > 0;
 
@@ -70,12 +78,47 @@ export function AddActionDialog({ initialAction, onClose, onSave }: AddActionDia
           />
         </label>
 
+        <div className="action-dialog__field-grid">
+          <label className="action-dialog__field">
+            <span>Icon</span>
+            <select value={icon} onChange={(event) => setIcon(event.target.value as ProjectActionIcon)}>
+              <option value="play">Run</option>
+              <option value="test">Test</option>
+              <option value="build">Build</option>
+              <option value="deploy">Deploy</option>
+              <option value="preview">Preview</option>
+              <option value="terminal">Terminal</option>
+            </select>
+          </label>
+          <label className="action-dialog__field">
+            <span>Preview URL (optional)</span>
+            <input
+              value={previewUrl}
+              placeholder="http://localhost:3000"
+              onChange={(event) => setPreviewUrl(event.target.value)}
+            />
+          </label>
+        </div>
+
         <label className="action-dialog__toggle-row">
           <span>Run automatically on worktree creation</span>
           <input
             checked={runOnWorktreeCreation}
             type="checkbox"
             onChange={(event) => setRunOnWorktreeCreation(event.target.checked)}
+          />
+        </label>
+        <label className="action-dialog__toggle-row">
+          <span>Make this the primary project action</span>
+          <input checked={primary} type="checkbox" onChange={(event) => setPrimary(event.target.checked)} />
+        </label>
+        <label className="action-dialog__toggle-row">
+          <span>Open the preview after a successful start</span>
+          <input
+            checked={autoOpenPreview}
+            disabled={!previewUrl.trim()}
+            type="checkbox"
+            onChange={(event) => setAutoOpenPreview(event.target.checked)}
           />
         </label>
 
@@ -90,6 +133,10 @@ export function AddActionDialog({ initialAction, onClose, onSave }: AddActionDia
               command,
               ...(keybinding.trim() ? { keybinding } : {}),
               runOnWorktreeCreation,
+              icon,
+              ...(previewUrl.trim() ? { previewUrl: previewUrl.trim() } : {}),
+              autoOpenPreview: Boolean(previewUrl.trim()) && autoOpenPreview,
+              primary,
             })}
           >
             Save action

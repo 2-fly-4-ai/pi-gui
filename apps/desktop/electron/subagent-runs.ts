@@ -97,6 +97,10 @@ export class SubagentRunStore {
       .submitComposerToSession(input.target, buildSubagentWorkflowPrompt(workflow, input.userInstruction, workflowRunId), {
         deliverAs: "followUp",
         messageMetadata: buildSubagentWorkflowMessageMetadata(workflow, workflowRunId),
+        // Core UI tests exercise workflow persistence and synthetic lifecycle
+        // events. Record the real prompt and metadata while keeping the fake
+        // provider credential completely offline.
+        deferProviderForTest: process.env.PI_APP_TEST_DEFER_SUBAGENT_WORKFLOW === "1",
       })
       .then((state) => {
         if (state.lastError) {
