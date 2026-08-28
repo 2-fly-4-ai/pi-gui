@@ -5,26 +5,17 @@ import { spawnSync } from "node:child_process";
 
 const SPEC_GROUPS = [
   [
-    "timeline-native-scroll.spec.ts", "display-mode.spec.ts", "appearance-settings.spec.ts",
-    "subagent-timeline-card.spec.ts", "navigation.spec.ts", "skill-profiles.spec.ts",
-    "provider-settings.spec.ts", "mentions-diff.spec.ts", "timeline-minimap.spec.ts",
-    "security-policies.spec.ts", "resource-inspector.spec.ts", "task-evidence-ledger.spec.ts",
-    "t3-resource-performance.spec.ts", "focus-mode.spec.ts", "contextual-result-actions.spec.ts",
+    "timeline-native-scroll.spec.ts", "appearance-settings.spec.ts", "navigation.spec.ts",
+    "mentions-diff.spec.ts", "focus-mode.spec.ts", "contextual-result-actions.spec.ts",
+    "resource-inspector.spec.ts", "security-policies.spec.ts",
   ],
   [
-    "timeline-pinning.spec.ts", "chat-performance.spec.ts", "queued-messages.spec.ts",
-    "new-thread-auto-title.spec.ts", "smoke.spec.ts", "project-actions-prompt-shelf.spec.ts",
-    "persistence.spec.ts", "extension-dock.spec.ts", "thread-return-hydration.spec.ts",
-    "session-cwd.spec.ts", "reopen-state.spec.ts", "notification-settings.spec.ts",
-    "git-quick-actions.spec.ts", "context-inspector.spec.ts",
+    "timeline-pinning.spec.ts", "new-thread-auto-title.spec.ts", "persistence.spec.ts",
+    "thread-return-hydration.spec.ts", "reopen-state.spec.ts",
   ],
   [
-    "timeline-layout.spec.ts", "new-thread-composer.spec.ts", "skills-settings.spec.ts",
-    "worktrees.spec.ts", "integrated-review-mode.spec.ts", "update-status.spec.ts",
-    "thread-return-subagents.spec.ts", "approval-center.spec.ts", "workspace-menu.spec.ts",
-    "session-dormancy.spec.ts", "renderer-recovery.spec.ts", "terminal-diff-layout.spec.ts",
-    "change-intelligence-review.spec.ts", "model-scope-toggle.spec.ts", "composer-quotas.spec.ts",
-    "project-actions.spec.ts",
+    "new-thread-composer.spec.ts", "skills-settings.spec.ts", "worktrees.spec.ts",
+    "update-status.spec.ts", "workspace-menu.spec.ts",
   ],
   [
     "timeline-thinking.spec.ts", "composer-drag-drop.spec.ts", "composer-controls.spec.ts",
@@ -40,6 +31,22 @@ const SPEC_GROUPS = [
     "desktop-custom-instructions.spec.ts", "usage-dashboard.spec.ts", "timeline-compression.spec.ts",
     "side-browser-panel.spec.ts", "startup-lifecycle.spec.ts", "archive.spec.ts",
     "command-preview.spec.ts", "execution-boundary.spec.ts", "project-knowledge.spec.ts",
+  ],
+  [
+    "display-mode.spec.ts", "subagent-timeline-card.spec.ts", "skill-profiles.spec.ts",
+    "provider-settings.spec.ts", "timeline-minimap.spec.ts", "task-evidence-ledger.spec.ts",
+    "t3-resource-performance.spec.ts",
+  ],
+  [
+    "chat-performance.spec.ts", "queued-messages.spec.ts", "smoke.spec.ts",
+    "project-actions-prompt-shelf.spec.ts", "extension-dock.spec.ts", "session-cwd.spec.ts",
+    "notification-settings.spec.ts", "git-quick-actions.spec.ts", "context-inspector.spec.ts",
+  ],
+  [
+    "timeline-layout.spec.ts", "integrated-review-mode.spec.ts", "thread-return-subagents.spec.ts",
+    "approval-center.spec.ts", "session-dormancy.spec.ts", "renderer-recovery.spec.ts",
+    "terminal-diff-layout.spec.ts", "change-intelligence-review.spec.ts", "model-scope-toggle.spec.ts",
+    "composer-quotas.spec.ts", "project-actions.spec.ts",
   ],
 ];
 

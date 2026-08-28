@@ -125,13 +125,16 @@ export function ConversationTimeline({
     [attentionMarkers],
   );
   const [activeMarkerIndex, setActiveMarkerIndex] = useState(0);
-  const [activeTargetRowId, setActiveTargetRowId] = useState<string>();
+  const [activeTarget, setActiveTarget] = useState<{
+    readonly sessionKey: string;
+    readonly rowId: string;
+  }>();
+  const activeTargetRowId = activeTarget?.sessionKey === timelineSessionKey
+    ? activeTarget.rowId
+    : undefined;
   useEffect(() => {
     setActiveMarkerIndex((current) => Math.min(current, Math.max(0, completionMarkers.length - 1)));
   }, [completionMarkers.length]);
-  useEffect(() => {
-    setActiveTargetRowId(undefined);
-  }, [timelineSessionKey]);
   const minimapSegments = useMemo(
     () => minimapEnabled ? buildTimelineMinimap(stableTranscript, displayRows, attentionMarkers) : [],
     [attentionMarkers, displayRows, minimapEnabled, stableTranscript],
@@ -301,7 +304,7 @@ export function ConversationTimeline({
     const rowIndex = displayRows.findIndex((row) => row.id === rowId);
     const pane = timelinePaneRef.current as TimelinePaneElement | null;
     if (!pane || rowIndex < 0) return;
-    setActiveTargetRowId(rowId);
+    setActiveTarget({ sessionKey: timelineSessionKey, rowId });
     onTimelineNavigate();
     const approximateOffset = displayRows.length > 1
       ? rowIndex / (displayRows.length - 1) * Math.max(0, pane.scrollHeight - pane.clientHeight)
@@ -336,7 +339,7 @@ export function ConversationTimeline({
     } else {
       highlight();
     }
-  }, [displayRows, onTimelineNavigate, timelinePaneRef]);
+  }, [displayRows, onTimelineNavigate, timelinePaneRef, timelineSessionKey]);
 
   const navigateToMarker = useCallback((requestedIndex: number) => {
     if (completionMarkers.length === 0) return;
