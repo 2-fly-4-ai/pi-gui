@@ -302,7 +302,12 @@ export function ConversationTimeline({
 
   const navigateToRow = useCallback((rowId: string) => {
     const rowIndex = displayRows.findIndex((row) => row.id === rowId);
-    const pane = timelinePaneRef.current as TimelinePaneElement | null;
+    const referencedPane = timelinePaneRef.current as TimelinePaneElement | null;
+    const pane = referencedPane?.dataset.timelineSessionKey === timelineSessionKey
+      ? referencedPane
+      : document.querySelector<TimelinePaneElement>(
+        `[data-testid="timeline-pane"][data-timeline-session-key="${CSS.escape(timelineSessionKey)}"]`,
+      );
     if (!pane || rowIndex < 0) return;
     setActiveTarget({ sessionKey: timelineSessionKey, rowId });
     onTimelineNavigate();
@@ -561,25 +566,53 @@ function LegendTranscriptList({
   readonly activeTargetRowId?: string;
 }) {
   const legendListRef = useRef<LegendListRef | null>(null);
+  const activeTargetIndex = useMemo(
+    () => activeTargetRowId ? transcript.findIndex((row) => row.id === activeTargetRowId) : -1,
+    [activeTargetRowId, transcript],
+  );
   const extraData = useMemo(
     () => ({ activeTargetRowId, expandedToolCallIds, markersByRow }),
     [activeTargetRowId, expandedToolCallIds, markersByRow],
   );
 
   useLayoutEffect(() => {
-    const node = legendListRef.current?.getScrollableNode?.();
-    const pane = node instanceof HTMLDivElement ? (node as TimelinePaneElement) : null;
-    if (pane) {
-      pane.__legendListRef = legendListRef.current;
-    }
-    assignTimelinePaneRef(pane);
+    let frame: number | undefined;
+    let pane: TimelinePaneElement | null = null;
+    let attempts = 0;
+    const connectPane = () => {
+      const node = legendListRef.current?.getScrollableNode?.();
+      pane = node instanceof HTMLDivElement ? (node as TimelinePaneElement) : null;
+      if (pane) {
+        pane.__legendListRef = legendListRef.current;
+        assignTimelinePaneRef(pane);
+        return;
+      }
+      attempts += 1;
+      if (attempts < 60) frame = window.requestAnimationFrame(connectPane);
+    };
+    connectPane();
     return () => {
+      if (frame !== undefined) window.cancelAnimationFrame(frame);
       if (pane) {
         pane.__legendListRef = null;
       }
       assignTimelinePaneRef(null);
     };
   }, [assignTimelinePaneRef]);
+
+  useLayoutEffect(() => {
+    if (activeTargetIndex < 0) return undefined;
+    let frame = window.requestAnimationFrame(() => {
+      frame = window.requestAnimationFrame(() => {
+        void legendListRef.current?.scrollToIndex?.({
+          index: activeTargetIndex,
+          animated: false,
+          viewPosition: 0.5,
+        });
+      });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [activeTargetIndex]);
 
   const renderItem = useCallback(({ item }: { item: TimelineDisplayRow }) => (
     <div
