@@ -379,6 +379,7 @@ export function ConversationTimeline({
           timelineSessionKey={timelineSessionKey}
           transcript={displayRows}
           scrollbarDragging={scrollbarDragging}
+          followLatest={!showJumpToLatest}
           assignTimelinePaneRef={assignTimelinePaneRef}
           onTimelineScroll={onTimelineScroll}
           expandedToolCallIds={expandedToolCallIds}
@@ -532,6 +533,7 @@ function LegendTranscriptList({
   timelineSessionKey,
   transcript,
   scrollbarDragging,
+  followLatest,
   assignTimelinePaneRef,
   onTimelineScroll,
   expandedToolCallIds,
@@ -546,6 +548,7 @@ function LegendTranscriptList({
   readonly timelineSessionKey: string;
   readonly transcript: readonly TimelineDisplayRow[];
   readonly scrollbarDragging: boolean;
+  readonly followLatest: boolean;
   readonly assignTimelinePaneRef: RefCallback<HTMLDivElement>;
   readonly onTimelineScroll: () => void;
   readonly expandedToolCallIds: ReadonlySet<string>;
@@ -606,9 +609,9 @@ function LegendTranscriptList({
       estimatedItemSize={90}
       drawDistance={2_400}
       initialScrollAtEnd
-      maintainScrollAtEnd={!scrollbarDragging}
+      maintainScrollAtEnd={followLatest && !scrollbarDragging}
       maintainScrollAtEndThreshold={0.1}
-      maintainVisibleContentPosition={!scrollbarDragging}
+      maintainVisibleContentPosition={followLatest && !scrollbarDragging}
       recycleItems
       extraData={extraData}
       onItemSizeChanged={onContentHeightChange}

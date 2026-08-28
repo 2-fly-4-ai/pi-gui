@@ -128,7 +128,7 @@ test("shows queued messages while running and preserves attachments through inli
     const composer = window.getByTestId("composer");
 
     await composer.click();
-    await window.keyboard.type("local scratch draft");
+    await composer.fill("local scratch draft");
     await pasteTinyPng(window, "local-draft.png");
     await expect(window.locator(".composer-attachment__name")).toContainText("local-draft.png");
 
