@@ -11,6 +11,11 @@ export { RuntimeSupervisor } from "./runtime-supervisor.js";
 export type { PiSdkDriverOptions, SyncWorkspaceResult } from "./session-supervisor.js";
 export { SessionSupervisor } from "./session-supervisor.js";
 export { sessionKey } from "./session-supervisor-utils.js";
+export {
+  DEFAULT_DESKTOP_SUBAGENT_MAX_TURNS,
+  guardSubagentToolCall,
+  subagentRuntimeGuardExtension,
+} from "./subagent-runtime-guard.js";
 export type { GenerateThreadTitleOptions } from "./thread-title-generator.js";
 export type {
   SessionTranscriptAttachment,

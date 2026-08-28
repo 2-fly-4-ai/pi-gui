@@ -16,6 +16,8 @@ const DEFAULT_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1_000;
 const DEFAULT_QUERY_LIMIT = 200;
 const MAX_QUERY_LIMIT = 1_000;
 const MAX_SUMMARY_LENGTH = 500;
+const DEFAULT_WRITE_DEBOUNCE_MS = 1_000;
+const DEFAULT_MAX_RESIDENT_WORKSPACES = 8;
 
 interface PersistedTaskEvidenceLedger {
   readonly schemaVersion: typeof LEDGER_STORE_SCHEMA_VERSION;
@@ -34,6 +36,7 @@ export interface TaskEvidenceLedgerOptions {
     workspaceId: string,
     records: readonly TaskEvidenceRecord[],
   ) => void;
+  readonly maxResidentWorkspaces?: number;
 }
 
 export class TaskEvidenceLedger {
@@ -41,9 +44,13 @@ export class TaskEvidenceLedger {
   private readonly recordsByWorkspace = new Map<string, TaskEvidenceRecord[]>();
   private readonly loadPromises = new Map<string, Promise<void>>();
   private readonly writeQueues = new Map<string, Promise<void>>();
+  private readonly writeTimers = new Map<string, NodeJS.Timeout>();
+  private readonly dirtyWorkspaces = new Set<string>();
+  private readonly workspaceAccessOrder = new Map<string, true>();
   private readonly maxRecords: number;
   private readonly maxAgeMs: number;
   private readonly now: () => Date;
+  private readonly maxResidentWorkspaces: number;
 
   constructor(
     userDataDir: string,
@@ -52,6 +59,10 @@ export class TaskEvidenceLedger {
     this.fileStore = new JsonFileStore<unknown>(userDataDir, "task-evidence");
     this.maxRecords = positiveInteger(options.maxRecords, DEFAULT_MAX_RECORDS);
     this.maxAgeMs = positiveInteger(options.maxAgeMs, DEFAULT_MAX_AGE_MS);
+    this.maxResidentWorkspaces = positiveInteger(
+      options.maxResidentWorkspaces,
+      DEFAULT_MAX_RESIDENT_WORKSPACES,
+    );
     this.now = options.now ?? (() => new Date());
   }
 
@@ -74,7 +85,10 @@ export class TaskEvidenceLedger {
     return normalized;
   }
 
-  async appendMany(records: readonly TaskEvidenceRecord[]): Promise<readonly TaskEvidenceRecord[]> {
+  async appendMany(
+    records: readonly TaskEvidenceRecord[],
+    options: { readonly deferPersistence?: boolean } = {},
+  ): Promise<readonly TaskEvidenceRecord[]> {
     const appended: TaskEvidenceRecord[] = [];
     const grouped = new Map<string, TaskEvidenceRecord[]>();
 
@@ -89,19 +103,32 @@ export class TaskEvidenceLedger {
     for (const [workspaceId, candidates] of grouped) {
       await this.ensureLoaded(workspaceId);
       const current = this.recordsByWorkspace.get(workspaceId) ?? [];
-      const existingIds = new Set(current.map((record) => record.id));
-      const unique = candidates.filter((record) => {
-        if (existingIds.has(record.id)) return false;
-        existingIds.add(record.id);
-        return true;
-      });
-      if (unique.length === 0) continue;
-      current.push(...unique);
+      const indexById = new Map(current.map((record, index) => [record.id, index] as const));
+      const changed: TaskEvidenceRecord[] = [];
+      for (const record of candidates) {
+        const existingIndex = indexById.get(record.id);
+        if (existingIndex === undefined) {
+          indexById.set(record.id, current.length);
+          current.push(record);
+          changed.push(record);
+          continue;
+        }
+        const existing = current[existingIndex];
+        if (existing?.status === "running" && record.status === "running") {
+          current[existingIndex] = record;
+          changed.push(record);
+        }
+      }
+      if (changed.length === 0) continue;
       current.sort(compareEvidenceAscending);
       this.recordsByWorkspace.set(workspaceId, this.applyRetention(current));
-      await this.enqueueWrite(workspaceId);
-      appended.push(...unique);
-      this.options.onRecordsAppended?.(workspaceId, unique);
+      if (options.deferPersistence) {
+        this.scheduleWrite(workspaceId);
+      } else {
+        await this.enqueueWrite(workspaceId);
+      }
+      appended.push(...changed);
+      this.options.onRecordsAppended?.(workspaceId, changed);
     }
 
     return appended;
@@ -109,6 +136,7 @@ export class TaskEvidenceLedger {
 
   async query(input: TaskEvidenceQuery): Promise<TaskEvidencePage> {
     await this.ensureLoaded(input.workspaceId);
+    this.touchWorkspace(input.workspaceId);
     const limit = Math.min(positiveInteger(input.limit, DEFAULT_QUERY_LIMIT), MAX_QUERY_LIMIT);
     const kinds = input.kinds ? new Set<TaskEvidenceKind>(input.kinds) : undefined;
     const sinceMs = parseOptionalTime(input.since);
@@ -134,11 +162,24 @@ export class TaskEvidenceLedger {
   }
 
   async flush(): Promise<void> {
+    for (const [workspaceId, timer] of this.writeTimers) {
+      clearTimeout(timer);
+      this.writeTimers.delete(workspaceId);
+    }
+    await Promise.all([...this.dirtyWorkspaces].map((workspaceId) => this.enqueueWrite(workspaceId)));
     await Promise.all(this.writeQueues.values());
+    this.pruneResidentWorkspaces();
+  }
+
+  getResidentWorkspaceCount(): number {
+    return this.recordsByWorkspace.size;
   }
 
   private async ensureLoaded(workspaceId: string): Promise<void> {
-    if (this.recordsByWorkspace.has(workspaceId)) return;
+    if (this.recordsByWorkspace.has(workspaceId)) {
+      this.touchWorkspace(workspaceId);
+      return;
+    }
     const existing = this.loadPromises.get(workspaceId);
     if (existing) return existing;
 
@@ -158,9 +199,17 @@ export class TaskEvidenceLedger {
       .filter((record): record is TaskEvidenceRecord => record !== undefined)
       .sort(compareEvidenceAscending);
     this.recordsByWorkspace.set(workspaceId, this.applyRetention(records));
+    this.touchWorkspace(workspaceId);
+    this.pruneResidentWorkspaces();
   }
 
   private enqueueWrite(workspaceId: string): Promise<void> {
+    const pendingTimer = this.writeTimers.get(workspaceId);
+    if (pendingTimer) {
+      clearTimeout(pendingTimer);
+      this.writeTimers.delete(workspaceId);
+    }
+    this.dirtyWorkspaces.delete(workspaceId);
     const previous = this.writeQueues.get(workspaceId) ?? Promise.resolve();
     const next = previous
       .catch(() => undefined)
@@ -177,9 +226,23 @@ export class TaskEvidenceLedger {
         if (this.writeQueues.get(workspaceId) === next) {
           this.writeQueues.delete(workspaceId);
         }
+        this.pruneResidentWorkspaces();
       });
     this.writeQueues.set(workspaceId, next);
     return next;
+  }
+
+  private scheduleWrite(workspaceId: string): void {
+    this.dirtyWorkspaces.add(workspaceId);
+    if (this.writeTimers.has(workspaceId)) {
+      return;
+    }
+    const timer = setTimeout(() => {
+      this.writeTimers.delete(workspaceId);
+      void this.enqueueWrite(workspaceId);
+    }, DEFAULT_WRITE_DEBOUNCE_MS);
+    timer.unref?.();
+    this.writeTimers.set(workspaceId, timer);
   }
 
   private applyRetention(records: readonly TaskEvidenceRecord[]): TaskEvidenceRecord[] {
@@ -189,6 +252,27 @@ export class TaskEvidenceLedger {
       return Number.isFinite(timestamp) && timestamp >= cutoff;
     });
     return retained.slice(Math.max(0, retained.length - this.maxRecords));
+  }
+
+  private touchWorkspace(workspaceId: string): void {
+    this.workspaceAccessOrder.delete(workspaceId);
+    this.workspaceAccessOrder.set(workspaceId, true);
+  }
+
+  private pruneResidentWorkspaces(): void {
+    if (this.recordsByWorkspace.size <= this.maxResidentWorkspaces) return;
+    for (const workspaceId of this.workspaceAccessOrder.keys()) {
+      if (this.recordsByWorkspace.size <= this.maxResidentWorkspaces) break;
+      if (
+        this.dirtyWorkspaces.has(workspaceId)
+        || this.writeTimers.has(workspaceId)
+        || this.writeQueues.has(workspaceId)
+      ) {
+        continue;
+      }
+      this.recordsByWorkspace.delete(workspaceId);
+      this.workspaceAccessOrder.delete(workspaceId);
+    }
   }
 
   private normalizeRecord(

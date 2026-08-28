@@ -50,27 +50,38 @@ test("settings agents page saves built-in subagent model overrides", async () =>
     await expect(window.getByTestId("agent-definition-row-Plan")).toHaveCount(0);
     const settingsLayout = await window.evaluate(() => {
       const content = document.querySelector<HTMLElement>(".secondary-surface__content");
-      const search = document.querySelector<HTMLElement>(".settings-search");
+      const search = document.querySelector<HTMLElement>(".settings-global-search");
+      const searchInput = document.querySelector<HTMLInputElement>(".settings-global-search__input");
       const view = document.querySelector<HTMLElement>(".settings-view");
       const role = document.querySelector<HTMLElement>('[data-testid="agent-definition-row-scout"]');
-      if (!content || !search || !view || !role) {
+      if (!content || !search || !searchInput || !view || !role) {
         return undefined;
       }
       const contentBox = content.getBoundingClientRect();
       const searchBox = search.getBoundingClientRect();
       const viewBox = view.getBoundingClientRect();
       const roleBox = role.getBoundingClientRect();
+      const searchStyles = getComputedStyle(search);
+      const searchInputStyles = getComputedStyle(searchInput);
       return {
         contentWidth: contentBox.width,
         viewWidth: viewBox.width,
         alignmentDelta: Math.abs(searchBox.left - viewBox.left),
         roleWidth: roleBox.width,
+        wrapperBorderStyle: searchStyles.borderStyle,
+        inputHeight: searchInput.getBoundingClientRect().height,
+        inputBorderStyle: searchInputStyles.borderStyle,
+        inputBorderRadius: Number.parseFloat(searchInputStyles.borderRadius),
       };
     });
     expect(settingsLayout).toBeDefined();
     expect(settingsLayout!.viewWidth).toBeGreaterThan(settingsLayout!.contentWidth * 0.85);
     expect(settingsLayout!.alignmentDelta).toBeLessThanOrEqual(2);
     expect(settingsLayout!.roleWidth).toBeGreaterThan(560);
+    expect(settingsLayout!.wrapperBorderStyle).toBe("none");
+    expect(settingsLayout!.inputHeight).toBeGreaterThanOrEqual(42);
+    expect(settingsLayout!.inputBorderStyle).toBe("solid");
+    expect(settingsLayout!.inputBorderRadius).toBeGreaterThanOrEqual(8);
 
     await window.getByTestId("agent-definition-row-delegate").getByRole("button", { name: "Edit" }).click();
     const dialog = window.getByTestId("agent-definition-editor");

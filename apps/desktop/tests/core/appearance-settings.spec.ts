@@ -142,6 +142,80 @@ test("density and transcript font preferences persist and reset", async () => {
   }
 });
 
+test("theme gallery previews, cancels, applies across modes, and persists after restart", async () => {
+  const userDataDir = await makeUserDataDir();
+  const workspacePath = await makeWorkspace("theme-gallery-workspace");
+  const firstRun = await launchDesktop(userDataDir, {
+    initialWorkspaces: [workspacePath],
+    testMode: "background",
+  });
+
+  try {
+    const window = await firstRun.firstWindow();
+    await window.getByRole("button", { name: "Settings", exact: true }).click();
+    const settings = window.getByTestId("settings-surface");
+    await settings.getByRole("button", { name: "Appearance", exact: true }).click();
+    const ocean = window.locator(".theme-card", { has: window.getByRole("heading", { name: "Ocean Terminal" }) });
+    await ocean.scrollIntoViewIfNeeded();
+    await ocean.getByRole("button", { name: "Preview", exact: true }).click();
+    await expect.poll(() => window.evaluate(() => document.documentElement.dataset.paletteId)).toBe("builtin:ocean-terminal");
+    await window.getByRole("button", { name: "Cancel preview", exact: true }).click();
+    await expect.poll(() => window.evaluate(() => document.documentElement.dataset.paletteId)).toBe("builtin:pi-default");
+
+    await ocean.getByRole("button", { name: "Apply", exact: true }).click();
+    await expect.poll(() => window.evaluate(() => document.documentElement.dataset.paletteId)).toBe("builtin:ocean-terminal");
+    await window.locator('input[name="theme"][aria-label="Light"]').check();
+    await expect.poll(() => window.evaluate(() => ({
+      palette: document.documentElement.dataset.paletteId,
+      mode: document.documentElement.classList.contains("dark") ? "dark" : "light",
+      main: document.documentElement.style.getPropertyValue("--main"),
+    }))).toEqual({ palette: "builtin:ocean-terminal", mode: "light", main: "#f3f8ff" });
+    await window.locator('input[name="theme"][aria-label="Dark"]').check();
+    await expect.poll(() => window.evaluate(() => document.documentElement.style.getPropertyValue("--main"))).toBe("#111a24");
+  } finally {
+    await firstRun.close();
+  }
+
+  const secondRun = await launchDesktop(userDataDir, { testMode: "background" });
+  try {
+    const window = await secondRun.firstWindow();
+    await expect.poll(() => window.evaluate(() => ({
+      palette: document.documentElement.dataset.paletteId,
+      main: document.documentElement.style.getPropertyValue("--main"),
+    }))).toEqual({ palette: "builtin:ocean-terminal", main: "#111a24" });
+  } finally {
+    await secondRun.close();
+  }
+});
+
+test("theme gallery searches and installs bounded Open VSX color data through a deterministic main-process fake", async () => {
+  const userDataDir = await makeUserDataDir();
+  const workspacePath = await makeWorkspace("theme-gallery-openvsx-workspace");
+  const app = await launchDesktop(userDataDir, { initialWorkspaces: [workspacePath], testMode: "background" });
+  try {
+    const window = await app.firstWindow();
+    await expect.poll(() => app.electronApp.evaluate(() => Boolean((globalThis as { __PI_APP_TEST_HOOKS?: { seedOpenVsxThemeFixture?: () => void } }).__PI_APP_TEST_HOOKS?.seedOpenVsxThemeFixture))).toBe(true);
+    await app.electronApp.evaluate(() => (globalThis as { __PI_APP_TEST_HOOKS?: { seedOpenVsxThemeFixture?: () => void } }).__PI_APP_TEST_HOOKS?.seedOpenVsxThemeFixture?.());
+    await window.getByRole("button", { name: "Settings", exact: true }).click();
+    await window.getByTestId("settings-surface").getByRole("button", { name: "Appearance", exact: true }).click();
+    const search = window.getByPlaceholder("Search themes…");
+    await search.scrollIntoViewIfNeeded();
+    await search.fill("ocean");
+    await search.press("Enter");
+    const results = window.getByLabel("Open VSX theme results");
+    await expect(results).toContainText("Safe Ocean");
+    await results.getByRole("button", { name: "Install color data" }).click();
+    await expect(window.getByRole("status")).toContainText("Previewing Safe Ocean");
+    await expect.poll(() => window.evaluate(() => document.documentElement.dataset.paletteId)).toBe("openvsx:pi-test/safe-ocean");
+    await window.getByRole("button", { name: "Apply theme" }).click();
+    const installedCard = window.locator(".theme-card", { has: window.getByRole("heading", { name: "Safe Ocean" }) });
+    await expect(installedCard).toContainText("MIT");
+    await installedCard.getByRole("button", { name: "Remove" }).click();
+    await expect(installedCard).toHaveCount(0);
+    await expect.poll(() => window.evaluate(() => document.documentElement.dataset.paletteId)).toBe("builtin:pi-default");
+  } finally { await app.close(); }
+});
+
 test("appearance shuriken picker controls the thinking spinner", async () => {
   test.setTimeout(60_000);
   const userDataDir = await makeUserDataDir();

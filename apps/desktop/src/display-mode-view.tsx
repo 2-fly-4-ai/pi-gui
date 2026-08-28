@@ -1,11 +1,20 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type Dispatch, type SetStateAction } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type Dispatch,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type SetStateAction,
+} from "react";
 import type { RuntimeCommandRecord, RuntimeSnapshot } from "@pi-gui/session-driver/runtime-types";
 import { LRUCache } from "lru-cache";
 import {
   DndContext,
   DragOverlay,
   closestCenter,
-  KeyboardSensor,
   PointerSensor,
   useDroppable,
   useSensor,
@@ -17,7 +26,6 @@ import {
   arrayMove,
   rectSortingStrategy,
   SortableContext,
-  sortableKeyboardCoordinates,
 } from "@dnd-kit/sortable";
 import type {
   DesktopAppState,
@@ -39,6 +47,7 @@ import {
   statusTone,
   threadKey,
 } from "./features/display-mode/display-mode-utils";
+
 import type { PiDesktopApi } from "./ipc";
 import type { SettingsSection } from "./settings-view";
 import type { FastModeSelection } from "./fast-mode-selector";
@@ -103,6 +112,8 @@ export function DisplayModeView({
   const [tileOrder, setTileOrder] = useState<readonly string[]>([]);
   const [pinnedThreadFiles, setPinnedThreadFiles] = useState<readonly ChangedFile[]>([]);
   const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [keyboardDraggingId, setKeyboardDraggingId] = useState<string | null>(null);
+  const [keyboardDragAnnouncement, setKeyboardDragAnnouncement] = useState("");
 
   const [drawerWidth, setDrawerWidth] = useState<number>(() => lsGetNum("dm:drawerWidth", 320));
   const projectionsByThreadRef = useRef(projectionsByThread);
@@ -438,6 +449,7 @@ export function DisplayModeView({
       ...localTerminalKeys,
       ...(focusedThreadKey ? [focusedThreadKey] : []),
       ...(draggingId ? [draggingId] : []),
+      ...(keyboardDraggingId ? [keyboardDraggingId] : []),
     ]);
     for (const key of pinnedKeys) {
       const recordIndex = orderedThreads.findIndex((record) =>
@@ -451,6 +463,7 @@ export function DisplayModeView({
     firstVisibleVirtualRow,
     focusedThreadKey,
     interactionPinnedKeys,
+    keyboardDraggingId,
     lastVisibleVirtualRow,
     localTerminalKeys,
     orderedThreads,
@@ -535,6 +548,7 @@ export function DisplayModeView({
       ...localTerminalKeys,
       ...(focusedThreadKey ? [focusedThreadKey] : []),
       ...(draggingId ? [draggingId] : []),
+      ...(keyboardDraggingId ? [keyboardDraggingId] : []),
     ]);
     for (const key of pinnedKeys) {
       const recordIndex = restRecords.findIndex((record) =>
@@ -547,6 +561,7 @@ export function DisplayModeView({
     draggingId,
     focusedThreadKey,
     interactionPinnedKeys,
+    keyboardDraggingId,
     localTerminalKeys,
     restRecords,
     splitColumnCount,
@@ -616,10 +631,10 @@ export function DisplayModeView({
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
-    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
 
   const handleDragStart = (event: DragStartEvent) => {
+    setKeyboardDraggingId(null);
     setDraggingId(event.active.id as string);
   };
 
@@ -634,6 +649,67 @@ export function DisplayModeView({
       return arrayMove([...c], oi, ni);
     });
   };
+
+  const handleKeyboardDragKeyDown = useCallback((
+    id: string,
+    event: ReactKeyboardEvent<HTMLElement>,
+  ) => {
+    const isActivationKey = event.key === " " || event.key === "Enter";
+    if (isActivationKey) {
+      event.preventDefault();
+      event.stopPropagation();
+      if (keyboardDraggingId === id) {
+        setKeyboardDraggingId(null);
+        setKeyboardDragAnnouncement(`Dropped ${id}.`);
+      } else {
+        setKeyboardDraggingId(id);
+        setKeyboardDragAnnouncement(`Picked up ${id}.`);
+      }
+      return;
+    }
+    if (event.key === "Escape" && keyboardDraggingId === id) {
+      event.preventDefault();
+      event.stopPropagation();
+      setKeyboardDraggingId(null);
+      setKeyboardDragAnnouncement(`Cancelled dragging ${id}.`);
+      return;
+    }
+    if (keyboardDraggingId !== id || !["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    const records = expandedId ? restRecords : orderedThreads;
+    const columnCount = expandedId ? splitColumnCount : resolvedColumnCount;
+    const sourceIndex = records.findIndex((record) =>
+      threadKey(record.workspace.id, record.session.id) === id
+    );
+    if (sourceIndex < 0) return;
+    const offset =
+      event.key === "ArrowLeft" ? -1
+        : event.key === "ArrowRight" ? 1
+          : event.key === "ArrowUp" ? -columnCount
+            : columnCount;
+    const targetIndex = Math.max(0, Math.min(records.length - 1, sourceIndex + offset));
+    if (targetIndex === sourceIndex) return;
+    const targetRecord = records[targetIndex];
+    if (!targetRecord) return;
+    const targetId = threadKey(targetRecord.workspace.id, targetRecord.session.id);
+    setTileOrder((current) => {
+      const oldIndex = current.indexOf(id);
+      const newIndex = current.indexOf(targetId);
+      return oldIndex < 0 || newIndex < 0 ? current : arrayMove([...current], oldIndex, newIndex);
+    });
+    setKeyboardDragAnnouncement(`${id} moved over droppable area ${targetId}.`);
+  }, [
+    expandedId,
+    keyboardDraggingId,
+    orderedThreads,
+    resolvedColumnCount,
+    restRecords,
+    splitColumnCount,
+  ]);
 
   return (
     <section
@@ -650,6 +726,9 @@ export function DisplayModeView({
       data-projection-cache-count={projectionCacheRef.current.size}
       data-stale-projection-responses={staleProjectionResponseCount}
     >
+      <span className="sr-only" role="status" aria-live="assertive" aria-atomic="true">
+        {keyboardDragAnnouncement}
+      </span>
       <div
         ref={mainScrollRef}
         className={`display-mode__main${expandedId ? " display-mode__main--split" : ""}`}
@@ -773,6 +852,8 @@ export function DisplayModeView({
                 onToggleExpand={() => setExpandedId(null)}
                 onRequestProjection={requestProjection}
                 onInteractionResidencyChange={setInteractionResidency}
+                keyboardDragging={false}
+                onKeyboardDragKeyDown={handleKeyboardDragKeyDown}
               />
             </div>
             <DndContext sensors={sensors} collisionDetection={closestCenter} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
@@ -848,6 +929,8 @@ export function DisplayModeView({
                               onToggleExpand={() => setExpandedId(key)}
                               onRequestProjection={requestProjection}
                               onInteractionResidencyChange={setInteractionResidency}
+                              keyboardDragging={keyboardDraggingId === key}
+                              onKeyboardDragKeyDown={handleKeyboardDragKeyDown}
                             />
                           );
                         })}
@@ -937,6 +1020,8 @@ export function DisplayModeView({
                           onToggleExpand={() => setExpandedId((current) => current === key ? null : key)}
                           onRequestProjection={requestProjection}
                           onInteractionResidencyChange={setInteractionResidency}
+                          keyboardDragging={keyboardDraggingId === key}
+                          onKeyboardDragKeyDown={handleKeyboardDragKeyDown}
                         />
                       );
                     })}

@@ -429,5 +429,13 @@ export interface SessionDriver {
   getSessionCommands(sessionRef: SessionRef): Promise<readonly import("./runtime-types.js").RuntimeCommandRecord[]>;
   respondToHostUiRequest(sessionRef: SessionRef, response: HostUiResponse): Promise<void>;
   subscribe(sessionRef: SessionRef, listener: SessionEventListener): Unsubscribe;
+  /**
+   * Release the in-memory SDK runtime for an idle session without closing,
+   * archiving, or otherwise changing the durable session.
+   *
+   * Returns false when the session cannot be suspended safely (for example
+   * while an agent run, host UI request, or background process is active).
+   */
+  suspendSessionRuntime(sessionRef: SessionRef): Promise<boolean>;
   closeSession(sessionRef: SessionRef): Promise<void>;
 }

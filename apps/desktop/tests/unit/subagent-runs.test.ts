@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { SessionDriverEvent } from "@pi-gui/session-driver";
 import type { DesktopAppStore } from "../../electron/app-store";
 import { SubagentRunStore } from "../../electron/subagent-runs";
-import { SubagentAuditAdapter } from "../../electron/subagent-audit-adapter";
+import { SubagentAuditAdapter, type SubagentAuditLifecycleEvent } from "../../electron/subagent-audit-adapter";
 import { BUILTIN_SUBAGENT_WORKFLOWS, buildSubagentWorkflowMessageMetadata } from "../../src/subagent-workflows";
 
 const temporaryDirs: string[] = [];
@@ -270,6 +270,49 @@ describe("SubagentRunStore durable audit correlation", () => {
     }]);
     adapter.dispose();
     runStore.dispose();
+  });
+
+  it("retains parent tool correlation when completion is the first child-ID event", async () => {
+    const auditDir = await mkdtemp(join(tmpdir(), "pi-gui-subagent-direct-audit-"));
+    temporaryDirs.push(auditDir);
+    const auditPath = join(auditDir, "subagents-audit.jsonl");
+    const observed: SubagentAuditLifecycleEvent[] = [];
+    const adapter = new SubagentAuditAdapter({
+      auditPath,
+      onEvent: (event) => {
+        observed.push(event);
+      },
+    });
+
+    await appendAudit(auditPath, {
+      ts: "2026-08-22T00:00:01.000Z",
+      event: "subagent_spawn_requested",
+      toolCallId: "direct-agent-tool-call",
+      type: "general-purpose",
+      description: "Direct background child",
+      cwd: "/tmp/direct-workspace",
+    });
+    await appendAudit(auditPath, {
+      ts: "2026-08-22T00:00:02.000Z",
+      event: "subagent_completed",
+      id: "direct-agent-id",
+      status: "completed",
+      toolUses: 2,
+      durationMs: 900,
+    });
+    await adapter.scan();
+
+    expect(observed.at(-1)).toMatchObject({
+      status: "completed",
+      parentToolCallId: "direct-agent-tool-call",
+      agentId: "direct-agent-id",
+      role: "general-purpose",
+      description: "Direct background child",
+      cwd: "/tmp/direct-workspace",
+      toolUseCount: 2,
+      elapsedMs: 900,
+    });
+    adapter.dispose();
   });
 });
 

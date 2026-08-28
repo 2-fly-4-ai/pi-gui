@@ -11,6 +11,7 @@ import {
   type Skill,
 } from "@earendil-works/pi-coding-agent";
 import { SkillCatalogStore } from "./skill-catalog.js";
+import { subagentRuntimeGuardExtension } from "./subagent-runtime-guard.js";
 
 export function isGlobalNpmLookupError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
@@ -45,7 +46,7 @@ export function createSettingsManagerWithoutNpmPackages(current: SettingsManager
 async function createAgentSessionServicesWithNpmFallback(
   cwd: string,
   agentDir: string,
-  options?: Pick<CreateAgentSessionOptions, "authStorage" | "settingsManager" | "modelRegistry">,
+  options?: Pick<CreateAgentSessionOptions, "modelRuntime" | "settingsManager">,
   skillCatalog?: SkillCatalogStore,
   appendSystemPromptProvider?: () => readonly string[],
 ) {
@@ -56,9 +57,8 @@ async function createAgentSessionServicesWithNpmFallback(
     return await createAgentSessionServices({
       cwd,
       agentDir,
-      ...(options?.authStorage ? { authStorage: options.authStorage } : {}),
       ...(options?.settingsManager ? { settingsManager: options.settingsManager } : {}),
-      ...(options?.modelRegistry ? { modelRegistry: options.modelRegistry } : {}),
+      ...(options?.modelRuntime ? { modelRuntime: options.modelRuntime } : {}),
       ...createResourceLoaderOptions(skillCatalog, appendSystemPromptProvider),
     });
   } catch (error) {
@@ -81,9 +81,8 @@ async function createAgentSessionServicesWithNpmFallback(
     return createAgentSessionServices({
       cwd,
       agentDir,
-      ...(options?.authStorage ? { authStorage: options.authStorage } : {}),
       settingsManager: fallbackSettingsManager,
-      ...(options?.modelRegistry ? { modelRegistry: options.modelRegistry } : {}),
+      ...(options?.modelRuntime ? { modelRuntime: options.modelRuntime } : {}),
       ...createResourceLoaderOptions(skillCatalog, appendSystemPromptProvider),
     });
   }
@@ -131,11 +130,9 @@ function createResourceLoaderOptions(
   skillCatalog: SkillCatalogStore | undefined,
   appendSystemPromptProvider: (() => readonly string[]) | undefined,
 ) {
-  if (!skillCatalog && !appendSystemPromptProvider) {
-    return {};
-  }
   return {
     resourceLoaderOptions: {
+      extensionFactories: [subagentRuntimeGuardExtension],
       ...(skillCatalog
         ? {
             skillsOverride: (base: { skills: Skill[]; diagnostics: any[] }) => ({

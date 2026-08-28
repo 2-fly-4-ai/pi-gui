@@ -1,7 +1,6 @@
 import { access, realpath } from "node:fs/promises";
 import { resolve } from "node:path";
 import {
-  ModelRegistry,
   SessionManager,
   type AgentSessionRuntime,
   type AgentSession,
@@ -11,6 +10,7 @@ import {
   type ExtensionUIDialogOptions,
   type ExtensionUIContext,
   type ExtensionWidgetOptions,
+  type ModelRuntime,
   type SessionInfo,
 } from "@earendil-works/pi-coding-agent";
 import type { SessionCatalogSnapshot, WorkspaceCatalogSnapshot } from "@pi-gui/catalogs";
@@ -58,6 +58,7 @@ import {
   deriveSessionConfig,
   deriveWorkspaceTitle,
   mergeSessionConfigWithToolAccess,
+  normalizeLegacyAssistantMessage,
   determineRunOutcome,
   extractPreview,
   forcePersistSession,
@@ -91,7 +92,7 @@ export interface PiSdkDriverOptions {
   readonly catalogFilePath?: string;
   readonly appendSystemPromptProvider?: () => readonly string[];
   readonly createAgentSessionRuntimeImpl?: (options?: CreateAgentSessionOptions) => Promise<AgentSessionRuntime>;
-  readonly modelRegistry?: ModelRegistry;
+  readonly getModelRuntime?: () => Promise<ModelRuntime>;
   readonly generateThreadTitleOverride?: (
     workspace: WorkspaceRef,
     options: import("./thread-title-generator.js").GenerateThreadTitleOptions,
@@ -131,6 +132,8 @@ interface ManagedSessionRecord {
   closed: boolean;
   listeners: Set<SessionEventListener>;
   eventQueue: Promise<void>;
+  pendingEventBatches: QueuedDriverEventBatch[];
+  eventDrainActive: boolean;
   unsubscribeAgent: (() => void) | undefined;
   pendingHostUiRequests: Map<
     string,
@@ -143,6 +146,11 @@ interface ManagedSessionRecord {
   renderedExtensionWidgetDisposers: Map<string, () => void>;
   bindingExtensions: boolean;
   sessionCommands: RuntimeCommandRecord[];
+}
+
+interface QueuedDriverEventBatch {
+  readonly events: SessionDriverEvent[];
+  persistSnapshot: boolean;
 }
 
 interface RenderableExtensionComponent {
@@ -184,8 +192,15 @@ export class SessionSupervisor {
   private readonly catalogs: SessionFileCatalogStorage;
   private readonly createAgentSessionRuntimeImpl: (options?: CreateAgentSessionOptions) => Promise<AgentSessionRuntime>;
   private readonly appendSystemPromptProvider: (() => readonly string[]) | undefined;
-  private readonly modelRegistry: ModelRegistry | undefined;
+  private readonly getModelRuntime: (() => Promise<ModelRuntime>) | undefined;
   private readonly records = new Map<string, ManagedSessionRecord>();
+  private readonly recordOpenPromises = new Map<string, Promise<ManagedSessionRecord>>();
+  private readonly eventDiagnostics = {
+    received: 0,
+    emitted: 0,
+    coalesced: 0,
+    maxPending: 0,
+  };
 
   constructor(options: PiSdkDriverOptions = {}) {
     this.catalogs = options.catalogFilePath
@@ -199,7 +214,7 @@ export class SessionSupervisor {
         undefined,
         this.appendSystemPromptProvider,
       ));
-    this.modelRegistry = options.modelRegistry;
+    this.getModelRuntime = options.getModelRuntime;
   }
 
   listWorkspaces(): Promise<WorkspaceCatalogSnapshot> {
@@ -208,6 +223,47 @@ export class SessionSupervisor {
 
   listSessions(workspaceId?: WorkspaceId): Promise<SessionCatalogSnapshot> {
     return this.catalogs.sessions.listSessions(workspaceId);
+  }
+
+  getRuntimeDiagnostics(): {
+    readonly managedSessionCount: number;
+    readonly residentSessionRuntimeCount: number;
+    readonly runningSessionRuntimeCount: number;
+    readonly driverEventsReceived: number;
+    readonly driverEventsEmitted: number;
+    readonly driverEventsCoalesced: number;
+    readonly maxDriverEventsPending: number;
+    readonly currentDriverEventsPending: number;
+  } {
+    let residentSessionRuntimeCount = 0;
+    let runningSessionRuntimeCount = 0;
+    for (const record of this.records.values()) {
+      if (record.runtime && record.session) {
+        residentSessionRuntimeCount += 1;
+        if (record.status === "running" || record.runningRunId !== undefined) {
+          runningSessionRuntimeCount += 1;
+        }
+      }
+    }
+    return {
+      managedSessionCount: this.records.size,
+      residentSessionRuntimeCount,
+      runningSessionRuntimeCount,
+      driverEventsReceived: this.eventDiagnostics.received,
+      driverEventsEmitted: this.eventDiagnostics.emitted,
+      driverEventsCoalesced: this.eventDiagnostics.coalesced,
+      maxDriverEventsPending: this.eventDiagnostics.maxPending,
+      currentDriverEventsPending: [...this.records.values()].reduce(
+        (total, record) => total + pendingDriverEventCount(record),
+        0,
+      ),
+    };
+  }
+
+  getResidentSessionRefs(): readonly SessionRef[] {
+    return [...this.records.values()]
+      .filter((record) => Boolean(record.runtime && record.session))
+      .map((record) => ({ ...record.ref }));
   }
 
   async registerWorkspace(path: string, displayName?: string): Promise<WorkspaceRef> {
@@ -338,9 +394,10 @@ export class SessionSupervisor {
 
   async createSession(workspace: WorkspaceRef, options?: CreateSessionOptions): Promise<SessionSnapshot> {
     await this.touchWorkspace(workspace);
+    const modelRuntime = await this.getModelRuntime?.();
 
     const initialModel = options?.initialModel
-      ? this.resolveModel(options.initialModel.provider, options.initialModel.modelId)
+      ? this.resolveModel(modelRuntime, options.initialModel.provider, options.initialModel.modelId)
       : undefined;
     const bashLifecycleGeneration = 1;
     let boundRecord: ManagedSessionRecord | undefined;
@@ -354,7 +411,7 @@ export class SessionSupervisor {
       cwd: workspace.path,
       sessionManager: SessionManager.create(workspace.path),
       customTools: [createPtyBashToolDefinition(workspace.path, { onLifecycle: onBashLifecycle })],
-      ...(this.modelRegistry ? { modelRegistry: this.modelRegistry } : {}),
+      ...(modelRuntime ? { modelRuntime } : {}),
     };
     if (initialModel) {
       createOptions.model = initialModel;
@@ -536,6 +593,7 @@ export class SessionSupervisor {
     }
 
     await record.session.abort();
+    await record.eventQueue.catch((error) => logIgnoredError("session-supervisor.cancel-drain", error));
     record.session.clearQueue();
     record.runningRunId = undefined;
     record.queuedMessages = [];
@@ -630,10 +688,10 @@ export class SessionSupervisor {
       throw new Error(`Session ${sessionKey(record.ref)} is not active.`);
     }
 
-    const model = this.resolveModel(selection.provider, selection.modelId);
-    const auth = await session.modelRegistry.getApiKeyAndHeaders(model);
-    if (!auth.ok) {
-      throw new Error(auth.error);
+    const model = this.resolveModel(session.modelRuntime, selection.provider, selection.modelId);
+    const auth = await session.modelRuntime.checkAuth(model.provider);
+    if (!auth) {
+      throw new Error(`No API key for ${model.provider}/${model.id}`);
     }
 
     const previousModel = session.model;
@@ -664,10 +722,7 @@ export class SessionSupervisor {
   async setSessionToolAccess(sessionRef: SessionRef, toolAccess: ToolAccessSelection): Promise<void> {
     const record = await this.ensureRecord(sessionRef);
     const session = this.requireSession(record);
-    const activeToolNames = toolAccess.mode === "full"
-      ? session.getAllTools().map((tool) => tool.name)
-      : [...toolAccess.tools];
-    session.setActiveToolsByName(activeToolNames);
+    this.applyToolAccessSelection(session, toolAccess);
     forcePersistSession(session.sessionManager);
     record.config = mergeSessionConfigWithToolAccess(
       { ...record.config, toolAccess },
@@ -675,6 +730,13 @@ export class SessionSupervisor {
     );
     await this.persistSnapshot(record);
     await this.emit(record, sessionUpdatedEvent(record));
+  }
+
+  private applyToolAccessSelection(session: AgentSession, toolAccess: ToolAccessSelection): void {
+    const activeToolNames = toolAccess.mode === "full"
+      ? session.getAllTools().map((tool) => tool.name)
+      : [...toolAccess.tools];
+    session.setActiveToolsByName(activeToolNames);
   }
 
   async renameSession(sessionRef: SessionRef, title: string): Promise<void> {
@@ -719,6 +781,13 @@ export class SessionSupervisor {
   async getSessionTree(sessionRef: SessionRef): Promise<SessionTreeSnapshot> {
     const record = await this.ensureRecord(sessionRef);
     const session = this.requireSession(record);
+    const entryCount = session.sessionManager.getEntries().length;
+    if (entryCount > MAX_SESSION_TREE_ENTRIES) {
+      throw new Error(
+        `This task has ${entryCount.toLocaleString()} tree entries. `
+        + `The interactive tree is limited to ${MAX_SESSION_TREE_ENTRIES.toLocaleString()} entries to keep the app responsive.`,
+      );
+    }
     return {
       roots: session.sessionManager.getTree().map((node) => toSessionTreeNodeSnapshot(node)),
       leafId: session.sessionManager.getLeafId(),
@@ -758,8 +827,11 @@ export class SessionSupervisor {
     }
 
     record.listeners.add(listener);
-    void Promise.resolve(listener(sessionUpdatedEvent(record)))
-      .catch((error) => logIgnoredError("session-supervisor.subscribe.initial-event", error));
+    // Replay through the same ordered mailbox as provider events. Delivering
+    // this listener call directly used to race dormant runtime eviction.
+    void this.queueDriverEvents(record, [sessionUpdatedEvent(record)], {
+      persistSnapshot: false,
+    });
     this.replayExtensionUiState(record, listener);
 
     return () => {
@@ -767,6 +839,46 @@ export class SessionSupervisor {
         currentRecord.listeners.delete(listener);
       }
     };
+  }
+
+  async suspendSessionRuntime(sessionRef: SessionRef): Promise<boolean> {
+    const record = this.records.get(sessionKey(sessionRef));
+    if (!record || !record.runtime || !record.session) {
+      return true;
+    }
+
+    // Let already-queued provider events settle before deciding whether this
+    // runtime is genuinely idle. A run can transition state while its final
+    // event is still being delivered to downstream listeners.
+    await record.eventQueue.catch((error) =>
+      logIgnoredError("session-supervisor.suspend.event-queue", error),
+    );
+
+    if (
+      record.closed ||
+      record.status !== "idle" ||
+      record.runningRunId !== undefined ||
+      record.bindingExtensions ||
+      record.pendingHostUiRequests.size > 0 ||
+      hasActiveRuntimeJobs(record.runtimeJobs)
+    ) {
+      return false;
+    }
+
+    await this.persistSnapshot(record);
+    record.unsubscribeAgent?.();
+    record.unsubscribeAgent = undefined;
+    this.clearExtensionUiState(record);
+    await this.disposeRecordRuntime(record);
+
+    // Finished runtime jobs are a derived, in-memory view. The durable
+    // transcript and evidence stores remain the source of truth after wake.
+    record.runtimeJobs = createRuntimeJobRegistryState();
+    record.pendingBashToolCalls.clear();
+    record.pendingSubagentToolInputs.clear();
+    record.bashTokenToToolCallId.clear();
+    record.observedBashChildrenByToolCall.clear();
+    return true;
   }
 
   async closeSession(sessionRef: SessionRef): Promise<void> {
@@ -809,6 +921,24 @@ export class SessionSupervisor {
       return existing;
     }
 
+    const pending = this.recordOpenPromises.get(key);
+    if (pending) {
+      return pending;
+    }
+    const opening = this.openRecord(sessionRef, key);
+    this.recordOpenPromises.set(key, opening);
+    try {
+      return await opening;
+    } finally {
+      if (this.recordOpenPromises.get(key) === opening) {
+        this.recordOpenPromises.delete(key);
+      }
+    }
+  }
+
+  private async openRecord(sessionRef: SessionRef, key: string): Promise<ManagedSessionRecord> {
+    const existing = this.records.get(key);
+
     const sessionEntry = await this.catalogs.sessions.getSession(sessionRef);
     if (!sessionEntry) {
       throw new Error(`Session ${key} is not in the catalog.`);
@@ -834,11 +964,12 @@ export class SessionSupervisor {
       void this.handleBashLifecycle(boundRecord, event, bashLifecycleGeneration);
     };
 
+    const modelRuntime = await this.getModelRuntime?.();
     const runtime = await this.createAgentSessionRuntimeImpl({
       cwd: workspace.path,
       sessionManager: SessionManager.open(sessionFile),
       customTools: [createPtyBashToolDefinition(workspace.path, { onLifecycle: onBashLifecycle })],
-      ...(this.modelRegistry ? { modelRegistry: this.modelRegistry } : {}),
+      ...(modelRuntime ? { modelRuntime } : {}),
     });
     const session = runtime.session;
 
@@ -853,7 +984,13 @@ export class SessionSupervisor {
     record.updatedAt = sessionEntry.updatedAt;
     record.archivedAt = sessionEntry.archivedAt;
     record.preview = sessionEntry.previewSnippet ?? undefined;
-    record.config = deriveSessionConfig(session.sessionManager);
+    record.config = mergeSessionConfigWithToolAccess(
+      existing?.config ?? sessionEntry.config,
+      session.sessionManager.buildSessionContext(),
+    );
+    if (record.config?.toolAccess) {
+      this.applyToolAccessSelection(session, record.config.toolAccess);
+    }
     record.closed = false;
 
     this.records.set(key, record);
@@ -892,6 +1029,8 @@ export class SessionSupervisor {
       closed: false,
       listeners: new Set<SessionEventListener>(),
       eventQueue: Promise.resolve(),
+      pendingEventBatches: [],
+      eventDrainActive: false,
       unsubscribeAgent: undefined,
       pendingHostUiRequests: new Map(),
       extensionUiState: createEmptyExtensionUiState(),
@@ -972,6 +1111,7 @@ export class SessionSupervisor {
       this.records.set(nextKey, record);
     }
 
+    normalizeLegacySessionMessages(session);
     record.session = session;
     record.sessionFile = session.sessionFile ?? session.sessionManager.getSessionFile();
     record.unsubscribeAgent?.();
@@ -1265,8 +1405,8 @@ export class SessionSupervisor {
     await session.followUp(text, images ? [...images] : undefined);
   }
 
-  private resolveModel(provider: string, modelId: string) {
-    const model = this.modelRegistry?.find(provider, modelId);
+  private resolveModel(modelRuntime: ModelRuntime | undefined, provider: string, modelId: string) {
+    const model = modelRuntime?.getModel(provider, modelId);
     if (!model) {
       throw new Error(`Unknown model ${provider}:${modelId}`);
     }
@@ -1286,7 +1426,7 @@ export class SessionSupervisor {
 
   private async emitModelSelection(
     session: AgentSession,
-    model: ReturnType<SessionSupervisor["resolveModel"]>,
+    model: NonNullable<AgentSession["model"]>,
     previousModel: AgentSession["model"],
   ): Promise<void> {
     const emitModelSelect = (session as unknown as {
@@ -1303,7 +1443,7 @@ export class SessionSupervisor {
     request: Extract<SessionDriverEvent, { type: "hostUiRequest" }>["request"],
   ): void {
     this.applyExtensionUiRequest(record, request);
-    this.queueDriverEvents(record, [
+    void this.queueDriverEvents(record, [
       {
         type: "hostUiRequest",
         sessionRef: record.ref,
@@ -1331,7 +1471,7 @@ export class SessionSupervisor {
     record: ManagedSessionRecord,
     issue: Extract<SessionDriverEvent, { type: "extensionCompatibilityIssue" }>["issue"],
   ): void {
-    this.queueDriverEvents(
+    void this.queueDriverEvents(
       record,
       [
         {
@@ -1589,29 +1729,74 @@ export class SessionSupervisor {
     options?: {
       readonly persistSnapshot?: boolean;
     },
-  ): void {
+  ): Promise<void> {
     if (events.length === 0) {
-      return;
+      return record.eventQueue;
     }
-
-    record.eventQueue = record.eventQueue.then(async () => {
-      if (options?.persistSnapshot !== false) {
-        await this.persistSnapshot(record);
+    this.eventDiagnostics.received += events.length;
+    const persistSnapshot = options?.persistSnapshot !== false;
+    for (const event of events) {
+      const lastBatch = record.pendingEventBatches.at(-1);
+      const lastEvent = lastBatch?.events.at(-1);
+      const merged = lastEvent ? mergeReplaceableDriverEvent(lastEvent, event) : undefined;
+      if (lastBatch && merged) {
+        lastBatch.events[lastBatch.events.length - 1] = merged;
+        lastBatch.persistSnapshot ||= persistSnapshot;
+        this.eventDiagnostics.coalesced += 1;
+        continue;
       }
-      for (const event of events) {
-        await this.emit(record, event);
+      if (lastBatch && lastBatch.persistSnapshot === persistSnapshot) {
+        lastBatch.events.push(event);
+      } else {
+        record.pendingEventBatches.push({
+          events: [event],
+          persistSnapshot,
+        });
       }
-    });
-    record.eventQueue.catch((error) => logIgnoredError("session-supervisor.emit-batch", error));
+    }
+    this.eventDiagnostics.maxPending = Math.max(
+      this.eventDiagnostics.maxPending,
+      pendingDriverEventCount(record),
+    );
+    if (!record.eventDrainActive) {
+      this.startDriverEventDrain(record);
+    }
+    return record.eventQueue;
   }
 
-  private async handleAgentEvent(record: ManagedSessionRecord, event: AgentSessionEvent): Promise<void> {
+  private startDriverEventDrain(record: ManagedSessionRecord): void {
+    record.eventDrainActive = true;
+    const drain = (async () => {
+      while (record.pendingEventBatches.length > 0) {
+        const batch = record.pendingEventBatches.shift();
+        if (!batch) continue;
+        if (batch.persistSnapshot) {
+          await this.persistSnapshot(record);
+        }
+        for (const event of batch.events) {
+          await this.emit(record, event);
+          this.eventDiagnostics.emitted += 1;
+        }
+      }
+    })().finally(() => {
+      record.eventDrainActive = false;
+      if (record.pendingEventBatches.length > 0) {
+        this.startDriverEventDrain(record);
+      }
+    });
+    record.eventQueue = drain;
+    drain.catch((error) => logIgnoredError("session-supervisor.emit-batch", error));
+  }
+
+  private handleAgentEvent(record: ManagedSessionRecord, event: AgentSessionEvent): void {
     const mapped = this.mapAgentEvent(record, event);
     if (mapped.length === 0) {
       return;
     }
 
-    this.queueDriverEvents(record, mapped);
+    void this.queueDriverEvents(record, mapped, {
+      persistSnapshot: shouldPersistSnapshotForAgentEvent(event),
+    });
   }
 
   private mapAgentEvent(record: ManagedSessionRecord, event: AgentSessionEvent): SessionDriverEvent[] {
@@ -1784,11 +1969,14 @@ export class SessionSupervisor {
           const subagentInput = record.pendingSubagentToolInputs.get(event.toolCallId) ?? {};
           const transcriptPath = outputText ? extractSubagentTranscriptPath(outputText) : undefined;
           const lifecycleMetadata = subagentLifecycleMetadataFromToolResult(event.result);
+          const background = subagentRunsInBackground(subagentInput);
           insertBeforeSessionUpdated(events, buildSubagentRunUpdatedEvent(record, {
             timestamp,
             subagentRunId: event.toolCallId,
             toolCallId: event.toolCallId,
-            status: event.isError ? "failed" : "completed",
+            // A background Agent tool finishes when the child is accepted, not
+            // when the child completes. The audit stream owns its terminal event.
+            status: event.isError ? "failed" : background ? "progress" : "completed",
             input: subagentInput,
             ...lifecycleMetadata,
             ...(outputText ? { summary: truncate(outputText, 500) } : {}),
@@ -2064,21 +2252,13 @@ export class SessionSupervisor {
       return;
     }
 
-    record.eventQueue = record.eventQueue.then(async () => {
-      if (record.closed || record.bashLifecycleGeneration !== generation) {
-        return;
-      }
-      await this.persistSnapshot(record);
-      await this.emit(record, {
-        type: "runtimeJobUpdated",
-        sessionRef: record.ref,
-        timestamp,
-        job,
-        summary: this.runtimeSummaryFor(record),
-      });
-    });
-    record.eventQueue.catch((error) => logIgnoredError("session-supervisor.runtime-job-update", error));
-    await record.eventQueue;
+    await this.queueDriverEvents(record, [{
+      type: "runtimeJobUpdated",
+      sessionRef: record.ref,
+      timestamp,
+      job,
+      summary: this.runtimeSummaryFor(record),
+    }]);
   }
 
   private updatePreviewFromMessage(record: ManagedSessionRecord, message: unknown): void {
@@ -2105,6 +2285,7 @@ export class SessionSupervisor {
       ...(snapshot.archivedAt !== undefined ? { archivedAt: snapshot.archivedAt } : {}),
       ...(snapshot.preview !== undefined ? { previewSnippet: snapshot.preview } : {}),
       ...(record.sessionFile ? { sessionFilePath: record.sessionFile } : {}),
+      ...(snapshot.config ? { config: snapshot.config } : {}),
     });
     if (record.sessionFile) {
       await this.catalogs.setSessionFile(record.ref, record.sessionFile);
@@ -2185,6 +2366,7 @@ export class SessionSupervisor {
         : undefined;
     const previewSnippet = runtimeSnapshot?.preview ?? previewFromSessionInfo(info);
     const archivedAt = runtimeSnapshot?.archivedAt ?? existingEntry?.archivedAt;
+    const config = runtimeSnapshot?.config ?? existingEntry?.config;
     const titleFromInfo = titleFromSessionInfo(info);
     const entry: SessionCatalogSnapshot["sessions"][number] = {
       sessionRef: {
@@ -2196,6 +2378,7 @@ export class SessionSupervisor {
       updatedAt: runtimeSnapshot?.updatedAt ?? info.modified.toISOString(),
       status: runtimeSnapshot?.status ?? "idle",
       sessionFilePath: info.path,
+      ...(config ? { config } : {}),
     };
     if (archivedAt) {
       entry.archivedAt = archivedAt;
@@ -2237,11 +2420,41 @@ export class SessionSupervisor {
             updatedAt: sessionEntry.updatedAt,
             ...(sessionEntry.previewSnippet !== undefined ? { previewSnippet: sessionEntry.previewSnippet } : {}),
             ...(sessionEntry.sessionFilePath !== undefined ? { sessionFilePath: sessionEntry.sessionFilePath } : {}),
+            ...(sessionEntry.config !== undefined ? { config: sessionEntry.config } : {}),
             status: sessionEntry.status,
           };
 
     await this.catalogs.sessions.upsertSession(nextEntry);
   }
+}
+
+function normalizeLegacySessionMessages(session: AgentSession): number {
+  const fallback = {
+    ...(session.model?.api ? { api: session.model.api } : {}),
+    ...(session.model?.provider ? { provider: session.model.provider } : {}),
+    ...(session.model?.id ? { model: session.model.id } : {}),
+  };
+  const seen = new Set<object>();
+  let normalized = 0;
+  const normalize = (message: unknown) => {
+    if (typeof message !== "object" || message === null || seen.has(message)) {
+      return;
+    }
+    seen.add(message);
+    if (normalizeLegacyAssistantMessage(message, fallback)) {
+      normalized += 1;
+    }
+  };
+
+  for (const message of session.messages) {
+    normalize(message);
+  }
+  for (const entry of session.sessionManager.getEntries()) {
+    if (entry.type === "message") {
+      normalize(entry.message);
+    }
+  }
+  return normalized;
 }
 
 function resolvedCatalogSessionTitle(existingTitle: string | undefined, infoTitle: string): string {
@@ -2256,7 +2469,8 @@ function resolvedCatalogSessionTitle(existingTitle: string | undefined, infoTitl
 }
 
 const DEFAULT_SESSION_THINKING_LEVEL = "medium";
-const THINKING_LEVEL_ORDER = ["off", "low", "medium", "high", "xhigh"] as const;
+const MAX_SESSION_TREE_ENTRIES = 2_000;
+const THINKING_LEVEL_ORDER = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
 type SessionTreeNodeRecord = ReturnType<SessionManager["getTree"]>[number];
 
 function clampThinkingLevel(level: string, availableLevels: readonly string[]): string {
@@ -2762,6 +2976,11 @@ function isAgentToolName(toolName: string): boolean {
   return normalized === "agent" || normalized.endsWith(".agent");
 }
 
+function subagentRunsInBackground(input: unknown): boolean {
+  if (!isUnknownRecord(input)) return false;
+  return input.run_in_background === true || input.runInBackground === true;
+}
+
 function subagentMetadataFromToolInput(input: unknown): {
   readonly role?: string;
   readonly agentName?: string;
@@ -2849,5 +3068,61 @@ function toDriverEvents(
 ): SessionDriverEvent[] {
   const id = runId ?? record.runningRunId;
   const event = id ? { ...base, runId: id } : base;
-  return [event, sessionUpdatedEvent(record)];
+  return [event];
+}
+
+function pendingDriverEventCount(record: ManagedSessionRecord): number {
+  return record.pendingEventBatches.reduce((total, batch) => total + batch.events.length, 0);
+}
+
+export function mergeReplaceableDriverEvent(
+  previous: SessionDriverEvent,
+  next: SessionDriverEvent,
+): SessionDriverEvent | undefined {
+  if (
+    previous.type !== next.type
+    || previous.sessionRef.workspaceId !== next.sessionRef.workspaceId
+    || previous.sessionRef.sessionId !== next.sessionRef.sessionId
+    || previous.runId !== next.runId
+  ) {
+    return undefined;
+  }
+  if (previous.type === "assistantDelta" && next.type === "assistantDelta") {
+    return { ...next, text: `${previous.text}${next.text}` };
+  }
+  if (previous.type === "assistantThinkingDelta" && next.type === "assistantThinkingDelta") {
+    return { ...next, text: `${previous.text}${next.text}` };
+  }
+  if (
+    previous.type === "toolUpdated"
+    && next.type === "toolUpdated"
+    && previous.callId === next.callId
+  ) {
+    return next;
+  }
+  if (previous.type === "sessionUpdated" && next.type === "sessionUpdated") {
+    return next;
+  }
+  return undefined;
+}
+
+function shouldPersistSnapshotForAgentEvent(event: AgentSessionEvent): boolean {
+  switch (event.type) {
+    case "message_update":
+    case "tool_execution_start":
+    case "tool_execution_update":
+    case "tool_execution_end":
+      return false;
+    default:
+      return true;
+  }
+}
+
+function hasActiveRuntimeJobs(runtimeJobs: RuntimeJobRegistryState): boolean {
+  for (const job of runtimeJobs.jobs.values()) {
+    if (job.status === "running" || job.status === "background" || job.status === "unknown") {
+      return true;
+    }
+  }
+  return false;
 }

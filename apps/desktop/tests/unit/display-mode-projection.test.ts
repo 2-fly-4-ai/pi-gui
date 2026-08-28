@@ -92,6 +92,35 @@ describe("Display Mode projection", () => {
     expect(projection.excerptRows.some((row) => row.kind === "thinking")).toBe(false);
     expect(JSON.stringify(projection)).not.toContain("base64-payload-that-must-not-be-projected");
   });
+
+  it("shows only the latest thinking row from a tool-heavy run", () => {
+    const transcript: TranscriptMessage[] = [
+      { ...message("user", "inspect"), role: "user" },
+      thinking("thinking-1", "Plan inspection"),
+      {
+        kind: "tool",
+        id: "tool",
+        callId: "tool",
+        toolName: "find",
+        status: "success",
+        label: "Ran find",
+        createdAt: "2026-07-27T00:00:01.000Z",
+      },
+      thinking("thinking-2", "Summarize results"),
+    ];
+    const projection = buildDisplayModeThreadProjection({
+      workspaceId: "workspace",
+      sessionId: "session",
+      revision: 4,
+      sourceUpdatedAt: "2026-07-27T00:00:00.000Z",
+      transcript,
+      showThinking: true,
+    });
+
+    expect(projection.excerptRows.filter((row) => row.kind === "thinking")).toEqual([
+      expect.objectContaining({ id: "thinking-2", text: "Summarize results" }),
+    ]);
+  });
 });
 
 function message(id: string, text: string): Extract<TranscriptMessage, { kind: "message" }> {
@@ -100,6 +129,19 @@ function message(id: string, text: string): Extract<TranscriptMessage, { kind: "
     id,
     role: "assistant",
     text,
+    createdAt: "2026-07-27T00:00:00.000Z",
+  };
+}
+
+function thinking(
+  id: string,
+  text: string,
+): Extract<TranscriptMessage, { kind: "thinking" }> {
+  return {
+    kind: "thinking",
+    id,
+    text,
+    status: "done",
     createdAt: "2026-07-27T00:00:00.000Z",
   };
 }

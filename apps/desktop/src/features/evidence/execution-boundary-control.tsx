@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { ToolAccessSelection } from "@pi-gui/session-driver";
 import type { PiDesktopApi } from "../../ipc";
 import {
@@ -28,6 +29,8 @@ export function ExecutionBoundaryControl({
   const [draft, setDraft] = useState<ExecutionBoundaryInput>({ enabled: false });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string>();
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const dialogRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
     let active = true;
@@ -44,6 +47,24 @@ export function ExecutionBoundaryControl({
       active = false;
     };
   }, [api, sessionId, toolAccess, workspaceId]);
+
+  useEffect(() => {
+    if (!open) return;
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      setOpen(false);
+      window.requestAnimationFrame(() => triggerRef.current?.focus());
+    };
+    window.addEventListener("keydown", handleEscape);
+    window.requestAnimationFrame(() => dialogRef.current?.focus());
+    return () => window.removeEventListener("keydown", handleEscape);
+  }, [open]);
+
+  const close = () => {
+    setOpen(false);
+    window.requestAnimationFrame(() => triggerRef.current?.focus());
+  };
 
   const save = async (nextInput = draft) => {
     setSaving(true);
@@ -74,121 +95,134 @@ export function ExecutionBoundaryControl({
         aria-expanded={open}
         className={`execution-boundary-control__trigger${boundary?.enabled ? " execution-boundary-control__trigger--active" : ""}`}
         data-testid="execution-boundary-trigger"
+        ref={triggerRef}
         type="button"
         onClick={() => setOpen((current) => !current)}
       >
         {label}
       </button>
-      {open ? (
-        <section
-          aria-label="Execution boundary"
-          className="execution-boundary"
-          data-testid="execution-boundary"
-          role="dialog"
+      {open ? createPortal(
+        <div
+          className="execution-boundary-backdrop"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) close();
+          }}
         >
-          <header>
-            <div>
-              <strong>Execution boundary</strong>
-              <span>Thread-scoped limits for the next and later runs</span>
-            </div>
-            <button aria-label="Close execution boundary" type="button" onClick={() => setOpen(false)}>×</button>
-          </header>
-          <label className="execution-boundary__enabled">
-            <input
-              checked={Boolean(draft.enabled)}
-              type="checkbox"
-              onChange={(event) => setDraft((current) => ({ ...current, enabled: event.target.checked }))}
-            />
-            <span>Enable boundary for this thread</span>
-          </label>
-          <div className="execution-boundary__grid" aria-disabled={!draft.enabled}>
-            <BoundaryNumber
-              label="Maximum files"
-              value={draft.maxFiles}
-              onChange={(maxFiles) => setDraft((current) => ({ ...current, maxFiles }))}
-            />
-            <BoundaryNumber
-              advisory
-              label="Maximum elapsed minutes"
-              value={draft.maxElapsedMinutes}
-              onChange={(maxElapsedMinutes) => setDraft((current) => ({ ...current, maxElapsedMinutes }))}
-            />
-            <BoundaryText
-              label="Allowed paths"
-              placeholder="src/**, tests/**"
-              value={draft.allowPaths ?? []}
-              onChange={(allowPaths) => setDraft((current) => ({ ...current, allowPaths }))}
-            />
-            <BoundaryText
-              label="Denied paths"
-              placeholder=".env, secrets/**"
-              value={draft.denyPaths ?? []}
-              onChange={(denyPaths) => setDraft((current) => ({ ...current, denyPaths }))}
-            />
-            <BoundaryMode
-              label="Dependency changes"
-              value={draft.dependencyChanges ?? "approval"}
-              onChange={(dependencyChanges) => setDraft((current) => ({ ...current, dependencyChanges }))}
-            />
-            <label>
-              <span>Tool access <em>enforced</em></span>
-              <select
-                value={draft.toolAccess?.mode ?? toolAccess.mode}
-                onChange={(event) => setDraft((current) => ({
-                  ...current,
-                  toolAccess: toolSelectionForMode(event.target.value as ToolAccessSelection["mode"], toolAccess),
-                }))}
-              >
-                <option value="full">Full access</option>
-                <option value="read-only">Read only</option>
-                <option value="no-tools">No tools</option>
-                <option value="custom">Current custom selection</option>
-              </select>
-            </label>
-            <label className="execution-boundary__check">
+          <section
+            aria-label="Execution boundary"
+            aria-modal="true"
+            className="execution-boundary"
+            data-testid="execution-boundary"
+            ref={dialogRef}
+            role="dialog"
+            tabIndex={-1}
+          >
+            <header>
+              <div>
+                <strong>Execution boundary</strong>
+                <span>Thread-scoped limits for the next and later runs</span>
+              </div>
+              <button aria-label="Close execution boundary" type="button" onClick={close}>×</button>
+            </header>
+            <label className="execution-boundary__enabled">
               <input
-                checked={Boolean(draft.testOnly)}
+                checked={Boolean(draft.enabled)}
                 type="checkbox"
-                onChange={(event) => setDraft((current) => ({ ...current, testOnly: event.target.checked }))}
+                onChange={(event) => setDraft((current) => ({ ...current, enabled: event.target.checked }))}
               />
-              <span>Test-only mode</span>
+              <span>Enable boundary for this thread</span>
             </label>
-          </div>
-          <details className="execution-boundary__commands">
-            <summary>Command categories</summary>
-            {(["test", "build", "package", "network", "version-control"] as const).map((category) => (
-              <BoundaryMode
-                key={category}
-                label={category === "version-control" ? "Version control" : `${category.charAt(0).toUpperCase()}${category.slice(1)}`}
-                value={draft.commandCategories?.[category] ?? "allow"}
-                onChange={(mode) => setDraft((current) => ({
-                  ...current,
-                  commandCategories: { ...current.commandCategories, [category]: mode },
-                }))}
+            <div className="execution-boundary__grid" aria-disabled={!draft.enabled}>
+              <BoundaryNumber
+                label="Maximum files"
+                value={draft.maxFiles}
+                onChange={(maxFiles) => setDraft((current) => ({ ...current, maxFiles }))}
               />
-            ))}
-          </details>
-          <p className="execution-boundary__notice">
-            Tool access is enforced by the runtime. File, path, dependency, and command limits are checked
-            before submission when explicit in your request. Elapsed time and unannounced runtime behavior
-            remain advisory where the provider exposes no enforcement hook.
-          </p>
-          {error ? <p className="execution-boundary__error" role="alert">{error}</p> : null}
-          <footer>
-            {boundary?.enabled ? (
-              <button
-                disabled={saving}
-                type="button"
-                onClick={() => void save({ ...draft, enabled: false })}
-              >
-                Disable boundary
+              <BoundaryNumber
+                advisory
+                label="Maximum elapsed minutes"
+                value={draft.maxElapsedMinutes}
+                onChange={(maxElapsedMinutes) => setDraft((current) => ({ ...current, maxElapsedMinutes }))}
+              />
+              <BoundaryText
+                label="Allowed paths"
+                placeholder="src/**, tests/**"
+                value={draft.allowPaths ?? []}
+                onChange={(allowPaths) => setDraft((current) => ({ ...current, allowPaths }))}
+              />
+              <BoundaryText
+                label="Denied paths"
+                placeholder=".env, secrets/**"
+                value={draft.denyPaths ?? []}
+                onChange={(denyPaths) => setDraft((current) => ({ ...current, denyPaths }))}
+              />
+              <BoundaryMode
+                label="Dependency changes"
+                value={draft.dependencyChanges ?? "approval"}
+                onChange={(dependencyChanges) => setDraft((current) => ({ ...current, dependencyChanges }))}
+              />
+              <label>
+                <span>Tool access <em>enforced</em></span>
+                <select
+                  value={draft.toolAccess?.mode ?? toolAccess.mode}
+                  onChange={(event) => setDraft((current) => ({
+                    ...current,
+                    toolAccess: toolSelectionForMode(event.target.value as ToolAccessSelection["mode"], toolAccess),
+                  }))}
+                >
+                  <option value="full">Full access</option>
+                  <option value="read-only">Read only</option>
+                  <option value="no-tools">No tools</option>
+                  <option value="custom">Current custom selection</option>
+                </select>
+              </label>
+              <label className="execution-boundary__check">
+                <input
+                  checked={Boolean(draft.testOnly)}
+                  type="checkbox"
+                  onChange={(event) => setDraft((current) => ({ ...current, testOnly: event.target.checked }))}
+                />
+                <span>Test-only mode</span>
+              </label>
+            </div>
+            <details className="execution-boundary__commands">
+              <summary>Command categories</summary>
+              {(["test", "build", "package", "network", "version-control"] as const).map((category) => (
+                <BoundaryMode
+                  key={category}
+                  label={category === "version-control" ? "Version control" : `${category.charAt(0).toUpperCase()}${category.slice(1)}`}
+                  value={draft.commandCategories?.[category] ?? "allow"}
+                  onChange={(mode) => setDraft((current) => ({
+                    ...current,
+                    commandCategories: { ...current.commandCategories, [category]: mode },
+                  }))}
+                />
+              ))}
+            </details>
+            <p className="execution-boundary__notice">
+              Tool access is enforced by the runtime. File, path, dependency, and command limits are checked
+              before submission when explicit in your request. Elapsed time and unannounced runtime behavior
+              remain advisory where the provider exposes no enforcement hook.
+            </p>
+            {error ? <p className="execution-boundary__error" role="alert">{error}</p> : null}
+            <footer>
+              {boundary?.enabled ? (
+                <button
+                  disabled={saving}
+                  type="button"
+                  onClick={() => void save({ ...draft, enabled: false })}
+                >
+                  Disable boundary
+                </button>
+              ) : <span />}
+              <button disabled={saving} type="button" onClick={() => void save()}>
+                {saving ? "Saving…" : "Apply boundary"}
               </button>
-            ) : <span />}
-            <button disabled={saving} type="button" onClick={() => void save()}>
-              {saving ? "Saving…" : "Apply boundary"}
-            </button>
-          </footer>
-        </section>
+            </footer>
+          </section>
+        </div>,
+        document.body,
       ) : null}
     </div>
   );

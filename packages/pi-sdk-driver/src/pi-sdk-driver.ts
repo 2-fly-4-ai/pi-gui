@@ -1,4 +1,4 @@
-import type { AuthStorage, ModelRegistry } from "@earendil-works/pi-coding-agent";
+import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import type { SessionCatalogSnapshot, WorkspaceCatalogSnapshot, WorkspaceId } from "@pi-gui/catalogs";
 import type {
   NavigateSessionTreeOptions,
@@ -34,8 +34,7 @@ export interface PiSdkDriverConfig extends PiSdkDriverOptions, RuntimeSupervisor
 export class PiSdkDriver implements SessionDriver {
   private readonly supervisor: SessionSupervisor;
   private readonly agentDir: string;
-  private readonly authStorage: AuthStorage;
-  private readonly modelRegistry: ModelRegistry;
+  private readonly getModelRuntime: () => Promise<ModelRuntime>;
   private readonly generateThreadTitleOverride:
     | ((workspace: WorkspaceRef, options: GenerateThreadTitleOptions) => Promise<string | null | undefined>)
     | undefined;
@@ -44,13 +43,12 @@ export class PiSdkDriver implements SessionDriver {
   constructor(options: PiSdkDriverConfig = {}) {
     const deps = createRuntimeDependencies(options);
     this.agentDir = deps.agentDir;
-    this.authStorage = deps.authStorage;
-    this.modelRegistry = deps.modelRegistry;
+    this.getModelRuntime = deps.getModelRuntime;
     this.generateThreadTitleOverride = options.generateThreadTitleOverride;
 
     this.supervisor = new SessionSupervisor({
       ...options,
-      modelRegistry: deps.modelRegistry,
+      getModelRuntime: deps.getModelRuntime,
       createAgentSessionRuntimeImpl: options.createAgentSessionRuntimeImpl
         ?? ((createOptions) => createAgentSessionRuntimeWithNpmFallback(
           createOptions,
@@ -58,7 +56,7 @@ export class PiSdkDriver implements SessionDriver {
           options.appendSystemPromptProvider,
         )),
     });
-    this.runtimeSupervisor = new RuntimeSupervisor({ ...options, ...deps });
+    this.runtimeSupervisor = new RuntimeSupervisor({ ...options, runtimeDependencies: deps });
   }
 
   createSession(workspace: WorkspaceRef, options?: CreateSessionOptions): Promise<SessionSnapshot> {
@@ -145,6 +143,10 @@ export class PiSdkDriver implements SessionDriver {
     return this.supervisor.subscribe(sessionRef, listener);
   }
 
+  suspendSessionRuntime(sessionRef: SessionRef): Promise<boolean> {
+    return this.supervisor.suspendSessionRuntime(sessionRef);
+  }
+
   closeSession(sessionRef: SessionRef): Promise<void> {
     return this.supervisor.closeSession(sessionRef);
   }
@@ -155,6 +157,14 @@ export class PiSdkDriver implements SessionDriver {
 
   listSessions(workspaceId?: WorkspaceId): Promise<SessionCatalogSnapshot> {
     return this.supervisor.listSessions(workspaceId);
+  }
+
+  getRuntimeDiagnostics() {
+    return this.supervisor.getRuntimeDiagnostics();
+  }
+
+  getResidentSessionRefs() {
+    return this.supervisor.getResidentSessionRefs();
   }
 
   syncWorkspace(path: string, displayName?: string): Promise<SyncWorkspaceResult> {
@@ -173,22 +183,17 @@ export class PiSdkDriver implements SessionDriver {
     return this.supervisor.getTranscript(sessionRef);
   }
 
-  generateThreadTitle(workspace: WorkspaceRef, options: GenerateThreadTitleOptions): Promise<string | null> {
+  async generateThreadTitle(workspace: WorkspaceRef, options: GenerateThreadTitleOptions): Promise<string | null> {
+    const modelRuntime = await this.getModelRuntime();
     if (this.generateThreadTitleOverride) {
-      return Promise.resolve(this.generateThreadTitleOverride(workspace, options)).then((override) =>
-        override !== undefined
-          ? override
-          : generateThreadTitle(workspace, options, {
-              agentDir: this.agentDir,
-              authStorage: this.authStorage,
-              modelRegistry: this.modelRegistry,
-            }),
-      );
+      const override = await this.generateThreadTitleOverride(workspace, options);
+      if (override !== undefined) {
+        return override;
+      }
     }
     return generateThreadTitle(workspace, options, {
       agentDir: this.agentDir,
-      authStorage: this.authStorage,
-      modelRegistry: this.modelRegistry,
+      modelRuntime,
     });
   }
 }

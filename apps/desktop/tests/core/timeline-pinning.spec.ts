@@ -1,4 +1,4 @@
-import { writeFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import {
@@ -698,7 +698,32 @@ test("native timeline scroll away from bottom disables follow-latest during stre
       const metrics = await getTimelineScrollMetrics(window);
       return Math.abs(metrics.scrollTop - beforeStreamScrollTop);
     }).toBeLessThanOrEqual(16);
-    await expect(window.getByTestId("timeline-jump")).toHaveCount(1);
+    const jump = window.getByTestId("timeline-jump");
+    await expect(jump).toHaveCount(1);
+    await expect(jump).toHaveText("Show latest activity");
+
+    const [jumpBox, composerBox] = await Promise.all([
+      jump.boundingBox(),
+      window.locator(".composer").boundingBox(),
+    ]);
+    expect(jumpBox).not.toBeNull();
+    expect(composerBox).not.toBeNull();
+    expect((jumpBox?.y ?? 0) + (jumpBox?.height ?? 0)).toBeLessThan(composerBox?.y ?? 0);
+    expect((composerBox?.y ?? 0) - ((jumpBox?.y ?? 0) + (jumpBox?.height ?? 0))).toBeLessThanOrEqual(32);
+
+    await window.getByTestId("timeline-pane").hover();
+    await window.mouse.wheel(0, 4_000);
+    await expect.poll(async () => (await getTimelineScrollMetrics(window)).remainingFromBottom).toBeLessThanOrEqual(16);
+    await expect(jump).toHaveCount(0);
+
+    await streamAssistantDeltas(harness, window, [
+      "NATIVE_SCROLL_RESUMED_A ",
+      "NATIVE_SCROLL_RESUMED_B ",
+    ]);
+    await expect.poll(async () => (await getTimelineScrollMetrics(window)).remainingFromBottom).toBeLessThanOrEqual(16);
+
+    const desktopLog = await readFile(join(userDataDir, "logs", "desktop.log"), "utf8").catch(() => "");
+    expect(desktopLog).not.toContain("Maximum update depth exceeded");
   } finally {
     await harness.close();
   }

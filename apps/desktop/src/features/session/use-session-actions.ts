@@ -1,5 +1,9 @@
 import { useCallback, type Dispatch, type SetStateAction } from "react";
 import type { DesktopAppState, WorkspaceRecord, WorkspaceSessionTarget } from "../../desktop-state";
+import {
+  applySelectedTranscriptForTarget,
+  refreshSelectedTranscriptForTarget,
+} from "../../state/desktop-state-store";
 
 interface SessionTarget {
   readonly workspaceId: string;
@@ -29,7 +33,9 @@ export function useSessionActions({
     }
 
     setSnapshot((current) => current ? applySessionSelection(current, target, "threads") : current);
-    void api.selectSession(target).then(() => {
+    refreshSelectedTranscriptForTarget(target);
+    void api.selectSession(target).then((transcript) => {
+      applySelectedTranscriptForTarget(target, transcript);
       void api.setActiveView("threads");
       focusComposer();
     });
@@ -55,7 +61,9 @@ export function useSessionActions({
     }
 
     setSnapshot((current) => current ? applySessionSelection(current, target) : current);
-    void api.selectSession(target).then(() => {
+    refreshSelectedTranscriptForTarget(target);
+    void api.selectSession(target).then((transcript) => {
+      applySelectedTranscriptForTarget(target, transcript);
       focusComposer();
     });
   }, [api, focusComposer, setSnapshot, updateVsCodeTarget, vsCodeOpen, workspaces]);

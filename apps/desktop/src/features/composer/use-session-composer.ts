@@ -56,9 +56,16 @@ export function useSessionComposer({
   onRecordSubmittedSkillUsage,
 }: UseSessionComposerOptions) {
   const [composerDraftState, setComposerDraftState] = useState({ dirty: false, sessionKey: "", value: "" });
+  const submitGenerationRef = useRef(0);
+  const composerEditGenerationRef = useRef(0);
+  const authoritativeSyncEditGenerationRef = useRef(-1);
   const composerDraft = composerDraftState.value;
   const setComposerDraft = useCallback(
     (next: SetStateAction<string>) => {
+      // Any new edit supersedes an older in-flight submit response. This keeps
+      // a late failure/restore from replacing text the user has already typed.
+      submitGenerationRef.current += 1;
+      composerEditGenerationRef.current += 1;
       setComposerDraftState((current) => ({
         dirty: true,
         sessionKey: selectedSessionKey,
@@ -113,9 +120,18 @@ export function useSessionComposer({
     if (snapshot.composerDraftSyncSource === "persist" || snapshot.composerDraftSyncSource === "state") {
       return;
     }
+    if (
+      snapshot.composerDraftSyncSource === "command"
+      && composerDraftState.dirty
+      && composerDraftState.value
+      && composerDraftState.value !== snapshot.composerDraft
+    ) {
+      return;
+    }
 
+    authoritativeSyncEditGenerationRef.current = composerEditGenerationRef.current;
     setComposerDraftState({ dirty: false, sessionKey: selectedSessionKey, value: snapshot.composerDraft });
-  }, [selectedSessionKey, snapshot]);
+  }, [composerDraftState, selectedSessionKey, snapshot]);
 
   useEffect(() => {
     if (
@@ -124,12 +140,20 @@ export function useSessionComposer({
       !selectedSession ||
       !composerDraftState.dirty ||
       composerDraftState.sessionKey !== selectedSessionKey ||
-      composerDraft === persistedComposerDraft
+      composerDraft === persistedComposerDraft ||
+      (
+        authoritativeSyncEditGenerationRef.current === composerEditGenerationRef.current
+        && composerDraft !== persistedComposerDraft
+      )
     ) {
       return undefined;
     }
 
-    void api.updateComposerDraft({ workspaceId: selectedWorkspace.id, sessionId: selectedSession.id }, composerDraft);
+    void api.updateComposerDraft(
+      { workspaceId: selectedWorkspace.id, sessionId: selectedSession.id },
+      composerDraft,
+      { baseSyncNonce: handledComposerSyncNonceRef.current },
+    );
     return undefined;
   }, [api, composerDraft, composerDraftState, persistedComposerDraft, selectedSession, selectedSessionKey, selectedWorkspace]);
 
@@ -138,7 +162,8 @@ export function useSessionComposer({
       return;
     }
 
-    const hasComposerInput = composerDraft.trim().length > 0 || composerAttachments.length > 0;
+    const currentComposerDraft = composerRef.current?.value ?? composerDraft;
+    const hasComposerInput = currentComposerDraft.trim().length > 0 || composerAttachments.length > 0;
     if (selectedSession.status === "running" && !hasComposerInput) {
       void api.cancelCurrentRun();
       return;
@@ -161,7 +186,7 @@ export function useSessionComposer({
       return;
     }
 
-    const treeCommand = parseTreeComposerCommand(composerDraft);
+    const treeCommand = parseTreeComposerCommand(currentComposerDraft);
     if (treeCommand?.type === "error") {
       setSnapshot((current) =>
         current
@@ -178,7 +203,8 @@ export function useSessionComposer({
       return;
     }
 
-    const previousDraft = composerDraft;
+    const previousDraft = currentComposerDraft;
+    const submitGeneration = ++submitGenerationRef.current;
     void (async () => {
       const workspaceId = selectedWorkspace?.id;
       for (const attachment of composerAttachments) {
@@ -234,6 +260,16 @@ export function useSessionComposer({
           workspaceId,
           selectedSession.id,
           approvalViolations.map((violation) => violation.id),
+        );
+      }
+      if (workspaceId) {
+        // Serialize the latest renderer draft ahead of submission. Without this
+        // barrier, an older fire-and-forget persistence write can arrive after
+        // an extension command's setEditorText result and overwrite it.
+        await api.updateComposerDraft(
+          { workspaceId, sessionId: selectedSession.id },
+          previousDraft,
+          { baseSyncNonce: handledComposerSyncNonceRef.current },
         );
       }
       onRecordSubmittedSkillUsage(previousDraft, selectedRuntime);
@@ -308,6 +344,9 @@ export function useSessionComposer({
       );
       clearTemporaryMemoryExclusions();
       const nextState = await api.getState();
+      if (submitGeneration !== submitGenerationRef.current) {
+        return;
+      }
       setSnapshot(nextState);
       setComposerDraftState({
         dirty: false,
@@ -319,6 +358,9 @@ export function useSessionComposer({
       });
       setAttachmentsClearedOnSubmit(false);
     })().catch((error) => {
+      if (submitGeneration !== submitGenerationRef.current) {
+        return;
+      }
       setComposerDraft(previousDraft);
       setAttachmentsClearedOnSubmit(false);
       setSnapshot((current) => current ? {
@@ -332,7 +374,15 @@ export function useSessionComposer({
     if (!api) {
       return;
     }
-    void api.pickComposerAttachments().then(() => api.getState()).then(setSnapshot);
+    void api.pickComposerAttachments()
+      .then(() => api.getState())
+      .then(setSnapshot)
+      .catch((error: unknown) => {
+        setSnapshot((current) => current ? {
+          ...current,
+          lastError: error instanceof Error ? error.message : String(error),
+        } : current);
+      });
   };
 
   const handleRemoveAttachment = (attachmentId: string) => {
@@ -413,12 +463,21 @@ export function useSessionComposer({
     if (!api) {
       return;
     }
-    const valid = await readComposerAttachmentsFromFiles(files);
-    if (valid.length === 0) {
-      return;
+    try {
+      const valid = await readComposerAttachmentsFromFiles(files);
+      if (valid.length === 0) {
+        return;
+      }
+      setSnapshot((current) => current ? appendComposerAttachments(current, valid) : current);
+      await api.addComposerAttachments(valid);
+      setSnapshot(await api.getState());
+    } catch (error: unknown) {
+      const current = await api.getState().catch(() => null);
+      setSnapshot(current ? {
+        ...current,
+        lastError: error instanceof Error ? error.message : String(error),
+      } : current);
     }
-    setSnapshot((current) => current ? appendComposerAttachments(current, valid) : current);
-    void api.addComposerAttachments(valid);
   };
 
   const handleSetSessionModel = (provider: string, modelId: string) => {

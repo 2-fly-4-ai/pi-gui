@@ -50,7 +50,8 @@ export function deriveAttentionMarkers(
   for (const record of evidence) {
     const type = markerTypeForEvidence(record);
     if (!type) continue;
-    const rowId = correlatedRowId(record, transcript) ?? nearestRowId(record.timestamp, transcript);
+    const rowId = correlatedRowId(record, transcript)
+      ?? (type === "completion" ? nearestCompletionRowId(record.timestamp, transcript) : undefined);
     if (!rowId) continue;
     markers.push({
       id: `evidence:${record.id}:${type}`,
@@ -91,17 +92,21 @@ function correlatedRowId(
   return transcript.find((item) => item.kind === "tool" && item.callId === toolCallId)?.id;
 }
 
-function nearestRowId(timestamp: string, transcript: readonly TranscriptMessage[]): string | undefined {
+function nearestCompletionRowId(timestamp: string, transcript: readonly TranscriptMessage[]): string | undefined {
+  const completionRows = transcript.filter(
+    (item) => item.kind === "summary" && item.presentation === "divider",
+  );
+  if (completionRows.length === 0) return undefined;
   const target = Date.parse(timestamp);
-  if (!Number.isFinite(target)) return transcript.at(-1)?.id;
+  if (!Number.isFinite(target)) return completionRows.at(-1)?.id;
   let nearest: { readonly id: string; readonly distance: number } | undefined;
-  for (const item of transcript) {
-    const itemTime = Date.parse(item.kind === "tool" ? item.updatedAt ?? item.createdAt : item.createdAt);
+  for (const item of completionRows) {
+    const itemTime = Date.parse(item.createdAt);
     if (!Number.isFinite(itemTime)) continue;
     const distance = Math.abs(itemTime - target);
     if (!nearest || distance < nearest.distance) nearest = { id: item.id, distance };
   }
-  return nearest?.id ?? transcript.at(-1)?.id;
+  return nearest?.id ?? completionRows.at(-1)?.id;
 }
 
 function markerLabel(type: AttentionMarkerType, record: TaskEvidenceRecord): string {

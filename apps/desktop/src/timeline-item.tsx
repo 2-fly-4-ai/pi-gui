@@ -215,13 +215,26 @@ function TimelineMessage({
           {item.attachments?.length ? (
             <div className="timeline-item__attachments">
               {item.attachments.map((attachment, index) =>
-                attachment.kind === "image" ? (
+                attachment.kind === "image" && !attachment.dataOmitted ? (
                   <img
                     alt={attachment.name ?? `Attachment ${index + 1}`}
                     className="timeline-item__attachment timeline-item__attachment--image"
                     key={`${item.id}:${index}`}
                     src={`data:${attachment.mimeType};base64,${attachment.data}`}
                   />
+                ) : attachment.kind === "image" ? (
+                  <div
+                    className="timeline-item__attachment timeline-item__attachment--file"
+                    key={`${item.id}:${index}`}
+                    title="Historical image bytes are not loaded in the live renderer"
+                  >
+                    <span className="timeline-item__attachment-icon" aria-hidden="true">
+                      <FileIcon />
+                    </span>
+                    <span className="timeline-item__attachment-name">
+                      {attachment.name ?? `Image ${index + 1}`} · preview unloaded
+                    </span>
+                  </div>
                 ) : (
                   <div
                     className="timeline-item__attachment timeline-item__attachment--file"
@@ -737,7 +750,7 @@ function TimelineToolCallItem({
   const hasFullOutputPath = Boolean(item.fullOutputPath?.trim());
   const fullOutputLabel = isAgentTool(item.toolName) ? "Full transcript" : "Full output";
   const canOpenTranscript = isAgentTool(item.toolName) && hasFullOutputPath;
-  const hasDetails = item.input !== undefined || item.output !== undefined || hasFullOutputPath;
+  const hasDetails = item.input !== undefined || item.output !== undefined || hasFullOutputPath || item.payloadTruncated;
   const running = item.status === "running";
   const diffText = isWriteTool(item.toolName) ? extractDiffFromOutput(item.output) : undefined;
   const diffStats = diffText ? countDiffStats(diffText) : undefined;
@@ -932,6 +945,16 @@ function TimelineToolCallItem({
               ) : (
                 <pre className="timeline-tool__pre">{formatToolContent(undefined, item.output)}</pre>
               )}
+              {item.payloadTruncated ? (
+                <div className="timeline-tool__truncation-note">
+                  <strong>Large historical payload bounded</strong>
+                  <span>
+                    This card is showing a safe preview
+                    {item.payloadSizeBytes ? ` of ${formatBytes(item.payloadSizeBytes)}` : ""}.
+                    The stored task transcript remains unchanged.
+                  </span>
+                </div>
+              ) : null}
               {item.fullOutputPath ? (
                 <details className="timeline-tool__details timeline-tool__details--full-output">
                   <summary>{fullOutputLabel}</summary>

@@ -1,4 +1,5 @@
 import { useMemo, useRef, useState } from "react";
+import { Search } from "lucide-react";
 import { searchSettings, type SettingsSearchEntry } from "./product-experience/settings-search";
 import type { SettingsSection } from "./settings-utils";
 
@@ -25,11 +26,14 @@ export function SettingsSearch({
   };
 
   return (
-    <div className="settings-search">
-      <label>
+    <div className="settings-global-search">
+      <label className="settings-global-search__field">
         <span className="sr-only">Search settings</span>
+        <Search className="settings-global-search__icon" size={16} aria-hidden="true" />
         <input
           ref={inputRef}
+          className="settings-global-search__input"
+          type="search"
           aria-label="Search settings"
           placeholder="Try “make text bigger” or “turn off crash reports”…"
           value={query}

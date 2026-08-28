@@ -425,6 +425,7 @@ declare module "@pi-gui/session-driver" {
     getSessionCommands(sessionRef: SessionRef): Promise<readonly RuntimeCommandRecord[]>;
     respondToHostUiRequest(sessionRef: SessionRef, response: HostUiResponse): Promise<void>;
     subscribe(sessionRef: SessionRef, listener: SessionEventListener): Unsubscribe;
+    suspendSessionRuntime(sessionRef: SessionRef): Promise<boolean>;
     closeSession(sessionRef: SessionRef): Promise<void>;
   }
 }
@@ -519,7 +520,7 @@ declare module "@pi-gui/session-driver/runtime-types" {
   export interface RuntimeSettingsSnapshot {
     readonly defaultProvider?: string;
     readonly defaultModelId?: string;
-    readonly defaultThinkingLevel?: "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
+    readonly defaultThinkingLevel?: "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
     readonly enableSkillCommands: boolean;
     readonly enabledModelPatterns: readonly string[];
   }

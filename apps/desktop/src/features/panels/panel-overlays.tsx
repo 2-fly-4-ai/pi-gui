@@ -1,7 +1,7 @@
 import type * as React from "react";
 import { BrowserPanel } from "../../browser-panel";
 import { DiffPanel } from "../../diff-panel";
-import type { DiagnosticReportingPreferences, SessionRecord, WorkspaceRecord } from "../../desktop-state";
+import type { AppView, DiagnosticReportingPreferences, SessionRecord, WorkspaceRecord } from "../../desktop-state";
 import { LogsPanel } from "../../logs-panel";
 import { VSCodePanel } from "../../vscode-panel";
 import type { PiDesktopApi } from "../../ipc";
@@ -27,7 +27,7 @@ interface PanelOverlaysProps {
   readonly threadVsCodeTarget: { readonly workspaceId: string; readonly folderPath: string } | null;
   readonly threadVsCodeWidth: number;
   readonly vsCodePanelStyle: React.CSSProperties;
-  readonly activeView: "threads" | "new-thread" | "display-mode" | "skills" | "extensions" | "settings" | "review";
+  readonly activeView: AppView;
   readonly onBrowserNavigate: (url: string) => void;
   readonly onBrowserClose: () => void;
   readonly onBrowserOpenExternal: (url: string) => void;

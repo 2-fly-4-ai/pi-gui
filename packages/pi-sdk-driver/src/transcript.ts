@@ -3,6 +3,9 @@ export interface SessionTranscriptImageAttachment {
   readonly mimeType: string;
   readonly data: string;
   readonly name?: string;
+  /** The renderer may omit historical image bytes to stay within its memory budget. */
+  readonly dataOmitted?: boolean;
+  readonly sizeBytes?: number;
 }
 
 export interface SessionTranscriptFileAttachment {

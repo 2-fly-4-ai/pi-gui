@@ -1,4 +1,4 @@
-import { writeFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { expect, test } from "@playwright/test";
 import { basename, join } from "node:path";
 import {
@@ -96,6 +96,133 @@ test("new thread reuses composer behaviors for slash commands, image previews, a
       .toBe("image");
     await expect(window.locator(".timeline-item__attachment")).toBeVisible({ timeout: 15_000 });
     await expect(window.locator(".composer-attachment")).toHaveCount(0);
+  } finally {
+    await harness.close();
+  }
+});
+
+test("new thread reloads an evicted workspace model catalog", async () => {
+  test.setTimeout(60_000);
+  const userDataDir = await makeUserDataDir();
+  const agentDir = join(userDataDir, "agent");
+  const workspacePaths = await Promise.all(
+    Array.from({ length: 6 }, (_, index) => makeWorkspace(`new-thread-runtime-${index + 1}`)),
+  );
+  await seedAgentDir(agentDir);
+  const harness = await launchDesktop(userDataDir, {
+    agentDir,
+    initialWorkspaces: workspacePaths,
+    testMode: "background",
+  });
+
+  try {
+    const window = await harness.firstWindow();
+    await openNewThread(window);
+
+    const state = await getDesktopState(window);
+    const evictedWorkspace = state.workspaces.find((workspace) => (
+      workspacePaths.includes(workspace.path) && !state.runtimeByWorkspace[workspace.id]
+    ));
+    expect(evictedWorkspace, "expected the workspace runtime LRU to evict at least one catalog").toBeTruthy();
+
+    await window.locator(".new-thread__workspace").selectOption(evictedWorkspace?.id ?? "");
+    await expect.poll(async () => Boolean(
+      (await getDesktopState(window)).runtimeByWorkspace[evictedWorkspace?.id ?? ""],
+    )).toBe(true);
+
+    const modelBadge = window.locator(".new-thread .model-selector__badge").first();
+    await expect(modelBadge).not.toHaveText("No models available");
+    await expect(window.getByTestId("first-run-onboarding")).toHaveCount(0);
+  } finally {
+    await harness.close();
+  }
+});
+
+test("new thread submission creates only one session when the start action fires twice synchronously", async () => {
+  test.setTimeout(60_000);
+  const userDataDir = await makeUserDataDir();
+  const agentDir = join(userDataDir, "agent");
+  const workspacePath = await makeWorkspace("new-thread-double-submit-workspace");
+  await seedAgentDir(agentDir);
+  const harness = await launchDesktop(userDataDir, {
+    agentDir,
+    initialWorkspaces: [workspacePath],
+    testMode: "background",
+  });
+
+  try {
+    const window = await harness.firstWindow();
+    await openNewThread(window);
+
+    const stateBefore = await getDesktopState(window);
+    const workspaceBefore = stateBefore.workspaces.find((workspace) => workspace.path === workspacePath);
+    expect(workspaceBefore).toBeTruthy();
+    const sessionCountBefore = workspaceBefore?.sessions.length ?? 0;
+
+    await window.getByTestId("new-thread-composer").fill("Create exactly one project overview");
+    const startButton = window.getByRole("button", { name: "Start thread" });
+    await expect(startButton).toBeEnabled();
+    await startButton.evaluate((element) => {
+      (element as HTMLButtonElement).click();
+      (element as HTMLButtonElement).click();
+    });
+
+    await expect(window.getByTestId("composer")).toBeVisible({ timeout: 15_000 });
+    await expect.poll(async () => {
+      const state = await getDesktopState(window);
+      return state.workspaces.find((workspace) => workspace.path === workspacePath)?.sessions.length ?? 0;
+    }, { timeout: 15_000 }).toBe(sessionCountBefore + 1);
+
+    const desktopLog = await readFile(join(userDataDir, "logs", "desktop.log"), "utf8").catch(() => "");
+    expect(desktopLog).not.toContain("Maximum update depth exceeded");
+  } finally {
+    await harness.close();
+  }
+});
+
+test("start-thread IPC coalesces concurrent starts and remains idempotent for repeated request IDs", async () => {
+  test.setTimeout(60_000);
+  const userDataDir = await makeUserDataDir();
+  const agentDir = join(userDataDir, "agent");
+  const workspacePath = await makeWorkspace("new-thread-idempotency-workspace");
+  await seedAgentDir(agentDir);
+  const harness = await launchDesktop(userDataDir, {
+    agentDir,
+    initialWorkspaces: [workspacePath],
+    testMode: "background",
+  });
+
+  try {
+    const window = await harness.firstWindow();
+    const stateBefore = await getDesktopState(window);
+    const workspaceBefore = stateBefore.workspaces.find((workspace) => workspace.path === workspacePath);
+    expect(workspaceBefore).toBeTruthy();
+    const rootWorkspaceId = workspaceBefore?.id ?? "";
+    const sessionCountBefore = workspaceBefore?.sessions.length ?? 0;
+
+    await window.evaluate(async ({ workspaceId }) => {
+      const app = window.piApp;
+      if (!app) {
+        throw new Error("piApp IPC bridge is unavailable");
+      }
+      const input = {
+        requestId: crypto.randomUUID(),
+        rootWorkspaceId: workspaceId,
+        environment: "local" as const,
+        prompt: "Create one idempotent thread",
+      };
+      await Promise.all([
+        app.startThread(input),
+        app.startThread(input),
+        app.startThread({ ...input, requestId: crypto.randomUUID() }),
+      ]);
+      await app.startThread(input);
+    }, { workspaceId: rootWorkspaceId });
+
+    await expect.poll(async () => {
+      const state = await getDesktopState(window);
+      return state.workspaces.find((workspace) => workspace.path === workspacePath)?.sessions.length ?? 0;
+    }, { timeout: 15_000 }).toBe(sessionCountBefore + 1);
   } finally {
     await harness.close();
   }
@@ -297,7 +424,7 @@ test("first-run guide connects a provider and prepares a starter thread", async 
     });
     await allProviders.locator(".settings-disclosure__summary").click();
     const openAiRow = allProviders.locator(".settings-row", {
-      has: window.locator(".settings-row__title", { hasText: /^openai$/ }),
+      has: window.locator(".settings-row__title", { hasText: /^OpenAI$/i }),
     });
     await openAiRow.getByRole("button", { name: "Set API key" }).click();
     const dialog = window.getByTestId("provider-api-key-dialog");

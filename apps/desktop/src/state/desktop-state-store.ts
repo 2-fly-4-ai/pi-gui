@@ -1,5 +1,5 @@
 import { useSyncExternalStore, type Dispatch, type SetStateAction } from "react";
-import type { DesktopAppState, SelectedTranscriptRecord } from "../desktop-state";
+import type { DesktopAppState, SelectedTranscriptRecord, WorkspaceSessionTarget } from "../desktop-state";
 import {
   applyTranscriptSyncEvent,
   createTranscriptMaterializerState,
@@ -11,6 +11,8 @@ import type { StatePatchEvent, TranscriptSyncEvent } from "../ipc";
 type DesktopSnapshotSetter = Dispatch<SetStateAction<DesktopAppState | null>>;
 
 const transcriptMaterializeDelayMs = 250;
+const rendererRecoveryMessage =
+  "Pi recovered the renderer in safe mode. This task is showing a bounded recent-history window; the complete transcript remains stored on disk.";
 
 let snapshot: DesktopAppState | null = null;
 let selectedTranscript: SelectedTranscriptRecord | null = null;
@@ -20,6 +22,7 @@ let pendingMaterializedTranscriptTimer: ReturnType<typeof setTimeout> | undefine
 let started = false;
 let selectionRequestId = 0;
 let lastSelectionKey = "";
+let selectionRetryTimer: ReturnType<typeof setTimeout> | undefined;
 
 const snapshotListeners = new Set<() => void>();
 const selectedTranscriptListeners = new Set<() => void>();
@@ -78,9 +81,19 @@ function ensureDesktopStateStoreStarted(): void {
     return;
   }
 
-  void Promise.all([api.getState(), api.getSelectedTranscript()]).then(([state, transcript]) => {
-    applySnapshot(state);
+  const rendererRecoveryMode = new URLSearchParams(window.location.search).get("rendererRecovery") === "1";
+  void Promise.all([
+    api.getState(),
+    api.getSelectedTranscript(rendererRecoveryMode ? { recoveryMode: true } : undefined),
+  ]).then(([state, transcript]) => {
+    applySnapshot(
+      rendererRecoveryMode
+        ? { ...state, lastError: state.lastError ?? rendererRecoveryMessage }
+        : state,
+      false,
+    );
     applySelectedTranscript(transcript);
+    lastSelectionKey = currentSelectionKey();
   });
 
   api.onStatePatchChanged((event) => {
@@ -91,10 +104,12 @@ function ensureDesktopStateStoreStarted(): void {
   });
 }
 
-function applySnapshot(nextSnapshot: DesktopAppState | null): void {
+function applySnapshot(nextSnapshot: DesktopAppState | null, requestTranscript = true): void {
   snapshot = nextSnapshot;
   notify(snapshotListeners);
-  requestSelectedTranscriptForCurrentSelection();
+  if (requestTranscript) {
+    requestSelectedTranscriptForCurrentSelection();
+  }
 }
 
 function applyStatePatchEvent(event: StatePatchEvent): void {
@@ -106,11 +121,7 @@ function applyStatePatchEvent(event: StatePatchEvent): void {
 }
 
 function applySelectedTranscript(nextSelectedTranscript: SelectedTranscriptRecord | null): void {
-  pendingMaterializedTranscript = null;
-  if (pendingMaterializedTranscriptTimer) {
-    clearTimeout(pendingMaterializedTranscriptTimer);
-    pendingMaterializedTranscriptTimer = undefined;
-  }
+  clearPendingMaterializedTranscript();
   const sequence = nextSelectedTranscript && transcriptMaterializer
     && transcriptMaterializer.workspaceId === nextSelectedTranscript.workspaceId
     && transcriptMaterializer.sessionId === nextSelectedTranscript.sessionId
@@ -122,11 +133,14 @@ function applySelectedTranscript(nextSelectedTranscript: SelectedTranscriptRecor
 }
 
 function applyMaterializedTranscript(nextState: TranscriptMaterializerState): void {
-  applySelectedTranscript({
+  clearPendingMaterializedTranscript();
+  transcriptMaterializer = nextState;
+  selectedTranscript = {
     workspaceId: nextState.workspaceId,
     sessionId: nextState.sessionId,
     transcript: nextState.transcript,
-  });
+  };
+  notify(selectedTranscriptListeners);
 }
 
 function scheduleMaterializedTranscript(nextState: TranscriptMaterializerState): void {
@@ -145,6 +159,13 @@ function scheduleMaterializedTranscript(nextState: TranscriptMaterializerState):
 }
 
 function applyTranscriptEvent(api: NonNullable<typeof window.piApp>, event: TranscriptSyncEvent): void {
+  if (event.kind === "reset" && isTranscriptEventForCurrentSelection(event)) {
+    // Session selection can race the direct getSelectedTranscript response with
+    // the authoritative reset event. Once the event arrives, ignore the older
+    // in-flight response so a large history is not materialized twice.
+    selectionRequestId += 1;
+  }
+
   if (!transcriptMaterializer && event.kind !== "reset") {
     if (!isTranscriptEventForCurrentSelection(event)) {
       return;
@@ -187,44 +208,110 @@ function applyTranscriptEvent(api: NonNullable<typeof window.piApp>, event: Tran
   }
 }
 
+function clearPendingMaterializedTranscript(): void {
+  pendingMaterializedTranscript = null;
+  if (pendingMaterializedTranscriptTimer) {
+    clearTimeout(pendingMaterializedTranscriptTimer);
+    pendingMaterializedTranscriptTimer = undefined;
+  }
+}
+
 function isTranscriptEventForCurrentSelection(event: TranscriptSyncEvent): boolean {
   return snapshot?.selectedWorkspaceId === event.workspaceId && snapshot.selectedSessionId === event.sessionId;
 }
 
 function requestSelectedTranscriptForCurrentSelection(): void {
-  const api = window.piApp;
-  if (!api) {
-    return;
-  }
-
   const expectedWorkspaceId = snapshot?.selectedWorkspaceId;
   const expectedSessionId = snapshot?.selectedSessionId;
-  const nextSelectionKey = expectedWorkspaceId && expectedSessionId
-    ? `${expectedWorkspaceId}:${expectedSessionId}:${snapshot?.activeView ?? ""}`
-    : "";
+  const nextSelectionKey = currentSelectionKey();
   if (nextSelectionKey === lastSelectionKey) {
     return;
   }
-  lastSelectionKey = nextSelectionKey;
-
   if (!expectedWorkspaceId || !expectedSessionId) {
     applySelectedTranscript(null);
     return;
   }
 
+  refreshSelectedTranscriptForTarget({
+    workspaceId: expectedWorkspaceId,
+    sessionId: expectedSessionId,
+  });
+}
+
+export function refreshSelectedTranscriptForTarget(target: WorkspaceSessionTarget): void {
+  const api = window.piApp;
+  if (
+    !api
+    || snapshot?.selectedWorkspaceId !== target.workspaceId
+    || snapshot.selectedSessionId !== target.sessionId
+  ) {
+    return;
+  }
+  const nextSelectionKey = currentSelectionKey();
+  lastSelectionKey = nextSelectionKey;
+  if (selectionRetryTimer) {
+    clearTimeout(selectionRetryTimer);
+    selectionRetryTimer = undefined;
+  }
+
   const requestId = ++selectionRequestId;
-  void api.getSelectedTranscript().then((transcript) => {
-    if (requestId !== selectionRequestId) {
-      return;
-    }
+  applySelectedTranscript(null);
+  void api.getSelectedTranscript({ target }).then((transcript) => {
+    if (requestId !== selectionRequestId) return;
     if (
       transcript &&
-      transcript.workspaceId === expectedWorkspaceId &&
-      transcript.sessionId === expectedSessionId
+      transcript.workspaceId === target.workspaceId &&
+      transcript.sessionId === target.sessionId
     ) {
       applySelectedTranscript(transcript);
+      return;
     }
+    scheduleSelectedTranscriptRetry(nextSelectionKey, requestId);
+  }).catch(() => {
+    scheduleSelectedTranscriptRetry(nextSelectionKey, requestId);
   });
+}
+
+export function applySelectedTranscriptForTarget(
+  target: WorkspaceSessionTarget,
+  transcript: SelectedTranscriptRecord | null,
+): void {
+  if (
+    snapshot?.selectedWorkspaceId !== target.workspaceId
+    || snapshot.selectedSessionId !== target.sessionId
+    || !transcript
+    || transcript.workspaceId !== target.workspaceId
+    || transcript.sessionId !== target.sessionId
+  ) {
+    return;
+  }
+  selectionRequestId += 1;
+  if (selectionRetryTimer) {
+    clearTimeout(selectionRetryTimer);
+    selectionRetryTimer = undefined;
+  }
+  lastSelectionKey = currentSelectionKey();
+  applySelectedTranscript(transcript);
+}
+
+function scheduleSelectedTranscriptRetry(selectionKey: string, requestId: number): void {
+  if (requestId !== selectionRequestId || currentSelectionKey() !== selectionKey || selectionRetryTimer) {
+    return;
+  }
+  selectionRetryTimer = setTimeout(() => {
+    selectionRetryTimer = undefined;
+    if (requestId !== selectionRequestId || currentSelectionKey() !== selectionKey) return;
+    lastSelectionKey = "";
+    requestSelectedTranscriptForCurrentSelection();
+  }, 500);
+}
+
+function currentSelectionKey(): string {
+  const workspaceId = snapshot?.selectedWorkspaceId;
+  const sessionId = snapshot?.selectedSessionId;
+  return workspaceId && sessionId
+    ? `${workspaceId}:${sessionId}:${snapshot?.activeView ?? ""}`
+    : "";
 }
 
 function notify(listeners: Set<() => void>): void {

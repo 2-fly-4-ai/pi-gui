@@ -1,3 +1,6 @@
+export type ProjectActionIcon = "play" | "test" | "build" | "deploy" | "preview" | "terminal";
+export type ProjectActionSource = "saved" | "legacy-migration" | "discovered-script" | "repository-import";
+
 export interface ProjectActionRecord {
   readonly id: string;
   readonly workspaceId: string;
@@ -5,22 +8,44 @@ export interface ProjectActionRecord {
   readonly command: string;
   readonly keybinding?: string;
   readonly runOnWorktreeCreation: boolean;
+  readonly icon: ProjectActionIcon;
+  readonly previewUrl?: string;
+  readonly autoOpenPreview: boolean;
+  readonly order: number;
+  readonly primary: boolean;
+  readonly trusted: boolean;
+  readonly source: ProjectActionSource;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+}
+
+export interface SaveProjectActionInput {
+  readonly id?: string;
+  readonly workspaceId: string;
+  readonly name: string;
+  readonly command: string;
+  readonly keybinding?: string;
+  readonly runOnWorktreeCreation: boolean;
+  readonly icon?: ProjectActionIcon;
+  readonly previewUrl?: string;
+  readonly autoOpenPreview?: boolean;
+  readonly primary?: boolean;
+  readonly source?: ProjectActionSource;
 }
 
 export type ProjectActionsByWorkspace = Readonly<Record<string, readonly ProjectActionRecord[]>>;
+export const LEGACY_PROJECT_ACTIONS_STORAGE_KEY = "pi-gui:project-actions:v1";
 
-const STORAGE_KEY = "pi-gui:project-actions:v1";
-
-export function loadProjectActions(): ProjectActionsByWorkspace {
+export function loadLegacyProjectActions(): Readonly<Record<string, readonly LegacyProjectAction[]>> {
   try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
+    const raw = window.localStorage.getItem(LEGACY_PROJECT_ACTIONS_STORAGE_KEY);
     if (!raw) return {};
     const parsed = JSON.parse(raw) as unknown;
-    if (!parsed || typeof parsed !== "object") return {};
-    const output: Record<string, ProjectActionRecord[]> = {};
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+    const output: Record<string, LegacyProjectAction[]> = {};
     for (const [workspaceId, value] of Object.entries(parsed)) {
       if (!Array.isArray(value)) continue;
-      output[workspaceId] = value.flatMap((entry) => normalizeProjectAction(entry, workspaceId));
+      output[workspaceId] = value.flatMap((entry) => normalizeLegacyProjectAction(entry));
     }
     return output;
   } catch {
@@ -28,41 +53,44 @@ export function loadProjectActions(): ProjectActionsByWorkspace {
   }
 }
 
-export function saveProjectActions(actions: ProjectActionsByWorkspace): void {
+export function clearLegacyProjectActions(): void {
   try {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(actions));
+    window.localStorage.removeItem(LEGACY_PROJECT_ACTIONS_STORAGE_KEY);
   } catch {
-    // Project actions are renderer convenience state; ignore storage failures.
+    // Main persistence already succeeded; a stale migration source is harmless.
   }
 }
 
-export function createProjectAction(input: {
-  readonly workspaceId: string;
+export interface LegacyProjectAction {
+  readonly id?: string;
   readonly name: string;
   readonly command: string;
   readonly keybinding?: string;
   readonly runOnWorktreeCreation: boolean;
-}): ProjectActionRecord {
-  return {
-    id: `action-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-    workspaceId: input.workspaceId,
-    name: input.name.trim(),
-    command: input.command.trim(),
-    ...(input.keybinding?.trim() ? { keybinding: input.keybinding.trim() } : {}),
-    runOnWorktreeCreation: input.runOnWorktreeCreation,
-  };
 }
 
-function normalizeProjectAction(value: unknown, fallbackWorkspaceId: string): readonly ProjectActionRecord[] {
+export interface ProjectActionImportPreview {
+  readonly relativePath: string;
+  readonly actions: readonly ProjectActionRecord[];
+  readonly warnings: readonly string[];
+}
+
+export interface ProjectActionExportPreview {
+  readonly relativePath: string;
+  readonly actionCount: number;
+  readonly bytes: number;
+  readonly overwritesExistingFile: boolean;
+}
+
+function normalizeLegacyProjectAction(value: unknown): readonly LegacyProjectAction[] {
   if (!value || typeof value !== "object") return [];
-  const record = value as Partial<ProjectActionRecord>;
+  const record = value as Partial<LegacyProjectAction>;
   if (!record.name?.trim() || !record.command?.trim()) return [];
   return [{
-    id: record.id || `action-${record.name}`,
-    workspaceId: record.workspaceId || fallbackWorkspaceId,
+    id: record.id,
     name: record.name.trim(),
     command: record.command.trim(),
-    ...(record.keybinding?.trim() ? { keybinding: record.keybinding.trim() } : {}),
+    keybinding: record.keybinding?.trim() || undefined,
     runOnWorktreeCreation: Boolean(record.runOnWorktreeCreation),
   }];
 }

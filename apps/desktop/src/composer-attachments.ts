@@ -9,6 +9,19 @@ export const SUPPORTED_COMPOSER_IMAGE_TYPES = [
   { extension: "gif", mimeType: "image/gif" },
   { extension: "webp", mimeType: "image/webp" },
 ] as const;
+export const MAX_COMPOSER_IMAGE_BYTES = 10 * 1024 * 1024;
+export const MAX_COMPOSER_ATTACHMENTS = 12;
+export const MAX_COMPOSER_ATTACHMENTS_TOTAL_BYTES = 32 * 1024 * 1024;
+export const MAX_COMPOSER_TEXT_LENGTH = 500_000;
+export const MAX_COMPOSER_TEXT_BYTES = 1024 * 1024;
+export const MAX_COMPOSER_IMAGE_DIMENSION = 8_192;
+export const MAX_COMPOSER_METADATA_BYTES = 64 * 1024;
+const MAX_COMPOSER_METADATA_NODES = 2_000;
+const MAX_COMPOSER_METADATA_DEPTH = 16;
+const MAX_ATTACHMENT_ID_LENGTH = 256;
+const MAX_ATTACHMENT_NAME_LENGTH = 1_024;
+const MAX_ATTACHMENT_MIME_TYPE_LENGTH = 256;
+const MAX_ATTACHMENT_PATH_LENGTH = 32_768;
 
 type ComposerImageMimeType = (typeof SUPPORTED_COMPOSER_IMAGE_TYPES)[number]["mimeType"];
 type FileWithPath = File & { readonly path?: string };
@@ -101,19 +114,168 @@ export function extractFilesFromDataTransfer(dataTransfer: DataTransfer | null |
 
 export async function readComposerAttachmentsFromFiles(files: readonly File[]): Promise<ComposerAttachment[]> {
   const attachments = await Promise.all(dedupeFiles(files).map(readComposerAttachmentFromFile));
-  return attachments.filter((attachment): attachment is ComposerAttachment => Boolean(attachment));
+  return [...validateComposerAttachmentLimits(
+    attachments.filter((attachment): attachment is ComposerAttachment => Boolean(attachment)),
+  )];
+}
+
+export function boundComposerAttachments(
+  attachments: readonly ComposerAttachment[],
+): ComposerAttachment[] {
+  const bounded: ComposerAttachment[] = [];
+  const seenIds = new Set<string>();
+  let totalBytes = 0;
+  for (const attachment of attachments) {
+    if (seenIds.has(attachment.id)) continue;
+    const bytes = attachment.kind === "image"
+      ? approximateBase64Bytes(attachment.data)
+      : Math.max(0, attachment.sizeBytes ?? 0);
+    if (
+      bounded.length >= MAX_COMPOSER_ATTACHMENTS
+      || totalBytes + bytes > MAX_COMPOSER_ATTACHMENTS_TOTAL_BYTES
+    ) {
+      break;
+    }
+    seenIds.add(attachment.id);
+    bounded.push(attachment);
+    totalBytes += bytes;
+  }
+  return bounded;
+}
+
+export function validateComposerAttachmentLimits(
+  attachments: readonly ComposerAttachment[],
+): readonly ComposerAttachment[] {
+  if (attachments.length > MAX_COMPOSER_ATTACHMENTS) {
+    throw new Error(`Attach up to ${MAX_COMPOSER_ATTACHMENTS} files or images at a time.`);
+  }
+  const seenIds = new Set<string>();
+  let totalBytes = 0;
+  for (const attachment of attachments) {
+    if (
+      !attachment.id
+      || attachment.id.length > MAX_ATTACHMENT_ID_LENGTH
+      || seenIds.has(attachment.id)
+    ) {
+      throw new Error("Each attachment must have a unique ID.");
+    }
+    if (!attachment.name || attachment.name.length > MAX_ATTACHMENT_NAME_LENGTH) {
+      throw new Error("Attachment names must be 1,024 characters or shorter.");
+    }
+    if (!attachment.mimeType || attachment.mimeType.length > MAX_ATTACHMENT_MIME_TYPE_LENGTH) {
+      throw new Error("Attachment MIME types must be 256 characters or shorter.");
+    }
+    if (
+      attachment.kind === "file"
+      && (!attachment.fsPath || attachment.fsPath.length > MAX_ATTACHMENT_PATH_LENGTH)
+    ) {
+      throw new Error("Attachment paths must be 32,768 characters or shorter.");
+    }
+    seenIds.add(attachment.id);
+    const bytes = attachment.kind === "image"
+      ? approximateBase64Bytes(attachment.data)
+      : Math.max(0, attachment.sizeBytes ?? 0);
+    if (attachment.kind === "image" && bytes > MAX_COMPOSER_IMAGE_BYTES) {
+      throw new Error("Images must be 10 MB or smaller.");
+    }
+    totalBytes += bytes;
+    if (totalBytes > MAX_COMPOSER_ATTACHMENTS_TOTAL_BYTES) {
+      throw new Error("Attachments must be 32 MB or smaller in total.");
+    }
+  }
+  return attachments;
+}
+
+export function validateComposerText(text: string): string {
+  if (typeof text !== "string") {
+    throw new Error("Message text must be a string.");
+  }
+  if (text.length > MAX_COMPOSER_TEXT_LENGTH) {
+    throw new Error(`Messages must be ${MAX_COMPOSER_TEXT_LENGTH.toLocaleString()} characters or shorter.`);
+  }
+  if (new TextEncoder().encode(text).byteLength > MAX_COMPOSER_TEXT_BYTES) {
+    throw new Error("Messages must be 1 MB or smaller.");
+  }
+  return text;
+}
+
+export function validateComposerMessageMetadata(value: unknown): unknown {
+  if (value === undefined) {
+    return undefined;
+  }
+  const pending: Array<{ readonly value: unknown; readonly depth: number }> = [{ value, depth: 0 }];
+  const seen = new WeakSet<object>();
+  let bytes = 0;
+  let nodes = 0;
+  while (pending.length > 0) {
+    const current = pending.pop()!;
+    nodes += 1;
+    if (nodes > MAX_COMPOSER_METADATA_NODES || current.depth > MAX_COMPOSER_METADATA_DEPTH) {
+      throw new Error("Message metadata is too complex.");
+    }
+    if (
+      current.value === null
+      || typeof current.value === "boolean"
+      || typeof current.value === "number"
+    ) {
+      bytes += 8;
+    } else if (typeof current.value === "string") {
+      bytes += new TextEncoder().encode(current.value).byteLength;
+    } else if (Array.isArray(current.value)) {
+      if (seen.has(current.value)) {
+        throw new Error("Message metadata cannot contain cycles.");
+      }
+      seen.add(current.value);
+      for (const nested of current.value) {
+        pending.push({ value: nested, depth: current.depth + 1 });
+      }
+    } else if (typeof current.value === "object") {
+      if (seen.has(current.value)) {
+        throw new Error("Message metadata cannot contain cycles.");
+      }
+      seen.add(current.value);
+      for (const [key, nested] of Object.entries(current.value)) {
+        bytes += new TextEncoder().encode(key).byteLength;
+        pending.push({ value: nested, depth: current.depth + 1 });
+      }
+    } else {
+      throw new Error("Message metadata contains an unsupported value.");
+    }
+    if (bytes > MAX_COMPOSER_METADATA_BYTES) {
+      throw new Error("Message metadata must be 64 KB or smaller.");
+    }
+  }
+  return value;
 }
 
 async function readComposerAttachmentFromFile(file: File): Promise<ComposerAttachment | null> {
   if (isImageFile(file)) {
+    if (file.size > MAX_COMPOSER_IMAGE_BYTES) {
+      throw new Error("Images must be 10 MB or smaller.");
+    }
+    await validateImageDimensions(file);
     return readImageAttachmentFromFile(file);
   }
 
   return readFileAttachmentFromFile(file as FileWithPath);
 }
 
-function readImageAttachmentFromFile(file: File): Promise<ComposerImageAttachment | null> {
-  return new Promise((resolve) => {
+async function validateImageDimensions(file: File): Promise<void> {
+  if (typeof createImageBitmap !== "function") {
+    return;
+  }
+  const image = await createImageBitmap(file);
+  try {
+    if (image.width > MAX_COMPOSER_IMAGE_DIMENSION || image.height > MAX_COMPOSER_IMAGE_DIMENSION) {
+      throw new Error(`Images must be ${MAX_COMPOSER_IMAGE_DIMENSION.toLocaleString()} pixels or smaller per side.`);
+    }
+  } finally {
+    image.close();
+  }
+}
+
+function readImageAttachmentFromFile(file: File): Promise<ComposerImageAttachment> {
+  return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => {
       const dataUrl = reader.result as string;
@@ -128,7 +290,7 @@ function readImageAttachmentFromFile(file: File): Promise<ComposerImageAttachmen
         status: "ready",
       });
     };
-    reader.onerror = () => resolve(null);
+    reader.onerror = () => reject(new Error(`Could not read ${file.name || "the selected image"}.`));
     reader.readAsDataURL(file);
   });
 }
@@ -164,4 +326,9 @@ function resolveFilePath(file: FileWithPath): string | null {
 function fileNameFromPath(filePath: string): string {
   const segments = filePath.split(/[/\\]+/);
   return segments[segments.length - 1] ?? "";
+}
+
+function approximateBase64Bytes(value: string): number {
+  const padding = value.endsWith("==") ? 2 : value.endsWith("=") ? 1 : 0;
+  return Math.max(0, Math.floor((value.length * 3) / 4) - padding);
 }

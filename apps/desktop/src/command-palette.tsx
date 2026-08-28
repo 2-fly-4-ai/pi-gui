@@ -1,4 +1,4 @@
-import { type KeyboardEvent, useEffect, useId, useMemo, useRef, useState } from "react";
+import { type KeyboardEvent, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import {
   resolveCommandPaletteActions,
   type CommandPaletteAction,
@@ -55,7 +55,12 @@ export function CommandPalette({ actions, onClose, storageScope = "global" }: Co
     [orderedActions, query],
   );
   const filteredActions = paletteResults.actions;
-  const selectedAction = filteredActions[selectedIndex];
+  const effectiveSelectedIndex = filteredActions[selectedIndex]?.disabled
+    ? firstEnabledIndex(filteredActions)
+    : selectedIndex < filteredActions.length
+      ? selectedIndex
+      : firstEnabledIndex(filteredActions);
+  const selectedAction = filteredActions[effectiveSelectedIndex];
   const selectedActionId = selectedAction ? `${listboxId}-${selectedAction.id}` : undefined;
   const recommendation = deriveAdaptiveRecommendation(
     adaptiveUsage,
@@ -65,6 +70,15 @@ export function CommandPalette({ actions, onClose, storageScope = "global" }: Co
   const recommendedAction = recommendation
     ? actions.find((action) => action.id === recommendation.actionId)
     : undefined;
+  const runAction = useCallback((action: CommandPaletteAction | undefined) => {
+    if (!action || action.disabled) return;
+    const nextRecent = [action.id, ...recentIds.filter((id) => id !== action.id)].slice(0, 12);
+    setRecentIds(nextRecent);
+    writeIds(`recent:${storageScope}`, nextRecent);
+    setAdaptiveUsage(recordAdaptiveAction(storageScope, action.id));
+    action.run();
+    onClose();
+  }, [onClose, recentIds, storageScope]);
 
   useEffect(() => {
     previouslyFocusedElementRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -75,32 +89,39 @@ export function CommandPalette({ actions, onClose, storageScope = "global" }: Co
   }, []);
 
   useEffect(() => {
-    const handleEscape = (event: globalThis.KeyboardEvent) => {
-      if (event.key !== "Escape") {
+    const handleGlobalKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        onClose();
         return;
       }
-      event.preventDefault();
-      onClose();
+      if (dialogRef.current?.contains(event.target as Node)) {
+        return;
+      }
+      if (event.key === "Enter") {
+        event.preventDefault();
+        event.stopPropagation();
+        runAction(selectedAction);
+      } else if (event.key === "ArrowDown") {
+        event.preventDefault();
+        event.stopPropagation();
+        setSelectedIndex((current) => nextEnabledIndex(filteredActions, current, 1));
+      } else if (event.key === "ArrowUp") {
+        event.preventDefault();
+        event.stopPropagation();
+        setSelectedIndex((current) => nextEnabledIndex(filteredActions, current, -1));
+      }
     };
-    window.addEventListener("keydown", handleEscape);
+    window.addEventListener("keydown", handleGlobalKeyDown, true);
     return () => {
-      window.removeEventListener("keydown", handleEscape);
+      window.removeEventListener("keydown", handleGlobalKeyDown, true);
     };
-  }, [onClose]);
+  }, [filteredActions, onClose, runAction, selectedAction]);
 
   useEffect(() => {
     setSelectedIndex(firstEnabledIndex(filteredActions));
   }, [filteredActions]);
-
-  const runAction = (action: CommandPaletteAction | undefined) => {
-    if (!action || action.disabled) return;
-    const nextRecent = [action.id, ...recentIds.filter((id) => id !== action.id)].slice(0, 12);
-    setRecentIds(nextRecent);
-    writeIds(`recent:${storageScope}`, nextRecent);
-    setAdaptiveUsage(recordAdaptiveAction(storageScope, action.id));
-    action.run();
-    onClose();
-  };
 
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.key === "Escape") {
@@ -195,9 +216,9 @@ export function CommandPalette({ actions, onClose, storageScope = "global" }: Co
               id={`${listboxId}-${action.id}`}
               type="button"
               role="option"
-              aria-selected={index === selectedIndex}
+              aria-selected={index === effectiveSelectedIndex}
               disabled={action.disabled}
-              className={`command-palette__item${index === selectedIndex ? " command-palette__item--selected" : ""}`}
+              className={`command-palette__item${index === effectiveSelectedIndex ? " command-palette__item--selected" : ""}`}
               onFocus={() => setSelectedIndex(index)}
               onMouseEnter={() => setSelectedIndex(index)}
               onClick={() => runAction(action)}

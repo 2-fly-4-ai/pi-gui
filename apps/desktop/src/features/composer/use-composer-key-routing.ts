@@ -36,6 +36,7 @@ interface UseNewThreadComposerKeyRoutingOptions {
   readonly onAddClipboardImage: (clipboardImage: ComposerImageAttachment) => void;
   readonly onStartThread: () => void;
   readonly slashMenu: ComposerSlashKeyHandler;
+  readonly submitting: boolean;
 }
 
 export function createSessionComposerKeyHandler({
@@ -93,6 +94,7 @@ export function createNewThreadComposerKeyHandler({
   onAddClipboardImage,
   onStartThread,
   slashMenu,
+  submitting,
 }: UseNewThreadComposerKeyRoutingOptions): (event: KeyboardEvent<HTMLTextAreaElement>) => void {
   return (event) => {
     if (handleClipboardImageShortcut(event, onAddClipboardImage)) {
@@ -115,7 +117,7 @@ export function createNewThreadComposerKeyHandler({
     if (!draft.trim() && attachments.length === 0) {
       return;
     }
-    if (modelSelectionRequired) {
+    if (modelSelectionRequired || submitting) {
       return;
     }
 

@@ -379,6 +379,18 @@ function cloneSessionEntry(entry: SessionCatalogEntry): SessionCatalogEntry {
   return {
     ...entry,
     sessionRef: { ...entry.sessionRef },
+    ...(entry.config
+      ? {
+          config: {
+            ...entry.config,
+            ...(entry.config.toolAccess?.mode === "custom"
+              ? { toolAccess: { ...entry.config.toolAccess, tools: [...entry.config.toolAccess.tools] } }
+              : entry.config.toolAccess
+                ? { toolAccess: { ...entry.config.toolAccess } }
+                : {}),
+          },
+        }
+      : {}),
   };
 }
 

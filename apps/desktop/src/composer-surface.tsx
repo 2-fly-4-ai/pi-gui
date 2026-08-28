@@ -1,4 +1,4 @@
-import { memo, useCallback, useRef, useState, type ChangeEvent, type ClipboardEvent, type DragEvent, type KeyboardEvent, type ReactNode, type RefObject } from "react";
+import { memo, useCallback, useEffect, useRef, useState, type ChangeEvent, type ClipboardEvent, type DragEvent, type KeyboardEvent, type ReactNode, type RefObject } from "react";
 import type { ComposerAttachment } from "./desktop-state";
 import type {
   ComposerSlashCommand,
@@ -6,7 +6,7 @@ import type {
   ComposerSlashOption,
   ComposerSlashOptionEmptyState,
 } from "./composer-commands";
-import { hasFilesInDataTransfer } from "./composer-attachments";
+import { hasFilesInDataTransfer, MAX_COMPOSER_TEXT_LENGTH } from "./composer-attachments";
 import { FileIcon, ModelIcon, ReasoningIcon, SettingsIcon, SkillIcon, SparkIcon, StatusIcon } from "./icons";
 import { QueuedComposerMessages } from "./queued-composer-messages";
 import { attachmentSourceLabel, attachmentStatusLabel, attachmentTypeLabel, formatAttachmentSize, safeAttachmentName } from "./attachment-presentation";
@@ -106,19 +106,39 @@ export const ComposerSurface = memo(function ComposerSurface({
     renderCountRef.current += 1;
   }
   const [isDragActive, setIsDragActive] = useState(false);
-  const dragDepthRef = useRef(0);
 
   const clearDragState = useCallback(() => {
-    dragDepthRef.current = 0;
     setIsDragActive(false);
   }, []);
+
+  useEffect(() => {
+    if (!isDragActive) {
+      return undefined;
+    }
+
+    const handleWindowDragLeave = (event: globalThis.DragEvent) => {
+      if (event.relatedTarget === null) {
+        clearDragState();
+      }
+    };
+
+    window.addEventListener("dragleave", handleWindowDragLeave);
+    window.addEventListener("dragend", clearDragState);
+    window.addEventListener("drop", clearDragState, true);
+    window.addEventListener("blur", clearDragState);
+    return () => {
+      window.removeEventListener("dragleave", handleWindowDragLeave);
+      window.removeEventListener("dragend", clearDragState);
+      window.removeEventListener("drop", clearDragState, true);
+      window.removeEventListener("blur", clearDragState);
+    };
+  }, [clearDragState, isDragActive]);
 
   const handleDragEnter = useCallback((event: DragEvent<HTMLDivElement>) => {
     if (!hasFilesInDataTransfer(event.dataTransfer)) {
       return;
     }
     event.preventDefault();
-    dragDepthRef.current += 1;
     setIsDragActive(true);
   }, []);
 
@@ -127,11 +147,8 @@ export const ComposerSurface = memo(function ComposerSurface({
     if (relatedTarget instanceof Node && event.currentTarget.contains(relatedTarget)) {
       return;
     }
-    dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
-    if (dragDepthRef.current === 0) {
-      setIsDragActive(false);
-    }
-  }, []);
+    clearDragState();
+  }, [clearDragState]);
 
   const handleDragOver = useCallback((event: DragEvent<HTMLDivElement>) => {
     if (!hasFilesInDataTransfer(event.dataTransfer)) {
@@ -364,6 +381,7 @@ export const ComposerSurface = memo(function ComposerSurface({
           className={textareaClassName}
           data-testid={textareaTestId}
           ref={composerRef}
+          maxLength={MAX_COMPOSER_TEXT_LENGTH}
           value={composerDraft}
           onChange={handleComposerChange}
           onKeyDown={onComposerKeyDown}

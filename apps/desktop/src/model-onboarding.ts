@@ -38,10 +38,20 @@ export function deriveModelOnboardingState(
   runtime: RuntimeSnapshot | undefined,
   currentSelection: ModelSelectionInput,
 ): ModelOnboardingState {
+  if (!runtime) {
+    return {
+      hasSelectableModels: false,
+      requiresModelSelection: true,
+      unselectedModelLabel: "Loading models…",
+      emptyModelTitle: "Loading models…",
+      emptyModelDescription: "Refreshing the model catalog for this project.",
+    };
+  }
+
   const selectableModels = buildModelOptions(runtime);
   const selectableSet = new Set(selectableModels.map((model) => `${model.providerId}:${model.modelId}`));
   const hasSelectableModels = selectableModels.length > 0;
-  const connectedProviderCount = runtime?.providers.filter((provider) => provider.hasAuth).length ?? 0;
+  const connectedProviderCount = runtime.providers.filter((provider) => provider.hasAuth).length;
   const settingsDefault = {
     provider: runtime?.settings.defaultProvider,
     modelId: runtime?.settings.defaultModelId,

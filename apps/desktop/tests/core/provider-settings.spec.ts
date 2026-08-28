@@ -40,7 +40,7 @@ test("settings lets the user save an API key for a built-in provider", async () 
     });
     await allProviders.locator(".settings-disclosure__summary").click();
     const openAiRow = allProviders.locator(".settings-row", {
-      has: window.locator(".settings-row__title", { hasText: /^openai$/ }),
+      has: window.locator(".settings-row__title", { hasText: /^OpenAI$/i }),
     });
     await expect(openAiRow).toContainText("API key");
     await openAiRow.getByRole("button", { name: "Set API key" }).click();
@@ -51,12 +51,23 @@ test("settings lets the user save an API key for a built-in provider", async () 
     await dialog.getByRole("button", { name: "Set API key" }).click();
     await expect(dialog).toHaveCount(0);
 
+    const deepSeekRow = allProviders.locator(".settings-row", {
+      has: window.locator(".settings-row__title", { hasText: /^DeepSeek$/i }),
+    });
+    await expect(deepSeekRow).toContainText("API key");
+    await deepSeekRow.getByRole("button", { name: "Set API key" }).click();
+    await expect(dialog).toBeVisible();
+    await dialog.getByLabel("DeepSeek API key").fill("test-deepseek-key");
+    await dialog.getByRole("button", { name: "Set API key" }).click();
+    await expect(dialog).toHaveCount(0);
+
     const connectedProviders = window.locator(".settings-section", {
       has: window.locator(".settings-section__title", { hasText: "Connected" }),
     });
-    await expect(connectedProviders).toContainText("openai");
+    await expect(connectedProviders).toContainText("OpenAI");
+    await expect(connectedProviders).toContainText("DeepSeek");
     await expect(connectedProviders).toContainText("API key");
-    await expect(connectedProviders.getByRole("button", { name: "Manage" })).toBeVisible();
+    await expect(connectedProviders.getByRole("button", { name: "Manage" })).toHaveCount(2);
 
     await window.getByRole("button", { name: "Models", exact: true }).click();
     const enabledModels = window.locator(".settings-section", {
@@ -64,6 +75,7 @@ test("settings lets the user save an API key for a built-in provider", async () 
     });
     await expect(enabledModels).toContainText("openai/gpt-5");
     await expect(enabledModels).toContainText("openai/gpt-4o");
+    await expect(enabledModels).toContainText("deepseek/");
   } finally {
     await harness.close();
   }
@@ -100,7 +112,7 @@ test("settings shows environment-configured providers as managed externally", as
       has: window.locator(".settings-section__title", { hasText: "Connected" }),
     });
     const openAiRow = connectedProviders.locator(".settings-row", {
-      has: window.locator(".settings-row__title", { hasText: /^openai$/ }),
+      has: window.locator(".settings-row__title", { hasText: /^OpenAI$/i }),
     });
     await expect(openAiRow).toContainText("Environment variable");
     await expect(openAiRow.getByRole("button", { name: "Managed externally" })).toBeDisabled();
@@ -159,7 +171,7 @@ test("settings keeps models.json provider overrides in the external-config state
       has: window.locator(".settings-section__title", { hasText: "Connected" }),
     });
     const openAiRow = connectedProviders.locator(".settings-row", {
-      has: window.locator(".settings-row__title", { hasText: /^openai$/ }),
+      has: window.locator(".settings-row__title", { hasText: /^OpenAI$/i }),
     });
     await expect(openAiRow).toContainText("Configured externally");
     await expect(openAiRow.getByRole("button", { name: "Managed externally" })).toBeDisabled();
@@ -206,7 +218,7 @@ test("opening the first workspace from the empty state hydrates provider and mod
     const connectedProviders = window.locator(".settings-section", {
       has: window.locator(".settings-section__title", { hasText: "Connected" }),
     });
-    await expect(connectedProviders).toContainText("openai");
+    await expect(connectedProviders).toContainText("OpenAI");
     await expect(connectedProviders).toContainText("API key");
 
     await window.getByRole("button", { name: "Models", exact: true }).click();

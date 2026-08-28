@@ -3,6 +3,7 @@ import type { RuntimeSkillProfileRecord, RuntimeSnapshot } from "@pi-gui/session
 import type { DesktopAppState, WorkspaceRecord } from "../../desktop-state";
 import type { DesktopNotificationPermissionStatus } from "../../ipc";
 import type { SettingsSection } from "./use-settings-routing";
+import { applyThemeDefinition } from "../../theme-types";
 
 interface UseSettingsActionsOptions {
   readonly activeView: DesktopAppState["activeView"] | undefined;
@@ -34,8 +35,10 @@ export function useSettingsActions({
     const piApi = window.piApp;
     if (!piApi) return;
 
-    void piApi.getResolvedTheme().then((theme) => {
+    void Promise.all([piApi.getResolvedTheme(), piApi.getThemeGallery()]).then(([theme, gallery]) => {
       document.documentElement.classList.toggle("dark", theme === "dark");
+      const selected = [...gallery.builtIns, ...gallery.installed].find((candidate) => candidate.id === gallery.selectedThemeId);
+      if (selected) applyThemeDefinition(selected, theme);
     });
 
     void piApi.getThemeMode().then((mode) => {
@@ -44,6 +47,10 @@ export function useSettingsActions({
 
     const unsub = piApi.onThemeChanged((theme) => {
       document.documentElement.classList.toggle("dark", theme === "dark");
+      void piApi.getThemeGallery().then((gallery) => {
+        const selected = [...gallery.builtIns, ...gallery.installed].find((candidate) => candidate.id === gallery.selectedThemeId);
+        if (selected) applyThemeDefinition(selected, theme);
+      });
     });
 
     return unsub;

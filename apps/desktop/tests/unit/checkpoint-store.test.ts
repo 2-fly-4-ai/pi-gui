@@ -3,6 +3,7 @@ import {
   mkdir,
   mkdtemp,
   readFile,
+  readdir,
   rm,
   symlink,
   writeFile,
@@ -192,6 +193,32 @@ describe("CheckpointStore", () => {
     const blobNames = await import("node:fs/promises").then(({ readdir }) =>
       readdir(join(userData, "checkpoints", "blobs")));
     expect(blobNames).toHaveLength(1);
+  });
+
+  it("garbage-collects blobs that are no longer reachable from retained manifests", async () => {
+    const { checkout, store, userData, workspace } = await setup({ maxCheckpoints: 1 });
+    await writeFile(join(checkout, "src/app.ts"), "first content\n");
+    const first = await store.create({
+      workspace,
+      sessionId: "session-1",
+      reason: "manual",
+      paths: [{ path: "src/app.ts", ownership: "pi" }],
+    });
+    const firstBlob = first.entries[0]?.before.blobId;
+    expect(firstBlob).toBeDefined();
+
+    await writeFile(join(checkout, "src/app.ts"), "second content\n");
+    const second = await store.create({
+      workspace,
+      sessionId: "session-2",
+      reason: "manual",
+      paths: [{ path: "src/app.ts", ownership: "pi" }],
+    });
+    const secondBlob = second.entries[0]?.before.blobId;
+
+    const blobNames = await readdir(join(userData, "checkpoints", "blobs"));
+    expect(blobNames).toEqual([secondBlob]);
+    expect(blobNames).not.toContain(firstBlob);
   });
 
   it("persists retention controls and never removes a protected or pending-restore checkpoint", async () => {

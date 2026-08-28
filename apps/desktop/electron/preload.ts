@@ -7,6 +7,7 @@ import {
   type PiDesktopCommand,
   type RecordProjectActionEvidenceInput,
   type RendererDiagnosticPayload,
+  type SelectedTranscriptRequestOptions,
   type StatePatchEvent,
   type SubagentTranscriptPreview,
   type TerminalDataEvent,
@@ -55,6 +56,7 @@ import type {
   SubagentWorkflowSnapshot,
 } from "../src/subagent-workflows";
 import type { ObservabilityEventPage, ObservabilityQuery } from "../src/observability-types";
+import type { DiagnosticBundle, ResourceInspectorSnapshot } from "../src/resource-inspector-types";
 import type {
   TaskEvidenceDelta,
   TaskEvidencePage,
@@ -124,14 +126,22 @@ contextBridge.exposeInMainWorld("piApp", {
   getState: () => ipcRenderer.invoke(desktopIpc.stateRequest) as Promise<DesktopAppState>,
   onStatePatchChanged: (listener: (event: StatePatchEvent) => void) =>
     subscribeIpc(desktopIpc.statePatchChanged, listener),
-  getSelectedTranscript: () =>
-    ipcRenderer.invoke(desktopIpc.selectedTranscriptRequest) as Promise<SelectedTranscriptRecord | null>,
+  getSelectedTranscript: (options?: SelectedTranscriptRequestOptions) =>
+    ipcRenderer.invoke(desktopIpc.selectedTranscriptRequest, options) as Promise<SelectedTranscriptRecord | null>,
   getDisplayModeThreadProjection: (target: WorkspaceSessionTarget, knownRevision?: number) =>
     ipcRenderer.invoke(desktopIpc.displayModeProjectionRequest, target, knownRevision) as Promise<DisplayModeProjectionResponse>,
   onDisplayModeProjectionChanged: (listener: (event: DisplayModeProjectionChangedEvent) => void) =>
     subscribeIpc(desktopIpc.displayModeProjectionChanged, listener),
   listObservabilityEvents: (input?: ObservabilityQuery) =>
     ipcRenderer.invoke(desktopIpc.listObservabilityEvents, input) as Promise<ObservabilityEventPage>,
+  getResourceInspectorSnapshot: () =>
+    ipcRenderer.invoke(desktopIpc.getResourceInspectorSnapshot) as Promise<ResourceInspectorSnapshot>,
+  setResourceInspectorVisible: (visible: boolean) =>
+    ipcRenderer.invoke(desktopIpc.setResourceInspectorVisible, visible) as Promise<void>,
+  getDiagnosticBundle: () =>
+    ipcRenderer.invoke(desktopIpc.getDiagnosticBundle) as Promise<DiagnosticBundle>,
+  openDiagnosticLogsFolder: () =>
+    ipcRenderer.invoke(desktopIpc.openDiagnosticLogsFolder) as Promise<void>,
   listTaskEvidence: (input: TaskEvidenceQuery) =>
     ipcRenderer.invoke(desktopIpc.listTaskEvidence, input) as Promise<TaskEvidencePage>,
   recordProjectActionEvidence: (input: RecordProjectActionEvidenceInput) =>
@@ -271,7 +281,7 @@ contextBridge.exposeInMainWorld("piApp", {
   syncCurrentWorkspace: () =>
     ipcRenderer.invoke(desktopIpc.syncCurrentWorkspace) as Promise<void>,
   selectSession: (target: WorkspaceSessionTarget) =>
-    ipcRenderer.invoke(desktopIpc.selectSession, target) as Promise<void>,
+    ipcRenderer.invoke(desktopIpc.selectSession, target) as Promise<SelectedTranscriptRecord | null>,
   renameSession: (target: WorkspaceSessionTarget, title: string) =>
     ipcRenderer.invoke(desktopIpc.renameSession, target, title) as Promise<void>,
   ensureVSCodeServer: (workspaceId: string) =>
@@ -444,7 +454,7 @@ contextBridge.exposeInMainWorld("piApp", {
   updateComposerDraft: (
     target: WorkspaceSessionTarget,
     composerDraft: string,
-    options?: { readonly syncToEditor?: boolean },
+    options?: { readonly syncToEditor?: boolean; readonly baseSyncNonce?: number },
   ) =>
     ipcRenderer.invoke(desktopIpc.updateComposerDraft, target, composerDraft, options) as Promise<void>,
   submitComposer: (text: string, options?: { readonly deliverAs?: "steer" | "followUp"; readonly messageMetadata?: unknown }) =>
@@ -503,6 +513,50 @@ contextBridge.exposeInMainWorld("piApp", {
     ipcRenderer.invoke(desktopIpc.pushBranch, workspaceId, options) as Promise<void>,
   createPullRequest: (workspaceId: string, input: { readonly title: string; readonly body: string; readonly base: string }) =>
     ipcRenderer.invoke(desktopIpc.createPullRequest, workspaceId, input) as Promise<{ readonly url?: string }>,
+  getSourceControlSnapshot: (workspaceId: string, forceRefresh?: boolean) =>
+    ipcRenderer.invoke(desktopIpc.getSourceControlSnapshot, workspaceId, forceRefresh),
+  getPullRequestDetail: (workspaceId: string, pullRequestNumber: number) =>
+    ipcRenderer.invoke(desktopIpc.getPullRequestDetail, workspaceId, pullRequestNumber),
+  previewSourceControlMutation: (mutation: import("../src/source-control-types").SourceControlMutation) =>
+    ipcRenderer.invoke(desktopIpc.previewSourceControlMutation, mutation),
+  runSourceControlMutation: (workspaceId: string, mutation: import("../src/source-control-types").SourceControlMutation) =>
+    ipcRenderer.invoke(desktopIpc.runSourceControlMutation, workspaceId, mutation),
+  getTaskPullRequestLink: (workspaceId: string, sessionId: string) =>
+    ipcRenderer.invoke(desktopIpc.getTaskPullRequestLink, workspaceId, sessionId),
+  linkTaskPullRequest: (workspaceId: string, sessionId: string, pullRequestNumber: number) =>
+    ipcRenderer.invoke(desktopIpc.linkTaskPullRequest, workspaceId, sessionId, pullRequestNumber),
+  unlinkTaskPullRequest: (workspaceId: string, sessionId: string) =>
+    ipcRenderer.invoke(desktopIpc.unlinkTaskPullRequest, workspaceId, sessionId) as Promise<void>,
+  getUsageDashboard: (query: import("../src/usage-types").UsageQuery, forceRefresh?: boolean) =>
+    ipcRenderer.invoke(desktopIpc.getUsageDashboard, query, forceRefresh),
+  listProjectActions: (workspaceId: string) => ipcRenderer.invoke(desktopIpc.listProjectActions, workspaceId),
+  saveProjectAction: (input: import("../src/project-actions").SaveProjectActionInput) => ipcRenderer.invoke(desktopIpc.saveProjectAction, input),
+  deleteProjectAction: (workspaceId: string, actionId: string) => ipcRenderer.invoke(desktopIpc.deleteProjectAction, workspaceId, actionId),
+  reorderProjectActions: (workspaceId: string, orderedIds: readonly string[]) => ipcRenderer.invoke(desktopIpc.reorderProjectActions, workspaceId, orderedIds),
+  migrateLegacyProjectActions: (input: Readonly<Record<string, readonly import("../src/project-actions").LegacyProjectAction[]>>) => ipcRenderer.invoke(desktopIpc.migrateLegacyProjectActions, input),
+  discoverProjectActions: (workspaceId: string) => ipcRenderer.invoke(desktopIpc.discoverProjectActions, workspaceId),
+  previewProjectActionsImport: (workspaceId: string) => ipcRenderer.invoke(desktopIpc.previewProjectActionsImport, workspaceId),
+  previewProjectActionsExport: (workspaceId: string) => ipcRenderer.invoke(desktopIpc.previewProjectActionsExport, workspaceId),
+  exportProjectActions: (workspaceId: string) => ipcRenderer.invoke(desktopIpc.exportProjectActions, workspaceId) as Promise<string>,
+  listPromptShelf: () => ipcRenderer.invoke(desktopIpc.listPromptShelf),
+  stashPrompt: (input: import("../src/prompt-shelf-types").StashPromptInput) => ipcRenderer.invoke(desktopIpc.stashPrompt, input),
+  previewPromptShelfRestore: (entryId: string) => ipcRenderer.invoke(desktopIpc.previewPromptShelfRestore, entryId),
+  completePromptShelfRestore: (entryId: string) => ipcRenderer.invoke(desktopIpc.completePromptShelfRestore, entryId),
+  renamePromptShelfEntry: (entryId: string, label: string) => ipcRenderer.invoke(desktopIpc.renamePromptShelfEntry, entryId, label),
+  reorderPromptShelf: (orderedIds: readonly string[]) => ipcRenderer.invoke(desktopIpc.reorderPromptShelf, orderedIds),
+  deletePromptShelfEntry: (entryId: string) => ipcRenderer.invoke(desktopIpc.deletePromptShelfEntry, entryId),
+  getThemeGallery: () => ipcRenderer.invoke(desktopIpc.getThemeGallery),
+  previewThemePalette: (themeId: string) => ipcRenderer.invoke(desktopIpc.previewThemePalette, themeId),
+  selectThemePalette: (themeId: string) => ipcRenderer.invoke(desktopIpc.selectThemePalette, themeId),
+  resetThemePalette: () => ipcRenderer.invoke(desktopIpc.resetThemePalette),
+  importVsCodeTheme: () => ipcRenderer.invoke(desktopIpc.importVsCodeTheme),
+  removeThemePalette: (themeId: string) => ipcRenderer.invoke(desktopIpc.removeThemePalette, themeId),
+  searchOpenVsxThemes: (query: string) => ipcRenderer.invoke(desktopIpc.searchOpenVsxThemes, query),
+  installOpenVsxTheme: (namespace: string, name: string, version: string) => ipcRenderer.invoke(desktopIpc.installOpenVsxTheme, namespace, name, version),
+  getLoopbackRemoteSnapshot: () => ipcRenderer.invoke(desktopIpc.getLoopbackRemoteSnapshot),
+  launchLoopbackRemote: (workspaceId: string) => ipcRenderer.invoke(desktopIpc.launchLoopbackRemote, workspaceId),
+  probeLoopbackRemote: (relativePath?: string) => ipcRenderer.invoke(desktopIpc.probeLoopbackRemote, relativePath),
+  shutdownLoopbackRemote: () => ipcRenderer.invoke(desktopIpc.shutdownLoopbackRemote),
   createReviewSnapshot: (workspaceId: string, options?: CreateReviewSnapshotOptions) =>
     ipcRenderer.invoke(desktopIpc.createReviewSnapshot, workspaceId, options) as Promise<ReviewSnapshot>,
   runReviewAgentPreReview: (workspaceId: string, sessionId: string, snapshot: ReviewSnapshot) =>

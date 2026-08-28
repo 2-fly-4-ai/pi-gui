@@ -28,6 +28,17 @@ test("persists an execution boundary, enforces tool access, and records one-time
     await window.getByTestId("execution-boundary-trigger").click();
     const boundary = window.getByTestId("execution-boundary");
     await expect(boundary).toBeVisible();
+    await expect(boundary).toHaveAttribute("aria-modal", "true");
+    await expect(boundary).toHaveCSS("background-color", /rgb/);
+    const boundaryBox = await boundary.boundingBox();
+    const viewport = await window.evaluate(() => ({ width: innerWidth, height: innerHeight }));
+    expect(boundaryBox).not.toBeNull();
+    expect(boundaryBox!.y).toBeGreaterThanOrEqual(0);
+    expect(boundaryBox!.y + boundaryBox!.height).toBeLessThanOrEqual(viewport.height);
+    await window.keyboard.press("Escape");
+    await expect(boundary).toBeHidden();
+    await expect(window.getByTestId("execution-boundary-trigger")).toBeFocused();
+    await window.getByTestId("execution-boundary-trigger").click();
     await boundary.getByLabel("Enable boundary for this thread").check();
     await boundary.getByLabel("Maximum files").fill("1");
     await boundary.getByLabel("Allowed paths").fill("src/**");

@@ -20,6 +20,7 @@ export default defineConfig(({ command }) => {
         rollupOptions: {
           input: {
             main: path.resolve(projectRoot, "electron/main.ts"),
+            "remote-execution-helper": path.resolve(projectRoot, "electron/remote-execution-helper.ts"),
           },
         },
       },

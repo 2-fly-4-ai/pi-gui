@@ -111,7 +111,7 @@ export function buildDesktopStatePatchEvents(
 
   const previousSnapshot = buildDesktopStateDomainSnapshot(previous);
   return desktopStatePatchDomains.flatMap((domain) =>
-    stableJson(previousSnapshot[domain]) === stableJson(nextSnapshot[domain])
+    shallowDomainEqual(previousSnapshot[domain], nextSnapshot[domain])
       ? []
       : [{
           domain,
@@ -163,6 +163,14 @@ export function applyDesktopStatePatchEvent(
   }
 }
 
-function stableJson(value: unknown): string {
-  return JSON.stringify(value);
+function shallowDomainEqual(
+  left: Record<string, unknown>,
+  right: Record<string, unknown>,
+): boolean {
+  const leftKeys = Object.keys(left);
+  const rightKeys = Object.keys(right);
+  return (
+    leftKeys.length === rightKeys.length
+    && leftKeys.every((key) => Object.is(left[key], right[key]))
+  );
 }

@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import path from "node:path";
+import { LocalExecutionEnvironment } from "./execution-environment";
 
 function validateFilePath(workspacePath: string, filePath: string): string {
   const resolved = path.resolve(workspacePath, filePath);
@@ -16,38 +17,7 @@ export interface ChangedFileEntry {
 }
 
 export function getChangedFiles(workspacePath: string): Promise<ChangedFileEntry[]> {
-  return new Promise((resolve) => {
-    execFile(
-      "git",
-      ["status", "--porcelain", "--untracked-files=all"],
-      { cwd: workspacePath, maxBuffer: 2 * 1024 * 1024 },
-      (error, stdout) => {
-        if (error) {
-          resolve([]);
-          return;
-        }
-        const entries: ChangedFileEntry[] = [];
-        for (const line of stdout.split("\n")) {
-          if (!line.trim()) {
-            continue;
-          }
-          const xy = line.slice(0, 2);
-          let filePath = line.slice(3).trim();
-          // Renames show as "old -> new"; use the new path
-          const renameArrow = filePath.indexOf(" -> ");
-          if (renameArrow >= 0) {
-            filePath = filePath.slice(renameArrow + 4);
-          }
-          entries.push({
-            path: filePath,
-            status: parseStatus(xy),
-            staged: isFullyStaged(xy),
-          });
-        }
-        resolve(entries);
-      },
-    );
-  });
+  return new LocalExecutionEnvironment(workspacePath).gitStatus().then((entries) => [...entries]);
 }
 
 export function getFileDiff(workspacePath: string, filePath: string): Promise<string> {
@@ -105,27 +75,4 @@ export function stageFile(workspacePath: string, filePath: string): Promise<void
       },
     );
   });
-}
-
-function parseStatus(xy: string): ChangedFileEntry["status"] {
-  const x = xy[0] ?? " ";
-  const y = xy[1] ?? " ";
-
-  if (x === "?" && y === "?") {
-    return "untracked";
-  }
-  if (x === "A" || y === "A") {
-    return "added";
-  }
-  if (x === "D" || y === "D") {
-    return "deleted";
-  }
-  return "modified";
-}
-
-function isFullyStaged(xy: string): boolean {
-  const x = xy[0] ?? " ";
-  const y = xy[1] ?? " ";
-  if (x === "?" || x === " ") return false;
-  return y === " ";
 }

@@ -18,17 +18,6 @@ type TimelinePaneElement = HTMLDivElement & {
   __legendListRef?: LegendListRef | null;
 };
 
-function isCommandTool(item: TranscriptMessage): item is Extract<TranscriptMessage, { kind: "tool" }> {
-  if (item.kind !== "tool") {
-    return false;
-  }
-  const toolName = item.toolName.toLowerCase();
-  if (toolName !== "bash" && !toolName.endsWith(".bash")) {
-    return false;
-  }
-  return typeof item.input === "object" && item.input !== null && typeof (item.input as Record<string, unknown>).command === "string";
-}
-
 interface ThreadSearchModel {
   readonly isOpen: boolean;
   readonly query: string;
@@ -55,6 +44,7 @@ interface ConversationTimelineProps {
   readonly onTimelineNavigate: () => void;
   readonly threadSearch: ThreadSearchModel;
   readonly showJumpToLatest: boolean;
+  readonly scrollbarDragging?: boolean;
   readonly onJumpToLatest: () => void;
   readonly onContentHeightChange: () => void;
   readonly onViewFileInDiff?: (path: string) => void;
@@ -77,6 +67,7 @@ export function ConversationTimeline({
   onTimelineNavigate,
   threadSearch,
   showJumpToLatest,
+  scrollbarDragging = false,
   onJumpToLatest,
   onContentHeightChange,
   onViewFileInDiff,
@@ -129,10 +120,14 @@ export function ConversationTimeline({
     }
     return result;
   }, [attentionMarkers]);
+  const completionMarkers = useMemo(
+    () => attentionMarkers.filter((marker) => marker.type === "milestone" && !marker.evidenceId),
+    [attentionMarkers],
+  );
   const [activeMarkerIndex, setActiveMarkerIndex] = useState(0);
   useEffect(() => {
-    setActiveMarkerIndex((current) => Math.min(current, Math.max(0, attentionMarkers.length - 1)));
-  }, [attentionMarkers.length]);
+    setActiveMarkerIndex((current) => Math.min(current, Math.max(0, completionMarkers.length - 1)));
+  }, [completionMarkers.length]);
   const minimapSegments = useMemo(
     () => minimapEnabled ? buildTimelineMinimap(stableTranscript, displayRows, attentionMarkers) : [],
     [attentionMarkers, displayRows, minimapEnabled, stableTranscript],
@@ -146,7 +141,6 @@ export function ConversationTimeline({
     !threadSearch.isOpen &&
     stableTranscript.length > VIRTUALIZATION_THRESHOLD;
   const [expandedToolCallIds, setExpandedToolCallIds] = useState<Set<string>>(() => new Set());
-  const userCollapsedRunningToolIdsRef = useRef(new Set<string>());
   const measuredHeightsRef = useRef(new Map<string, number>());
   const measurementUpdateFrameRef = useRef<number | null>(null);
   const [measurementVersion, setMeasurementVersion] = useState(0);
@@ -175,12 +169,6 @@ export function ConversationTimeline({
         .map((item) => item.callId),
     );
 
-    for (const callId of [...userCollapsedRunningToolIdsRef.current]) {
-      if (!availableToolCallIds.has(callId)) {
-        userCollapsedRunningToolIdsRef.current.delete(callId);
-      }
-    }
-
     setExpandedToolCallIds((current) => {
       if (current.size === 0) {
         return current;
@@ -193,30 +181,6 @@ export function ConversationTimeline({
           continue;
         }
         next.add(callId);
-      }
-      return changed ? next : current;
-    });
-  }, [stableTranscript]);
-
-  useLayoutEffect(() => {
-    const runningCommandToolIds = stableTranscript
-      .filter(isCommandTool)
-      .filter((item) => item.status === "running")
-      .map((item) => item.callId);
-
-    if (runningCommandToolIds.length === 0) {
-      return;
-    }
-
-    setExpandedToolCallIds((current) => {
-      let changed = false;
-      const next = new Set(current);
-      for (const callId of runningCommandToolIds) {
-        if (userCollapsedRunningToolIdsRef.current.has(callId) || next.has(callId)) {
-          continue;
-        }
-        next.add(callId);
-        changed = true;
       }
       return changed ? next : current;
     });
@@ -259,10 +223,8 @@ export function ConversationTimeline({
       const next = new Set(current);
       if (next.has(callId)) {
         next.delete(callId);
-        userCollapsedRunningToolIdsRef.current.add(callId);
       } else {
         next.add(callId);
-        userCollapsedRunningToolIdsRef.current.delete(callId);
       }
       return next;
     });
@@ -292,15 +254,33 @@ export function ConversationTimeline({
       return undefined;
     }
 
-    const observer = new MutationObserver(() => {
+    let lastScrollHeight = pane.scrollHeight;
+    let pendingFrame: number | undefined;
+    const notifyWhenHeightChanges = () => {
+      pendingFrame = undefined;
+      const nextScrollHeight = pane.scrollHeight;
+      if (Math.abs(nextScrollHeight - lastScrollHeight) < 1) {
+        return;
+      }
+      lastScrollHeight = nextScrollHeight;
       onContentHeightChange();
+    };
+    const observer = new MutationObserver(() => {
+      if (pendingFrame === undefined) {
+        pendingFrame = window.requestAnimationFrame(notifyWhenHeightChanges);
+      }
     });
     observer.observe(pane, {
       childList: true,
       characterData: true,
       subtree: true,
     });
-    return () => observer.disconnect();
+    return () => {
+      observer.disconnect();
+      if (pendingFrame !== undefined) {
+        window.cancelAnimationFrame(pendingFrame);
+      }
+    };
   }, [onContentHeightChange, timelinePaneRef, timelineSessionKey]);
 
   const handleTimelineClickCapture = useCallback((event: ReactMouseEvent<HTMLElement>) => {
@@ -354,28 +334,28 @@ export function ConversationTimeline({
   }, [displayRows, onTimelineNavigate, timelinePaneRef]);
 
   const navigateToMarker = useCallback((requestedIndex: number) => {
-    if (attentionMarkers.length === 0) return;
-    const index = (requestedIndex + attentionMarkers.length) % attentionMarkers.length;
-    const marker = attentionMarkers[index];
+    if (completionMarkers.length === 0) return;
+    const index = (requestedIndex + completionMarkers.length) % completionMarkers.length;
+    const marker = completionMarkers[index];
     if (!marker) return;
     setActiveMarkerIndex(index);
     navigateToRow(marker.rowId);
-  }, [attentionMarkers, navigateToRow]);
+  }, [completionMarkers, navigateToRow]);
 
   useEffect(() => {
     const handleAttentionShortcut = (event: KeyboardEvent) => {
       if (!event.altKey || (event.key !== "ArrowUp" && event.key !== "ArrowDown")) return;
-      if (attentionMarkers.length === 0) return;
+      if (completionMarkers.length === 0) return;
       event.preventDefault();
       navigateToMarker(activeMarkerIndex + (event.key === "ArrowDown" ? 1 : -1));
     };
     document.addEventListener("keydown", handleAttentionShortcut);
     return () => document.removeEventListener("keydown", handleAttentionShortcut);
-  }, [activeMarkerIndex, attentionMarkers.length, navigateToMarker]);
+  }, [activeMarkerIndex, completionMarkers.length, navigateToMarker]);
 
-  const attentionNavigation = attentionMarkers.length ? (
+  const attentionNavigation = completionMarkers.length ? (
     <TimelineAttentionNavigation
-      markers={attentionMarkers}
+      markers={completionMarkers}
       activeIndex={activeMarkerIndex}
       onNavigate={navigateToMarker}
     />
@@ -390,6 +370,7 @@ export function ConversationTimeline({
         <LegendTranscriptList
           timelineSessionKey={timelineSessionKey}
           transcript={displayRows}
+          scrollbarDragging={scrollbarDragging}
           assignTimelinePaneRef={assignTimelinePaneRef}
           onTimelineScroll={onTimelineScroll}
           expandedToolCallIds={expandedToolCallIds}
@@ -411,7 +392,7 @@ export function ConversationTimeline({
             onPointerDown={onJumpToLatest}
             onClick={onJumpToLatest}
           >
-            New activity below
+            Show latest activity
           </button>
         ) : null}
       </div>
@@ -419,14 +400,14 @@ export function ConversationTimeline({
   }
 
   return (
-    <div
-      className="timeline-pane timeline-pane--thread"
-      data-timeline-session-key={timelineSessionKey}
-      data-testid="timeline-pane"
-      ref={assignTimelinePaneRef}
-      onClickCapture={handleTimelineClickCapture}
-      onScroll={onTimelineScroll}
-    >
+    <div className="timeline-pane-frame timeline-pane-frame--thread" onClickCapture={handleTimelineClickCapture}>
+      <div
+        className="timeline-pane timeline-pane--thread"
+        data-timeline-session-key={timelineSessionKey}
+        data-testid="timeline-pane"
+        ref={assignTimelinePaneRef}
+        onScroll={onTimelineScroll}
+      >
       {threadSearch.isOpen ? (
         <ThreadSearchBar
           query={threadSearch.query}
@@ -466,9 +447,16 @@ export function ConversationTimeline({
           ))}
         </div>
       )}
+      </div>
       {showJumpToLatest ? (
-        <button className="timeline-jump" data-testid="timeline-jump" type="button" onClick={onJumpToLatest}>
-          New activity below
+        <button
+          className="timeline-jump"
+          data-testid="timeline-jump"
+          type="button"
+          onPointerDown={onJumpToLatest}
+          onClick={onJumpToLatest}
+        >
+          Show latest activity
         </button>
       ) : null}
     </div>
@@ -487,27 +475,21 @@ function TimelineAttentionNavigation({
   const marker = markers[activeIndex] ?? markers[0];
   if (!marker) return null;
   return (
-    <nav className="timeline-attention-nav" data-testid="timeline-attention-nav" aria-label="Attention markers">
-      <button type="button" aria-label="Previous attention marker" onClick={() => onNavigate(activeIndex - 1)}>↑</button>
+    <nav className="timeline-attention-nav" data-testid="timeline-attention-nav" aria-label="Completed runs">
+      <button type="button" aria-label="Previous completed run" onClick={() => onNavigate(activeIndex - 1)}>↑</button>
       <button
         className="timeline-attention-nav__current"
         type="button"
-        aria-label={`Current attention marker: ${marker.label}`}
+        aria-label={`Current completed run: ${marker.label}`}
         onClick={() => onNavigate(activeIndex)}
       >
         <span>{activeIndex + 1} of {markers.length}</span>
-        <strong>{attentionTypeLabel(marker.type)}</strong>
+        <strong>Completed</strong>
       </button>
-      <button type="button" aria-label="Next attention marker" onClick={() => onNavigate(activeIndex + 1)}>↓</button>
-      <span className="sr-only">Option+Up and Option+Down navigate markers.</span>
+      <button type="button" aria-label="Next completed run" onClick={() => onNavigate(activeIndex + 1)}>↓</button>
+      <span className="sr-only">Option+Up and Option+Down navigate completed runs.</span>
     </nav>
   );
-}
-
-function attentionTypeLabel(type: AttentionMarker["type"]): string {
-  if (type === "input-required") return "Input required";
-  if (type === "direction-change") return "Direction";
-  return type.charAt(0).toUpperCase() + type.slice(1);
 }
 
 function TimelineMinimap({
@@ -539,6 +521,7 @@ function TimelineMinimap({
 function LegendTranscriptList({
   timelineSessionKey,
   transcript,
+  scrollbarDragging,
   assignTimelinePaneRef,
   onTimelineScroll,
   expandedToolCallIds,
@@ -551,6 +534,7 @@ function LegendTranscriptList({
 }: {
   readonly timelineSessionKey: string;
   readonly transcript: readonly TimelineDisplayRow[];
+  readonly scrollbarDragging: boolean;
   readonly assignTimelinePaneRef: RefCallback<HTMLDivElement>;
   readonly onTimelineScroll: () => void;
   readonly expandedToolCallIds: ReadonlySet<string>;
@@ -601,14 +585,15 @@ function LegendTranscriptList({
     <LegendList<TimelineDisplayRow>
       ref={legendListRef}
       data={transcript}
+      dataKey={timelineSessionKey}
       keyExtractor={(item) => item.id}
       renderItem={renderItem}
       estimatedItemSize={90}
       drawDistance={2_400}
       initialScrollAtEnd
-      maintainScrollAtEnd
+      maintainScrollAtEnd={!scrollbarDragging}
       maintainScrollAtEndThreshold={0.1}
-      maintainVisibleContentPosition
+      maintainVisibleContentPosition={!scrollbarDragging}
       recycleItems
       extraData={extraData}
       onItemSizeChanged={onContentHeightChange}

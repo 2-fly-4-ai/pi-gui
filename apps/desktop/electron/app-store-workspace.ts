@@ -247,6 +247,7 @@ export async function createSession(store: AppStoreInternals, input: CreateSessi
       selectedWorkspaceId: snapshot.ref.workspaceId,
       selectedSessionId: snapshot.ref.sessionId,
     };
+    store.pruneFullTranscriptCache(new Set([key]));
     return store.refreshState({
       selectedWorkspaceId: snapshot.ref.workspaceId,
       selectedSessionId: snapshot.ref.sessionId,

@@ -52,6 +52,9 @@ interface TopbarProps {
   readonly onGitCommit?: () => void;
   readonly onGitPush?: () => void;
   readonly onGitCreatePr?: () => void;
+  readonly onGitOpenPullRequests?: () => void;
+  readonly currentPullRequest?: { readonly number: number; readonly title: string; readonly checksSummary: { readonly failure: number; readonly pending: number } };
+  readonly sourceControlAuthState?: string;
   readonly updateStatus?: DesktopUpdateStatus;
   readonly onCheckForUpdates?: () => void;
   readonly onInstallUpdate?: () => void;
@@ -103,6 +106,9 @@ export function Topbar(props: TopbarProps) {
     onGitCommit,
     onGitPush,
     onGitCreatePr,
+    onGitOpenPullRequests,
+    currentPullRequest,
+    sourceControlAuthState,
     updateStatus,
     onCheckForUpdates,
     onInstallUpdate,
@@ -115,7 +121,7 @@ export function Topbar(props: TopbarProps) {
   } = props;
   const terminalShortcut = getDesktopShortcutLabel(api.platform, "J");
   const diffShortcut = getDesktopShortcutLabel(api.platform, "D");
-  const showGitQuickActions = activeView === "threads" && Boolean(selectedWorkspace && selectedSession && onGitCommit && onGitPush && onGitCreatePr);
+  const showGitQuickActions = activeView === "threads" && Boolean(selectedWorkspace && selectedSession && onGitCommit && onGitPush && onGitCreatePr && onGitOpenPullRequests);
   const showExternalActions = showGitQuickActions;
   const hasPanelsMenu = Boolean(
     (browserAvailable && onToggleBrowser) ||
@@ -470,11 +476,14 @@ export function Topbar(props: TopbarProps) {
         </div>
         {showExternalActions ? (
           <div className="topbar__action-group topbar__action-group--external" data-testid="topbar-external-actions">
-            {showGitQuickActions && onGitCommit && onGitPush && onGitCreatePr ? (
+            {showGitQuickActions && onGitCommit && onGitPush && onGitCreatePr && onGitOpenPullRequests ? (
               <GitQuickActions
                 onCommit={onGitCommit}
                 onPush={onGitPush}
                 onCreatePr={onGitCreatePr}
+                onOpenPullRequests={onGitOpenPullRequests}
+                currentPullRequest={currentPullRequest}
+                authState={sourceControlAuthState}
               />
             ) : null}
           </div>

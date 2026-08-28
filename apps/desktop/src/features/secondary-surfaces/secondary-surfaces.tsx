@@ -16,6 +16,10 @@ import type { SettingsSection } from "../../settings-utils";
 import { SkillsView } from "../../skills-view";
 import type { SkillUsageByPath } from "../../skill-usage";
 import { LoadingState } from "../../loading-state";
+import { PullRequestsView } from "../pull-requests/pull-requests-view";
+import { UsageView } from "../usage/usage-view";
+import { ProjectActionsView } from "../project-actions/project-actions-view";
+import { PromptShelfView } from "../prompt-shelf/prompt-shelf-view";
 
 const SETTINGS_NAV = [
   { id: "appearance", label: "Appearance" },
@@ -252,6 +256,10 @@ export interface ActiveSecondarySurfaceProps {
   readonly review: Omit<ReviewSecondarySurfaceProps, "commandPalette">;
   readonly skills: Omit<SkillsSecondarySurfaceProps, "commandPalette">;
   readonly extensions: Omit<ExtensionsSecondarySurfaceProps, "commandPalette">;
+  readonly pullRequests: Omit<ComponentProps<typeof PullRequestsView>, "commandPalette">;
+  readonly usage: Omit<ComponentProps<typeof UsageView>, "commandPalette">;
+  readonly projectActions: Omit<ComponentProps<typeof ProjectActionsView>, "commandPalette">;
+  readonly promptShelf: Omit<ComponentProps<typeof PromptShelfView>, "commandPalette">;
 }
 
 export function ActiveSecondarySurface({
@@ -261,6 +269,10 @@ export function ActiveSecondarySurface({
   review,
   skills,
   extensions,
+  pullRequests,
+  usage,
+  projectActions,
+  promptShelf,
 }: ActiveSecondarySurfaceProps) {
   if (activeView === "settings") {
     return <SettingsSecondarySurface commandPalette={commandPalette} {...settings} />;
@@ -276,6 +288,22 @@ export function ActiveSecondarySurface({
 
   if (activeView === "extensions") {
     return <ExtensionsSecondarySurface commandPalette={commandPalette} {...extensions} />;
+  }
+
+  if (activeView === "pull-requests") {
+    return <PullRequestsView commandPalette={commandPalette} {...pullRequests} />;
+  }
+
+  if (activeView === "usage") {
+    return <UsageView commandPalette={commandPalette} {...usage} />;
+  }
+
+  if (activeView === "project-actions") {
+    return <ProjectActionsView commandPalette={commandPalette} {...projectActions} />;
+  }
+
+  if (activeView === "prompt-shelf") {
+    return <PromptShelfView commandPalette={commandPalette} {...promptShelf} />;
   }
 
   return null;

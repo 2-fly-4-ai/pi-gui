@@ -46,7 +46,7 @@ test("packaged app guides a clean profile from provider setup into a first sessi
     });
     await allProviders.locator(".settings-disclosure__summary").click();
     const openAiRow = allProviders.locator(".settings-row", {
-      has: window.locator(".settings-row__title", { hasText: /^openai$/ }),
+      has: window.locator(".settings-row__title", { hasText: /^OpenAI$/i }),
     });
     await openAiRow.getByRole("button", { name: "Set API key" }).click();
     const dialog = window.getByTestId("provider-api-key-dialog");

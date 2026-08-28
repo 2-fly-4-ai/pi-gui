@@ -21,6 +21,7 @@ const requiredPackages = [
   "balanced-match",
   "brace-expansion",
   "chalk",
+  "cli-highlight",
   "data-uri-to-buffer",
   "glob",
   "hosted-git-info",
@@ -33,6 +34,7 @@ const requiredPackages = [
   "proxy-agent",
   "retry",
   "strip-ansi",
+  "supports-color",
   "yargs",
 ];
 
@@ -46,7 +48,7 @@ const notificationHelperPath =
     : undefined;
 const pnpmBinary = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
 const piCodingAgentPackageName = "@earendil-works/pi-coding-agent";
-const requiredPiCodingAgentVersion = "0.74.0";
+const requiredPiCodingAgentVersion = "0.82.1";
 const packagedRuntimeImportChecks = [
   ["@earendil-works", "pi-ai", "dist", "providers", "google.js"],
   ["@earendil-works", "pi-ai", "dist", "bedrock-provider.js"],
@@ -70,11 +72,23 @@ try {
   });
 
   verifyRequiredPackages(extractedDir);
+  verifyRemoteExecutionHelper(extractedDir);
   await verifyPackagedPiRuntime(extractedDir);
   await verifyPackagedRuntimeImports(extractedDir);
   await verifyNativeNodePty(asarPath);
 } finally {
   rmSync(extractedDir, { recursive: true, force: true });
+}
+
+function verifyRemoteExecutionHelper(extractedDir) {
+  const helperPath = path.join(extractedDir, "out", "main", "remote-execution-helper.js");
+  if (!existsSync(helperPath)) {
+    throw new Error(`Packaged app is missing the disabled-by-default remote execution helper: ${helperPath}`);
+  }
+  const helper = readFileSync(helperPath, "utf8");
+  if (!helper.includes("PI_LOOPBACK_CREDENTIAL") || !helper.includes("PI_LOOPBACK_ROOT")) {
+    throw new Error("Packaged remote execution helper does not contain the expected authenticated loopback entrypoint.");
+  }
 }
 
 console.log(`Verified packaged runtime dependencies in ${asarPath}`);
@@ -121,11 +135,23 @@ async function verifyPackagedPiRuntime(extractedDir) {
   }
 
   const runtimeEntry = path.join(extractedDir, "node_modules", ...piCodingAgentPackageName.split("/"), "dist", "index.js");
-  const { AuthStorage, ModelRegistry } = await import(pathToFileURL(runtimeEntry).href);
-  const registry = ModelRegistry.inMemory(AuthStorage.inMemory());
-  const codexModel = registry.getAll().find((model) => model.provider === "openai-codex" && model.id === "gpt-5.5");
-  if (!codexModel?.reasoning || !codexModel.input.includes("image")) {
-    throw new Error("Packaged Pi runtime does not expose openai-codex/gpt-5.5 with reasoning and image input.");
+  const { ModelRuntime } = await import(pathToFileURL(runtimeEntry).href);
+  const runtime = await ModelRuntime.create({ modelsPath: null });
+  const currentCodexModels = runtime
+    .getModels("openai-codex")
+    .filter((model) => /^gpt-5\.6-/.test(model.id));
+  if (
+    currentCodexModels.length < 3
+    || currentCodexModels.some(
+      (model) =>
+        !model.reasoning
+        || !model.input.includes("image")
+        || model.thinkingLevelMap?.max !== "max",
+    )
+  ) {
+    throw new Error(
+      "Packaged Pi runtime does not expose the current GPT-5.6 Codex family with reasoning, image input, and max reasoning support.",
+    );
   }
 }
 

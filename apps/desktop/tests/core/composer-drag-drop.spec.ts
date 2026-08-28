@@ -6,6 +6,7 @@ import {
   dropFilesOnComposer,
   getSelectedTranscript,
   launchDesktop,
+  leaveComposerDrag,
   makeUserDataDir,
   makeWorkspace,
   openNewThread,
@@ -120,6 +121,35 @@ test("existing thread highlights and accepts dropped images and files", async ()
     await expect(window.locator(".composer-attachment--file .composer-attachment__meta")).toContainText("27 B");
     await window.locator(".composer-attachment--file .composer-attachment__remove").focus();
     await expect(window.locator(".composer-attachment--file .composer-attachment__remove")).toBeFocused();
+  } finally {
+    await harness.close();
+  }
+});
+
+test("file drag overlay clears after nested drag events leave the app", async () => {
+  test.setTimeout(60_000);
+  const userDataDir = await makeUserDataDir();
+  const workspacePath = await makeWorkspace("composer-drop-cancelled");
+  const imagePath = join(workspacePath, "cancelled-drag.png");
+  await writeTinyPng(imagePath);
+
+  const harness = await launchDesktop(userDataDir, {
+    initialWorkspaces: [workspacePath],
+    testMode: "background",
+  });
+
+  try {
+    const window = await harness.firstWindow();
+    await createNamedThread(window, "Cancelled drag");
+
+    await dragFilesOverComposer(window, [imagePath], "composer-surface");
+    await dragFilesOverComposer(window, [imagePath], "composer-surface");
+    await expect(window.getByTestId("composer-drop-indicator")).toBeVisible();
+
+    await leaveComposerDrag(window, "composer-surface");
+
+    await expect(window.getByTestId("composer-drop-indicator")).toHaveCount(0);
+    await expect(window.locator(".composer-attachment")).toHaveCount(0);
   } finally {
     await harness.close();
   }

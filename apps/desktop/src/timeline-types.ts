@@ -31,6 +31,12 @@ export interface TimelineToolCall {
   readonly output?: unknown;
   readonly outputText?: string;
   readonly fullOutputPath?: string;
+  /**
+   * Historical tool payloads can be many megabytes. Main keeps the complete
+   * transcript, while the renderer receives a bounded preview by default.
+   */
+  readonly payloadTruncated?: boolean;
+  readonly payloadSizeBytes?: number;
 }
 
 export interface TimelineSummary {

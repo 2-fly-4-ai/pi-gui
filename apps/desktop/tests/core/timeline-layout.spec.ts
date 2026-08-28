@@ -12,6 +12,95 @@ import {
   waitForWorkspaceByPath,
 } from "../helpers/electron-app";
 
+test("selects and copies assistant transcript text", async () => {
+  const userDataDir = await makeUserDataDir();
+  const workspacePath = await makeWorkspace("timeline-text-selection-workspace");
+  const harness = await launchDesktop(userDataDir, {
+    initialWorkspaces: [workspacePath],
+    testMode: "background",
+  });
+
+  try {
+    const window = await harness.firstWindow();
+    await waitForWorkspaceByPath(window, workspacePath);
+    await createSessionViaIpc(window, workspacePath, "Selectable assistant response");
+    await seedTranscriptMessages(harness, window, {
+      count: 81,
+      textFactory: (index) => index === 80
+        ? "Selectable transcript text must remain available to the system clipboard."
+        : `Earlier assistant response ${index}.`,
+    });
+
+    const paragraph = window.locator(".timeline-item--assistant .message__content p", {
+      hasText: "Selectable transcript text",
+    });
+    await expect(paragraph).toBeVisible();
+    await expect
+      .poll(() => paragraph.evaluate((element) => getComputedStyle(element).userSelect))
+      .toBe("text");
+
+    const textRect = await paragraph.evaluate((element) => {
+      const textNode = element.firstChild;
+      if (!(textNode instanceof Text)) {
+        throw new Error("Expected the assistant paragraph to start with a text node");
+      }
+      const range = document.createRange();
+      range.selectNodeContents(textNode);
+      const rect = range.getBoundingClientRect();
+      return { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom };
+    });
+    await window.mouse.move(textRect.left + 2, (textRect.top + textRect.bottom) / 2);
+    await window.mouse.down();
+    await window.mouse.move(textRect.right - 2, (textRect.top + textRect.bottom) / 2, { steps: 12 });
+    await window.mouse.up();
+    await expect
+      .poll(() => window.evaluate(() => window.getSelection()?.toString() ?? ""))
+      .toContain("Selectable transcript text");
+
+    await harness.electronApp.evaluate(({ clipboard }) => clipboard.clear());
+    await window.keyboard.press("Meta+c");
+    await expect
+      .poll(() => harness.electronApp.evaluate(({ clipboard }) => clipboard.readText()))
+      .toContain("Selectable transcript text");
+  } finally {
+    await harness.close();
+  }
+});
+
+test("keeps virtualized transcript rows aligned with the composer column", async () => {
+  const userDataDir = await makeUserDataDir();
+  const workspacePath = await makeWorkspace("timeline-composer-alignment-workspace");
+  const harness = await launchDesktop(userDataDir, {
+    initialWorkspaces: [workspacePath],
+    testMode: "background",
+  });
+
+  try {
+    const window = await harness.firstWindow();
+    await waitForWorkspaceByPath(window, workspacePath);
+    await createSessionViaIpc(window, workspacePath, "Virtual transcript alignment");
+    await seedTranscriptMessages(harness, window, {
+      count: 100,
+      textFactory: (index) => `Virtualized transcript row ${index}`,
+    });
+
+    await expect(window.locator(".timeline__virtual-row").first()).toBeVisible();
+    await expect.poll(async () => window.evaluate(() => {
+      const row = document.querySelector<HTMLElement>(".timeline__virtual-row");
+      const composer = document.querySelector<HTMLElement>(".conversation--composer");
+      if (!row || !composer) return null;
+      const rowRect = row.getBoundingClientRect();
+      const composerRect = composer.getBoundingClientRect();
+      return {
+        left: Math.round(rowRect.left - composerRect.left),
+        right: Math.round(rowRect.right - composerRect.right),
+      };
+    })).toEqual({ left: 0, right: 0 });
+  } finally {
+    await harness.close();
+  }
+});
+
 test("keeps assistant markdown from widening the chat surface", async () => {
   const userDataDir = await makeUserDataDir();
   const workspacePath = await makeWorkspace("timeline-layout-overflow-workspace");

@@ -8,9 +8,12 @@ import { ActiveSecondarySurface } from "../secondary-surfaces/secondary-surfaces
 import type { useAgents } from "../agents/use-agents";
 import type { useRuntimeSelections } from "../models/use-runtime-selections";
 import type { useSettingsActions } from "../settings/use-settings-actions";
+import type { useProjectActions } from "../project-actions/use-project-actions";
+import type { usePromptShelf } from "../prompt-shelf/use-prompt-shelf";
 import { createSecondarySurfaceProps, isSecondarySurfaceActive } from "./secondary-surface-props";
 
 interface AppSecondarySurfaceProps {
+  readonly api: NonNullable<typeof window.piApp>;
   readonly activeView: AppView;
   readonly agents: ReturnType<typeof useAgents>;
   readonly commandPalette: ReactNode;
@@ -35,6 +38,8 @@ interface AppSecondarySurfaceProps {
   readonly selectedWorkspace: WorkspaceRecord | undefined;
   readonly settingsActions: ReturnType<typeof useSettingsActions>;
   readonly settingsSection: SettingsSection;
+  readonly projectActions: ReturnType<typeof useProjectActions>;
+  readonly promptShelf: ReturnType<typeof usePromptShelf>;
   readonly settingsReturnView: AppView;
   readonly settingsWorkspace: WorkspaceRecord | undefined;
   readonly skillsUsageByPath: SkillUsageByPath;
@@ -43,6 +48,7 @@ interface AppSecondarySurfaceProps {
 }
 
 export function AppSecondarySurface({
+  api,
   activeView,
   agents,
   commandPalette,
@@ -67,6 +73,8 @@ export function AppSecondarySurface({
   selectedWorkspace,
   settingsActions,
   settingsSection,
+  projectActions,
+  promptShelf,
   settingsReturnView,
   settingsWorkspace,
   skillsUsageByPath,
@@ -171,6 +179,45 @@ export function AppSecondarySurface({
           onRefresh: onRefreshExtensionsRuntime,
           onOpenExtensionFolder: settingsActions.handleOpenExtensionFolder,
           onToggleExtension: settingsActions.handleToggleExtension,
+        },
+        pullRequests: {
+          api,
+          workspace: selectedWorkspace,
+          session: selectedSession,
+          workspaceOptions: rootWorkspaceOptions,
+          onBack: () => onSetActiveView("threads"),
+          onSelectWorkspace: (workspaceId: string) => {
+            void api.selectWorkspace(workspaceId);
+          },
+          onSubmitPrompt: onSubmitReviewPrompt,
+        },
+        usage: {
+          api,
+          workspaces: snapshot.workspaces,
+          selectedWorkspace,
+          selectedSession,
+          onBack: () => onSetActiveView("threads"),
+        },
+        projectActions: {
+          api,
+          workspaceOptions: rootWorkspaceOptions,
+          initialWorkspaceId: selectedWorkspace?.id,
+          onBack: () => onSetActiveView("threads"),
+          onActionsChanged: projectActions.replaceWorkspaceActions,
+          onRun: projectActions.runProjectAction,
+        },
+        promptShelf: {
+          entries: promptShelf.entries,
+          error: promptShelf.error,
+          notice: promptShelf.notice,
+          snapshot,
+          selectedTarget: selectedWorkspace && selectedSession ? { workspaceId: selectedWorkspace.id, sessionId: selectedSession.id } : undefined,
+          onBack: () => onSetActiveView("threads"),
+          onDelete: promptShelf.remove,
+          onPreviewRestore: promptShelf.previewRestore,
+          onRename: promptShelf.rename,
+          onReorder: promptShelf.reorder,
+          onRestore: promptShelf.restorePrompt,
         },
       })}
     />

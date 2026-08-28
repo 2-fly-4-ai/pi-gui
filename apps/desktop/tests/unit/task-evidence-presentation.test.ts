@@ -3,7 +3,10 @@ import {
   TASK_EVIDENCE_SCHEMA_VERSION,
   type TaskEvidenceRecord,
 } from "../../src/product-experience/task-evidence";
-import { deriveTaskEvidencePresentation } from "../../src/features/evidence/task-evidence-presentation";
+import {
+  deriveTaskEvidencePresentation,
+  deriveTaskRecoveryPresentation,
+} from "../../src/features/evidence/task-evidence-presentation";
 
 function evidence(id: string, overrides: Partial<TaskEvidenceRecord>): TaskEvidenceRecord {
   return {
@@ -46,6 +49,31 @@ describe("deriveTaskEvidencePresentation", () => {
 
     expect(presentation.activity).toMatchObject({ label: "Working" });
     expect(presentation.confidence.passedScopes).toEqual(["package"]);
+  });
+
+  it("prefers concrete active tool work over generic run activity", () => {
+    const presentation = deriveTaskEvidencePresentation([
+      evidence("generic", {
+        timestamp: "2026-07-24T12:00:03.000Z",
+        kind: "activity",
+        status: "running",
+        activity: { type: "working" },
+      }),
+      evidence("test", {
+        timestamp: "2026-07-24T12:00:02.000Z",
+        kind: "test",
+        source: "tool",
+        authority: "tool-observed",
+        status: "running",
+        correlation: { toolCallId: "tool-1" },
+        activity: { type: "running-tests" },
+      }),
+    ], "running");
+
+    expect(presentation.activity).toMatchObject({
+      label: "Running tests",
+      toolCallId: "tool-1",
+    });
   });
 
   it("summarizes observed completion, health, changes, children, and failed verification", () => {
@@ -99,6 +127,60 @@ describe("deriveTaskEvidencePresentation", () => {
       label,
       tone,
       toolCallId: "tool-1",
+    });
+  });
+});
+
+describe("deriveTaskRecoveryPresentation", () => {
+  it("does not treat normal completed history as recoverable", () => {
+    expect(deriveTaskRecoveryPresentation([
+      evidence("completed", {
+        timestamp: "2026-07-24T12:00:03.000Z",
+        kind: "completion",
+        status: "passed",
+        completion: { outcome: "completed" },
+      }),
+      evidence("old-error", {
+        timestamp: "2026-07-24T12:00:01.000Z",
+        kind: "error",
+        status: "failed",
+      }),
+    ])).toBeUndefined();
+  });
+
+  it("builds compact recovery from the latest incomplete run and only its paths", () => {
+    expect(deriveTaskRecoveryPresentation([
+      evidence("partial", {
+        kind: "completion",
+        status: "failed",
+        completion: { outcome: "partial", changedPaths: ["src/current.ts"] },
+      }),
+      evidence("older-write", {
+        kind: "file-write",
+        status: "passed",
+        fileChange: {
+          path: "src/unrelated-old.ts",
+          operation: "modify",
+          ownership: "pi",
+        },
+      }),
+    ])).toMatchObject({
+      evidenceId: "partial",
+      outcome: "partial",
+      title: "Run partially completed",
+      actionLabel: "Draft continuation",
+      changedPaths: ["src/current.ts"],
+    });
+  });
+
+  it("falls back to a failed error only when no terminal completion exists", () => {
+    expect(deriveTaskRecoveryPresentation([
+      evidence("error", { kind: "error", status: "failed" }),
+    ])).toMatchObject({
+      evidenceId: "error",
+      outcome: "failed",
+      actionLabel: "Draft recovery",
+      changedPaths: [],
     });
   });
 });

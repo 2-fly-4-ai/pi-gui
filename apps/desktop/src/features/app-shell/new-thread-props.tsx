@@ -22,6 +22,7 @@ interface CreateNewThreadSurfacePropsOptions {
   readonly handleNewThreadComposerKeyDown: React.KeyboardEventHandler<HTMLTextAreaElement>;
   readonly handleNewThreadComposerPaste: React.ClipboardEventHandler<HTMLDivElement>;
   readonly handleNewThreadRemoveAttachment: (attachmentId: string) => void;
+  readonly onStashPrompt: () => void;
   readonly handleSelectNewThreadWorkspace: (workspaceId: string) => void;
   readonly handleSetActiveSkillProfile: (workspaceId: string | undefined, profileId: string) => void;
   readonly handleSetFastMode: (mode: "auto" | "on" | "off") => void;
@@ -35,6 +36,7 @@ interface CreateNewThreadSurfacePropsOptions {
   readonly diagnosticReporting: DiagnosticReportingPreferences;
   readonly newThreadPrompt: string;
   readonly newThreadRootWorkspaceId: string;
+  readonly newThreadStarting: boolean;
   readonly newThreadRuntime: RuntimeSnapshot | undefined;
   readonly newThreadSlashMenu: SlashMenuState;
   readonly newThreadWorkspace: WorkspaceRecord | undefined;
@@ -65,6 +67,7 @@ export function createNewThreadSurfaceProps({
   handleNewThreadComposerKeyDown,
   handleNewThreadComposerPaste,
   handleNewThreadRemoveAttachment,
+  onStashPrompt,
   handleSelectNewThreadWorkspace,
   handleSetActiveSkillProfile,
   handleSetFastMode,
@@ -78,6 +81,7 @@ export function createNewThreadSurfaceProps({
   diagnosticReporting,
   newThreadPrompt,
   newThreadRootWorkspaceId,
+  newThreadStarting,
   newThreadRuntime,
   newThreadSlashMenu,
   newThreadWorkspace,
@@ -107,6 +111,7 @@ export function createNewThreadSurfaceProps({
       prompt: newThreadPrompt,
       attachments: newThreadAttachments,
       lastError: newThreadComposerError,
+      submitting: newThreadStarting,
       provider: resolvedNewThreadProvider,
       modelId: resolvedNewThreadModelId,
       thinkingLevel: resolvedNewThreadThinkingLevel,
@@ -152,6 +157,7 @@ export function createNewThreadSurfaceProps({
       onSelectMention: newThreadMentionMenu.insertMention,
       onAddAttachments: handleNewThreadAddAttachments,
       onRemoveAttachment: handleNewThreadRemoveAttachment,
+      onStashPrompt,
       onSubmit: startThread,
       checkoutSelector: createCheckoutSelector(newThreadWorkspace, "new-thread"),
     },

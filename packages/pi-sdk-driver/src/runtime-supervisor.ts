@@ -3,6 +3,7 @@ import { basename, dirname, join, relative, resolve } from "node:path";
 import {
   DefaultPackageManager,
   DefaultResourceLoader,
+  type ModelRuntime,
   type PackageSource,
   SettingsManager,
   parseFrontmatter,
@@ -25,11 +26,18 @@ import type {
   RuntimeSnapshot,
 } from "@pi-gui/session-driver/runtime-types";
 import type { WorkspaceRef } from "@pi-gui/session-driver";
-import { createRuntimeDependencies } from "./runtime-deps.js";
+import {
+  createRuntimeDependencies,
+  type RuntimeDependencies,
+  type RuntimeDependencyOptions,
+} from "./runtime-deps.js";
 import { createSettingsManagerWithoutNpmPackages, isGlobalNpmLookupError } from "./npm-package-fallback.js";
 import { skillSlashCommand } from "./runtime-command-utils.js";
 import { SkillCatalogStore, type SkillInvocationMode } from "./skill-catalog.js";
-import type { AuthStatus, AuthStorage, ModelRegistry, Skill } from "@earendil-works/pi-coding-agent";
+import type { Skill } from "@earendil-works/pi-coding-agent";
+
+type AuthStatus = ReturnType<ModelRuntime["getProviderAuthStatus"]>;
+type ModelRuntimeAuthInteraction = Parameters<ModelRuntime["login"]>[2];
 
 interface ModelSettingsSnapshot {
   readonly defaultProvider?: string;
@@ -50,10 +58,8 @@ interface ProjectWritableSettingsManager {
   saveProjectSettings(settings: Record<string, unknown>): void;
 }
 
-export interface RuntimeSupervisorOptions {
-  readonly agentDir?: string;
-  readonly authStorage?: AuthStorage;
-  readonly modelRegistry?: ModelRegistry;
+export interface RuntimeSupervisorOptions extends RuntimeDependencyOptions {
+  readonly runtimeDependencies?: RuntimeDependencies;
   readonly skillCatalogFilePath?: string;
 }
 
@@ -62,16 +68,16 @@ type ToggleableResourceKind = "extension" | "skill";
 
 export class RuntimeSupervisor implements RuntimeResourceDriver {
   private readonly agentDir: string;
-  private readonly authStorage: AuthStorage;
-  private readonly modelRegistry: ModelRegistry;
+  private readonly getModelRuntime: () => Promise<ModelRuntime>;
+  private readonly reloadModelRuntime: () => Promise<ModelRuntime>;
   private readonly skillCatalog: SkillCatalogStore;
   private readonly contexts = new Map<string, RuntimeContext>();
 
   constructor(options: RuntimeSupervisorOptions = {}) {
-    const deps = createRuntimeDependencies(options);
+    const deps = options.runtimeDependencies ?? createRuntimeDependencies(options);
     this.agentDir = deps.agentDir;
-    this.authStorage = deps.authStorage;
-    this.modelRegistry = deps.modelRegistry;
+    this.getModelRuntime = deps.getModelRuntime;
+    this.reloadModelRuntime = deps.reloadModelRuntime;
     this.skillCatalog = new SkillCatalogStore(options.skillCatalogFilePath);
   }
 
@@ -80,11 +86,18 @@ export class RuntimeSupervisor implements RuntimeResourceDriver {
     return this.buildSnapshot(context);
   }
 
+  releaseRuntime(workspaceId: string): void {
+    this.contexts.delete(workspaceId);
+  }
+
+  getResidentContextCount(): number {
+    return this.contexts.size;
+  }
+
   async refreshRuntime(workspace: WorkspaceRef): Promise<RuntimeSnapshot> {
     const context = await this.ensureContext(workspace);
     await context.settingsManager.reload();
-    this.authStorage.reload();
-    await this.modelRegistry.refresh();
+    await this.reloadModelRuntime();
     await this.skillCatalog.reload();
     await context.resourceLoader.reload();
     await this.autoEnableModelsForAuthenticatedProviders(context);
@@ -93,8 +106,8 @@ export class RuntimeSupervisor implements RuntimeResourceDriver {
 
   async login(workspace: WorkspaceRef, providerId: string, callbacks: RuntimeLoginCallbacks): Promise<RuntimeSnapshot> {
     const context = await this.ensureContext(workspace);
-    await this.authStorage.login(providerId, callbacks);
-    await this.modelRegistry.refresh();
+    const modelRuntime = await this.getModelRuntime();
+    await modelRuntime.login(providerId, "oauth", toAuthInteraction(callbacks));
     await context.resourceLoader.reload();
     await this.autoEnableModelsForAuthenticatedProviders(context, [providerId]);
     return this.buildSnapshot(context);
@@ -102,8 +115,7 @@ export class RuntimeSupervisor implements RuntimeResourceDriver {
 
   async logout(workspace: WorkspaceRef, providerId: string): Promise<RuntimeSnapshot> {
     const context = await this.ensureContext(workspace);
-    this.authStorage.logout(providerId);
-    await this.modelRegistry.refresh();
+    await (await this.getModelRuntime()).logout(providerId);
     await context.resourceLoader.reload();
     return this.buildSnapshot(context);
   }
@@ -114,11 +126,14 @@ export class RuntimeSupervisor implements RuntimeResourceDriver {
     if (!normalized) {
       throw new Error("API key is required.");
     }
-    if (!providerSupportsDesktopApiKeySetup(providerId)) {
+    const modelRuntime = await this.getModelRuntime();
+    if (!providerSupportsDesktopApiKeySetup(modelRuntime.getProvider(providerId))) {
       throw new Error(`API key setup is not supported for ${providerId}.`);
     }
-    this.authStorage.set(providerId, { type: "api_key", key: normalized });
-    await this.modelRegistry.refresh();
+    await modelRuntime.login(providerId, "api_key", {
+      prompt: async () => normalized,
+      notify: () => {},
+    });
     await context.resourceLoader.reload();
     await this.autoEnableModelsForAuthenticatedProviders(context, [providerId]);
     return this.buildSnapshot(context);
@@ -459,42 +474,48 @@ export class RuntimeSupervisor implements RuntimeResourceDriver {
   }
 
   private async buildProviderRecords(): Promise<readonly RuntimeProviderRecord[]> {
-    const oauthProviders = new Map(this.authStorage.getOAuthProviders().map((provider) => [provider.id, provider]));
+    const modelRuntime = await this.getModelRuntime();
+    const providers = new Map(modelRuntime.getProviders().map((provider) => [provider.id, provider]));
+    const credentials = new Map(
+      (await modelRuntime.listCredentials()).map((credential) => [credential.providerId, credential]),
+    );
     const providerIds = new Set<string>([
-      ...this.modelRegistry.getAll().map((model) => model.provider),
-      ...oauthProviders.keys(),
-      ...this.authStorage.list(),
+      ...providers.keys(),
+      ...credentials.keys(),
     ]);
 
-    return [...providerIds]
-      .sort((left, right) => left.localeCompare(right))
-      .map((providerId) => {
-        const auth = this.authStorage.get(providerId);
-        const oauthProvider = oauthProviders.get(providerId);
-        const apiKeySetupSupported = providerSupportsDesktopApiKeySetup(providerId);
-        const providerAuthStatus = this.modelRegistry.getProviderAuthStatus(providerId);
-        const hasAuth = providerAuthStatus.configured || this.authStorage.hasAuth(providerId);
-        return {
-          id: providerId,
-          name: oauthProvider?.name ?? providerId,
-          hasAuth,
-          authType: auth?.type ?? "none",
-          authSource: inferProviderAuthSource(auth, providerAuthStatus, apiKeySetupSupported),
-          oauthSupported: Boolean(oauthProvider),
-          apiKeySetupSupported,
-        };
-      });
+    return Promise.all(
+      [...providerIds]
+        .sort((left, right) => left.localeCompare(right))
+        .map(async (providerId) => {
+          const credential = credentials.get(providerId);
+          const provider = providers.get(providerId);
+          const authCheck = await modelRuntime.checkAuth(providerId);
+          const apiKeySetupSupported = providerSupportsDesktopApiKeySetup(provider);
+          const providerAuthStatus = modelRuntime.getProviderAuthStatus(providerId);
+          return {
+            id: providerId,
+            name: provider?.name ?? providerId,
+            hasAuth: providerAuthStatus.configured,
+            authType: credential?.type ?? authCheck?.type ?? "none",
+            authSource: inferProviderAuthSource(credential, providerAuthStatus, apiKeySetupSupported),
+            oauthSupported: Boolean(provider?.auth.oauth),
+            apiKeySetupSupported,
+          };
+        }),
+    );
   }
 
   private async buildModelRecords(): Promise<readonly RuntimeModelRecord[]> {
-    await this.modelRegistry.refresh();
+    const modelRuntime = await this.getModelRuntime();
+    await modelRuntime.refresh();
     const availableKeys = new Set(
-      (await this.modelRegistry.getAvailable()).map((model) => `${model.provider}:${model.id}`),
+      (await modelRuntime.getAvailable()).map((model) => `${model.provider}:${model.id}`),
     );
     const providers = new Map((await this.buildProviderRecords()).map((provider) => [provider.id, provider]));
 
-    return this.modelRegistry
-      .getAll()
+    return modelRuntime
+      .getModels()
       .map<RuntimeModelRecord>((model) => {
         const provider = providers.get(model.provider);
         return {
@@ -949,27 +970,54 @@ async function readPackageDisplayName(packageRoot: string): Promise<string | und
   return folderName || undefined;
 }
 
-const DESKTOP_API_KEY_PROVIDER_IDS = new Set([
-  "azure-openai-responses",
-  "cerebras",
-  "google",
-  "groq",
-  "huggingface",
-  "kimi-coding",
-  "minimax",
-  "minimax-cn",
-  "mistral",
-  "openai",
-  "opencode",
-  "opencode-go",
-  "openrouter",
-  "vercel-ai-gateway",
-  "xai",
-  "zai",
-]);
+function toAuthInteraction(callbacks: RuntimeLoginCallbacks): ModelRuntimeAuthInteraction {
+  return {
+    ...(callbacks.signal ? { signal: callbacks.signal } : {}),
+    async prompt(prompt) {
+      if (prompt.type === "manual_code" && callbacks.onManualCodeInput) {
+        return callbacks.onManualCodeInput();
+      }
+      const options = prompt.type === "select"
+        ? `\n${prompt.options.map((option) => `${option.id}: ${option.label}`).join("\n")}`
+        : "";
+      return callbacks.onPrompt({
+        message: `${prompt.message}${options}`,
+        ...("placeholder" in prompt && prompt.placeholder ? { placeholder: prompt.placeholder } : {}),
+      });
+    },
+    notify(event) {
+      if (event.type === "auth_url") {
+        notifyWithoutBlocking(() => callbacks.onAuth({
+          url: event.url,
+          ...(event.instructions ? { instructions: event.instructions } : {}),
+        }));
+        return;
+      }
+      if (event.type === "device_code") {
+        notifyWithoutBlocking(() => callbacks.onAuth({
+          url: event.verificationUri,
+          instructions: `Enter code ${event.userCode}`,
+        }));
+        notifyWithoutBlocking(() => callbacks.onProgress?.(`Enter code ${event.userCode}`));
+        return;
+      }
+      notifyWithoutBlocking(() => callbacks.onProgress?.(event.message));
+    },
+  };
+}
 
-function providerSupportsDesktopApiKeySetup(providerId: string): boolean {
-  return DESKTOP_API_KEY_PROVIDER_IDS.has(providerId);
+function notifyWithoutBlocking(callback: () => void | Promise<void> | undefined): void {
+  try {
+    void Promise.resolve(callback()).catch(() => {});
+  } catch {
+    // Authentication notifications are advisory; the login flow remains authoritative.
+  }
+}
+
+function providerSupportsDesktopApiKeySetup(
+  provider: ReturnType<ModelRuntime["getProvider"]>,
+): boolean {
+  return typeof provider?.auth.apiKey?.login === "function";
 }
 
 function inferProviderAuthSource(

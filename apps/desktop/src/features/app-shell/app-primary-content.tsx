@@ -62,6 +62,8 @@ interface AppPrimaryContentProps {
   readonly newThreadState: ReturnType<typeof useNewThreadState>;
   readonly newThreadWorkspace: WorkspaceRecord | undefined;
   readonly onOpenNewThread: (workspaceId?: string) => void;
+  readonly onStashNewThreadPrompt: () => void;
+  readonly onStashPrompt: () => void;
   readonly openSettings: (workspaceId?: string, section?: SettingsSection) => void;
   readonly openSkillProfiles: ReturnType<typeof useSettingsActions>["openSkillProfiles"];
   readonly openUrl: ThreadSurfaceProps["timelineProps"]["onOpenUrl"];
@@ -124,6 +126,8 @@ export function AppPrimaryContent({
   newThreadState,
   newThreadWorkspace,
   onOpenNewThread,
+  onStashNewThreadPrompt,
+  onStashPrompt,
   openSettings,
   openSkillProfiles,
   openUrl,
@@ -186,6 +190,7 @@ export function AppPrimaryContent({
         handleNewThreadComposerKeyDown,
         handleNewThreadComposerPaste,
         handleNewThreadRemoveAttachment,
+        onStashPrompt: onStashNewThreadPrompt,
         handleSelectNewThreadWorkspace: newThreadState.handleSelectNewThreadWorkspace,
         handleSetActiveSkillProfile: settingsActions.handleSetActiveSkillProfile,
         handleSetFastMode: sessionComposer.handleSetFastMode,
@@ -199,6 +204,7 @@ export function AppPrimaryContent({
         diagnosticReporting: snapshot.diagnosticReporting,
         newThreadPrompt: newThreadState.newThreadPrompt,
         newThreadRootWorkspaceId: newThreadState.newThreadRootWorkspaceId,
+        newThreadStarting: newThreadState.newThreadStarting,
         newThreadRuntime: runtimeSelections.newThreadRuntime,
         newThreadSlashMenu,
         newThreadWorkspace,
@@ -274,6 +280,7 @@ export function AppPrimaryContent({
         navigateTreeSelection,
         openSettings,
         onOpenLogs: panelLayout.toggleLogsPanel,
+        onStashPrompt,
         onOpenCommit: () => gitActions.openGitDialog("commit"),
         openSkillProfiles,
         openUrl,

@@ -134,5 +134,5 @@ export function useSettingsRouting({
 }
 
 function isSecondarySurfaceView(view: AppView): boolean {
-  return view === "settings" || view === "skills" || view === "extensions" || view === "review";
+  return view === "settings" || view === "skills" || view === "extensions" || view === "review" || view === "pull-requests" || view === "usage";
 }

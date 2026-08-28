@@ -98,8 +98,8 @@ test("supports keyboard shortcuts, slash menus, and topbar controls through the 
     expect(composerChrome.surfaceBoxShadow).not.toBe("none");
     expect(composerChrome.toolbarLabel).toBe("Message tools");
     expect(composerChrome.toolbarHeight).toBe(36);
-    expect(composerChrome.toolButtonCount).toBe(3);
-    expect(composerChrome.toolButtonHeights).toEqual([28, 28, 28]);
+    expect(composerChrome.toolButtonCount).toBe(4);
+    expect(composerChrome.toolButtonHeights).toEqual([28, 28, 28, 28]);
     expect(composerChrome.toolButtonCenterOffsets.every((offset) => Math.abs(offset) <= 0.5)).toBe(true);
     expect(Math.abs(composerChrome.sendCenterOffset)).toBeLessThanOrEqual(0.5);
 

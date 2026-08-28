@@ -1,4 +1,4 @@
-import { useEffect, type MutableRefObject, type RefObject } from "react";
+import { useEffect, useRef, type MutableRefObject, type RefObject } from "react";
 import type { TranscriptMessage } from "./desktop-state";
 import { reportRendererDiagnostic } from "./renderer-diagnostics";
 
@@ -97,6 +97,8 @@ function useLayoutShiftDiagnostics({ selectedSessionKey }: TimelineDiagnosticsOp
 }
 
 function useRowResizeDiagnostics({ timelinePaneRef, transcript, selectedSessionKey }: TimelineDiagnosticsOptions): void {
+  const transcriptRef = useRef(transcript);
+  transcriptRef.current = transcript;
   useEffect(() => {
     if (!diagnosticsEnabled("PI_APP_LAYOUT_MONITOR")) {
       return undefined;
@@ -129,7 +131,7 @@ function useRowResizeDiagnostics({ timelinePaneRef, transcript, selectedSessionK
         if (previousHeight === undefined || previousHeight <= 1 || Math.abs(nextHeight - previousHeight) < 2) {
           continue;
         }
-        const item = transcript.find((candidate) => candidate.id === rowId);
+        const item = transcriptRef.current.find((candidate) => candidate.id === rowId);
         emitTimelineDiagnostic("timeline-row-resize", {
           sessionKey: selectedSessionKey,
           rowId,
@@ -166,7 +168,7 @@ function useRowResizeDiagnostics({ timelinePaneRef, transcript, selectedSessionK
       mutationObserver.disconnect();
       resizeObserver.disconnect();
     };
-  }, [selectedSessionKey, timelinePaneRef, transcript]);
+  }, [selectedSessionKey, timelinePaneRef]);
 }
 
 function useScrollFrameDiagnostics({
@@ -176,6 +178,8 @@ function useScrollFrameDiagnostics({
   followingLatestRef,
   pinnedToBottomRef,
 }: TimelineDiagnosticsOptions): void {
+  const transcriptLengthRef = useRef(transcript.length);
+  transcriptLengthRef.current = transcript.length;
   useEffect(() => {
     if (!diagnosticsEnabled("PI_APP_LAYOUT_MONITOR")) {
       return undefined;
@@ -209,7 +213,7 @@ function useScrollFrameDiagnostics({
           followingLatest: followingLatestRef.current,
           pinnedToBottom: pinnedToBottomRef.current,
           visibleRows: visibleRowIds(pane),
-          transcriptLength: transcript.length,
+          transcriptLength: transcriptLengthRef.current,
         });
       }
 
@@ -223,7 +227,7 @@ function useScrollFrameDiagnostics({
     return () => {
       cancelled = true;
     };
-  }, [followingLatestRef, pinnedToBottomRef, selectedSessionKey, timelinePaneRef, transcript.length]);
+  }, [followingLatestRef, pinnedToBottomRef, selectedSessionKey, timelinePaneRef]);
 }
 
 function useComposerResizeDiagnostics({ composerRef, selectedSessionKey }: TimelineDiagnosticsOptions): void {
