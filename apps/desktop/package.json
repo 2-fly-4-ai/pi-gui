@@ -16,6 +16,7 @@
     "package": "pnpm run build && electron-builder --mac",
     "package:dir": "pnpm run build && electron-builder --mac --dir",
     "package:linux": "pnpm run build && electron-builder --linux AppImage",
+    "package:linux:ci": "pnpm run build && electron-builder --linux AppImage --publish never",
     "package:linux:dir": "pnpm run build && electron-builder --linux --dir",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.electron.json --noEmit",
     "verify:electron-runtime": "node scripts/assert-electron-runtime.mjs",
