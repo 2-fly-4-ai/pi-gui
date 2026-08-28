@@ -125,9 +125,13 @@ export function ConversationTimeline({
     [attentionMarkers],
   );
   const [activeMarkerIndex, setActiveMarkerIndex] = useState(0);
+  const [activeTargetRowId, setActiveTargetRowId] = useState<string>();
   useEffect(() => {
     setActiveMarkerIndex((current) => Math.min(current, Math.max(0, completionMarkers.length - 1)));
   }, [completionMarkers.length]);
+  useEffect(() => {
+    setActiveTargetRowId(undefined);
+  }, [timelineSessionKey]);
   const minimapSegments = useMemo(
     () => minimapEnabled ? buildTimelineMinimap(stableTranscript, displayRows, attentionMarkers) : [],
     [attentionMarkers, displayRows, minimapEnabled, stableTranscript],
@@ -297,6 +301,7 @@ export function ConversationTimeline({
     const rowIndex = displayRows.findIndex((row) => row.id === rowId);
     const pane = timelinePaneRef.current as TimelinePaneElement | null;
     if (!pane || rowIndex < 0) return;
+    setActiveTargetRowId(rowId);
     onTimelineNavigate();
     const approximateOffset = displayRows.length > 1
       ? rowIndex / (displayRows.length - 1) * Math.max(0, pane.scrollHeight - pane.clientHeight)
@@ -380,6 +385,7 @@ export function ConversationTimeline({
           onOpenUrl={onOpenUrl}
           onBranchFromMessage={onBranchFromMessage}
           markersByRow={markersByRow}
+          activeTargetRowId={activeTargetRowId}
         />
         {attentionNavigation}
         {timelineMinimap}
@@ -443,6 +449,7 @@ export function ConversationTimeline({
               onOpenUrl={onOpenUrl}
               onBranchFromMessage={onBranchFromMessage}
               markers={markersByRow.get(item.id)}
+              activeTarget={activeTargetRowId === item.id}
             />
           ))}
         </div>
@@ -531,6 +538,7 @@ function LegendTranscriptList({
   onOpenUrl,
   onBranchFromMessage,
   markersByRow,
+  activeTargetRowId,
 }: {
   readonly timelineSessionKey: string;
   readonly transcript: readonly TimelineDisplayRow[];
@@ -544,9 +552,13 @@ function LegendTranscriptList({
   readonly onOpenUrl?: (url: string) => void;
   readonly onBranchFromMessage?: (messageId: string, role: "user" | "assistant", text: string) => Promise<void>;
   readonly markersByRow: ReadonlyMap<string, readonly AttentionMarker[]>;
+  readonly activeTargetRowId?: string;
 }) {
   const legendListRef = useRef<LegendListRef | null>(null);
-  const extraData = useMemo(() => ({ expandedToolCallIds, markersByRow }), [expandedToolCallIds, markersByRow]);
+  const extraData = useMemo(
+    () => ({ activeTargetRowId, expandedToolCallIds, markersByRow }),
+    [activeTargetRowId, expandedToolCallIds, markersByRow],
+  );
 
   useLayoutEffect(() => {
     const node = legendListRef.current?.getScrollableNode?.();
@@ -565,7 +577,7 @@ function LegendTranscriptList({
 
   const renderItem = useCallback(({ item }: { item: TimelineDisplayRow }) => (
     <div
-      className={`timeline__legend-row timeline__virtual-row${markersByRow.has(item.id) ? " timeline-row--attention" : ""}`}
+      className={`timeline__legend-row timeline__virtual-row${markersByRow.has(item.id) ? " timeline-row--attention" : ""}${activeTargetRowId === item.id ? " timeline-attention-target" : ""}`}
       data-timeline-row-id={item.id}
       data-attention-types={markersByRow.get(item.id)?.map((marker) => marker.type).join(" ")}
       title={markersByRow.get(item.id)?.map((marker) => marker.label).join("\n")}
@@ -579,7 +591,7 @@ function LegendTranscriptList({
         onBranchFromMessage={onBranchFromMessage}
       />
     </div>
-  ), [expandedToolCallIds, markersByRow, onBranchFromMessage, onOpenUrl, onToggleToolCall, onViewFileInDiff]);
+  ), [activeTargetRowId, expandedToolCallIds, markersByRow, onBranchFromMessage, onOpenUrl, onToggleToolCall, onViewFileInDiff]);
 
   return (
     <LegendList<TimelineDisplayRow>
@@ -614,6 +626,7 @@ const MeasuredTimelineItem = memo(function MeasuredTimelineItem({
   onOpenUrl,
   onBranchFromMessage,
   markers,
+  activeTarget,
 }: {
   readonly item: TimelineDisplayRow;
   readonly onHeightChange: (id: string, height: number) => void;
@@ -623,6 +636,7 @@ const MeasuredTimelineItem = memo(function MeasuredTimelineItem({
   readonly onOpenUrl?: (url: string) => void;
   readonly onBranchFromMessage?: (messageId: string, role: "user" | "assistant", text: string) => Promise<void>;
   readonly markers?: readonly AttentionMarker[];
+  readonly activeTarget: boolean;
 }) {
   const rowRef = useRef<HTMLDivElement | null>(null);
 
@@ -649,7 +663,7 @@ const MeasuredTimelineItem = memo(function MeasuredTimelineItem({
 
   return (
     <div
-      className={markers?.length ? "timeline-row--attention" : undefined}
+      className={`${markers?.length ? "timeline-row--attention " : ""}${activeTarget ? "timeline-attention-target" : ""}`.trim() || undefined}
       data-timeline-row-id={item.id}
       data-attention-types={markers?.map((marker) => marker.type).join(" ")}
       title={markers?.map((marker) => marker.label).join("\n")}
@@ -676,6 +690,7 @@ function areMeasuredTimelineItemPropsEqual(
     onViewFileInDiff?: (path: string) => void;
     onOpenUrl?: (url: string) => void;
     markers?: readonly AttentionMarker[];
+    activeTarget: boolean;
   }>,
   next: Readonly<{
     item: TimelineDisplayRow;
@@ -685,6 +700,7 @@ function areMeasuredTimelineItemPropsEqual(
     onViewFileInDiff?: (path: string) => void;
     onOpenUrl?: (url: string) => void;
     markers?: readonly AttentionMarker[];
+    activeTarget: boolean;
   }>,
 ): boolean {
   if (
@@ -693,7 +709,8 @@ function areMeasuredTimelineItemPropsEqual(
     previous.onToggleToolCall !== next.onToggleToolCall ||
     previous.onViewFileInDiff !== next.onViewFileInDiff ||
     previous.onOpenUrl !== next.onOpenUrl ||
-    previous.markers !== next.markers
+    previous.markers !== next.markers ||
+    previous.activeTarget !== next.activeTarget
   ) {
     return false;
   }

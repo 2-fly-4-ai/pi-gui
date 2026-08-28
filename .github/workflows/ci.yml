@@ -103,7 +103,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Desktop Core
-        run: pnpm --filter @pi-gui/desktop run test:e2e:ci:mac -- --shard=${{ matrix.shard }}/5
+        run: pnpm --filter @pi-gui/desktop run test:e2e:ci:mac -- ${{ matrix.shard }}
 
   desktop-package-linux:
     needs: [lint, typecheck, unit]
