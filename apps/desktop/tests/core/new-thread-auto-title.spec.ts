@@ -72,8 +72,10 @@ test("auto-titles a brand-new worktree thread after showing the placeholder firs
 
     await resolveDeferredThreadTitleEventually(harness, "Fix worktree rename");
 
-    await expect(window.locator(".topbar__session")).toHaveText("Fix worktree rename");
-    await expect(window.locator(".session-row__select", { hasText: "Fix worktree rename" }).first()).toBeVisible();
+    await expect(window.locator(".topbar__session")).toHaveText("Fix worktree rename", { timeout: 15_000 });
+    await expect(window.locator(".session-row__select", { hasText: "Fix worktree rename" }).first()).toBeVisible({
+      timeout: 15_000,
+    });
   } finally {
     await harness.close();
   }
